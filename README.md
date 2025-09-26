@@ -16,7 +16,7 @@ This hook is a drop-in replacement for the `check-json` hook from the [official 
 In `.pre-commit-config.yaml` under the `repos:` section, add the following:
 
 ```yaml
-- repo: https://github.com/simon-van-lierde/check-json5
+- repo: https://github.com/simonvanlierde/check-json5
   rev: v1.1.0
   hooks:
   - id: check-json5
