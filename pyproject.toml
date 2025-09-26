@@ -1,23 +1,117 @@
-[tool.poetry]
-name = "check-json5"
-version = "1.0.0"
-description = "pre-commit hook to check json files for syntax parseable as json5 (with comments)"
-authors = ["Ben Mares <services-check-json5@tensorial.com>"]
-license = "MIT"
-packages = [
-    { include = "pre_commit_hooks", from = "pypackages" }
-]
+[project]
+  authors         = [{ "name" = "Simon van Lierde", "email" = "30519500-simonvanlierde@users.noreply.gitlab.com" }]
+  dependencies    = ["json5>=0.12.1"]
+  description     = "pre-commit hook to check json files for syntax parseable as json5 (with comments)"
+  license         = "MIT"
+  name            = "check-json5"
+  readme          = "README.md"
+  requires-python = ">=3.10"
+  version         = "1.1.0"
 
-[tool.poetry.dependencies]
-python = "^3.6.1"
-json5 = "^0.9.6"
+  [project.scripts]
+    check-json5 = "pre_commit_hooks.check_json5:main"
 
-[tool.poetry.dev-dependencies]
-pre-commit = "^2.15.0"
+[dependency-groups]
+  dev = ["pre-commit>=4.3.0"]
 
-[tool.poetry.scripts]
-check-json5 = "pre_commit_hooks.check_json5:main"
+[tool.ruff]
+  fix            = true
+  line-length    = 120
+  target-version = "py313"
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+  [tool.ruff.format]
+    docstring-code-format = true
+
+  [tool.ruff.lint]
+    extend-select = [
+      "A",      # flake8-builtins (checks for conflicts with Python builtins)
+      "ANN",    # flake8-annotations (checks for missing type annotations)
+      "ARG",    # flake8-unused-arguments
+      "B",      # flake8-bugbear (fixes typical bugs)
+      "BLE",    # flake8-blind-except
+      "C4",     # flake8-comprehensions (fixes iterable comprehensions)
+      "C90",    # mccabe
+      "D",      # pydocstyle
+      "E",      # pycodestyle errors
+      "EM",     # flake8-errmsgs (checks for error messages)
+      "FBT",    # flake8-boolean-trap
+      "FIX",    # flake8-fixme
+      "FLY",    # flynt (replaces `str.join` calls with f-strings)
+      "FURB",   # refurb (refurbishes code)
+      "G",      # flake8-logging-format
+      "I",      # isort
+      "ICN",    # flake8-import-conventions
+      "INP",    # flake8-no-pep420 (checks for implicit namespace packages)
+      "ISC",    # flake8-implicit-str-concat (fixes implicit string concatenation)
+      "N",      # pep8-naming (checks for naming conventions)
+      "PERF",   # Perflint (checks for performance issues)
+      "PGH",    # pygrep-hooks (checks for common Python issues)
+      "PIE",    # flake8-pie (checks for miscellaneous issues)
+      "PL",     # Pylint (checks for pylint errors)
+      "PTH",    # flake8-use-pathlib (ensures pathlib is used instead of os.path)
+      "Q004",   # flake8-quotes: unnecessary-escaped-quote (other 'Q' rules can conflict with formatter)
+      "RET",    # flake8-return (checks return values)
+      "RUF",    # Ruff-specific rules
+      "S",      # flake8-bandit (security)
+      "SIM",    # flake8-simplify
+      "TCH",    # flake8-type-checking
+      "TID252", # flake8-tidy-imports: relative-imports (replaces relative imports with absolute imports)
+      "TRY",    # tryceratops (checks for common issues with try-except blocks)
+      "UP",     # pyupgrade (upgrades Python syntax)
+      "W",      # pycodestyle warnings
+    ]
+
+    fixable = [
+      "B",      # flake8-bugbear (fixes typical bugs)
+      "C4",     # flake8-comprehensions (fixes iterable comprehensions)
+      "D",      # pydocstyle
+      "E",      # pycodestyle errors
+      "EM",     # flake8-errmsgs (checks for error messages)
+      "FLY",    # flynt (replaces `str.join` calls with f-strings)
+      "FURB",   # refurb (refurbishes code)
+      "G",      # flake8-logging-format
+      "I",      # isort
+      "ICN",    # flake8-import-conventions
+      "ISC",    # flake8-implicit-str-concat (fixes implicit string concatenation)
+      "N",      # pep8-naming (checks for naming conventions)
+      "PERF",   # Perflint (checks for performance issues)
+      "PGH",    # pygrep-hooks (checks for common Python issues)
+      "PIE",    # flake8-pie (checks for miscellaneous issues)
+      "PL",     # Pylint (checks for pylint errors)
+      "PTH",    # lake8-use-pathlib (ensures pathlib is used instead of os.path)
+      "Q004",   # flake8-quotes: unnecessary-escaped-quote (other 'Q' rules can conflict with formatter)
+      "RET",    # flake8-return (checks return values)
+      "RUF",    # Ruff-specific rules
+      "S",      # flake8-bandit (security)
+      "SIM",    # flake8-simplify
+      "TCH",    # flake8-type-checking
+      "TID252", # flake8-tidy-imports: relative-imports (replaces relative imports with absolute imports)
+      "TRY",    # tryceratops (checks for common issues with try-except blocks)
+      "UP",     # pyupgrade (upgrades Python syntax)
+      "W",      # pycodestyle warnings
+    ]
+
+    # These rules are ignored to prevent conflicts with formatter or because they are overly strict
+    ignore = [
+      "ANN204", # missing-return-type-special-method
+      "ANN401", # any-type
+      "D102",   # undocumented-public-method
+      "D104",   # undocumented-public-package
+      "D105",   # undocumented-magic-method
+      "D107",   # undocumented-public-init
+      "D206",   # indent-with-spaces
+      "D300",   # triple-single-quotes
+      "E111",   # indentation-with-invalid-multiple
+      "E114",   # indentation-with-invalid-multiple-comment
+      "E117",   # over-indented
+      "ISC001", # single-line-implicit-string-concatenation
+      "ISC002", # multi-line-implicit-string-concatenation
+      "RET504", # unnecessary-assign
+      "W191",   # tab-indentation
+    ]
+
+    [tool.ruff.lint.pydocstyle]
+      convention = "google"
+
+[tool.uv]
+  package = true
