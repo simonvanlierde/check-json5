@@ -17,7 +17,7 @@ In `.pre-commit-config.yaml` under the `repos:` section, add the following:
 
 ```yaml
 - repo: https://gitlab.com/simon-van-lierde/check-json5
-  rev: v0.1.0
+  rev: v1.1.0
   hooks:
   - id: check-json5
 ```

@@ -6,7 +6,7 @@
   name            = "check-json5"
   readme          = "README.md"
   requires-python = ">=3.10"
-  version         = "0.1.0"
+  version         = "1.1.0"
 
   [project.scripts]
     check-json5 = "pre_commit_hooks.check_json5:main"
