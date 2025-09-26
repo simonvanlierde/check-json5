@@ -1,28 +1,27 @@
-# Source: <https://github.com/pre-commit/pre-commit-hooks/blob/39ab2ed/pre_commit_hooks/check_json.py>  # noqa: E501
+# Source: <https://github.com/pre-commit/pre-commit-hooks/blob/a2cdab0afed18f1b2b073c3f7b68f109fd228d04/pre_commit_hooks/check_json.py>  # noqa: E501
+from __future__ import annotations
+
 import argparse
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Sequence
-from typing import Tuple
+from typing import TYPE_CHECKING, Any
 
 import json5
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 
 def raise_duplicate_keys(
-        ordered_pairs: List[Tuple[str, Any]],
-) -> Dict[str, Any]:
+    ordered_pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
     d = {}
     for key, val in ordered_pairs:
         if key in d:
             raise ValueError(f'Duplicate key: {key}')
-        else:
-            d[key] = val
+        d[key] = val
     return d
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('filenames', nargs='*', help='Filenames to check.')
     args = parser.parse_args(argv)
