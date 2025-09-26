@@ -2,8 +2,8 @@
 
 ## Links
 
-- [GitLab](https://gitlab.com/simon-van-lierde/check-json5)
-- [GitHub](https://github.com/simon-van-lierde/check-json5)
+- [GitHub (main)](https://github.com/simonvanlierde/check-json5)
+- [GitLab (mirror)](https://gitlab.com/simonvanlierde/check-json5)
 
 ## Introduction
 
@@ -16,7 +16,7 @@ This hook is a drop-in replacement for the `check-json` hook from the [official 
 In `.pre-commit-config.yaml` under the `repos:` section, add the following:
 
 ```yaml
-- repo: https://gitlab.com/simon-van-lierde/check-json5
+- repo: https://github.com/simon-van-lierde/check-json5
   rev: v1.1.0
   hooks:
   - id: check-json5
