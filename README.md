@@ -2,8 +2,8 @@
 
 ## Links
 
-- [GitLab](https://gitlab.com/bmares/check-json5)
-- [GitHub](https://github.com/maresb/check-json5)
+- [GitLab](https://gitlab.com/simon-van-lierde/check-json5)
+- [GitHub](https://github.com/simon-van-lierde/check-json5)
 
 ## Introduction
 
@@ -16,8 +16,8 @@ This hook is a drop-in replacement for the `check-json` hook from the [official 
 In `.pre-commit-config.yaml` under the `repos:` section, add the following:
 
 ```yaml
-- repo: https://gitlab.com/bmares/check-json5
-  rev: v1.0.0
+- repo: https://gitlab.com/simon-van-lierde/check-json5
+  rev: v0.1.0
   hooks:
   - id: check-json5
 ```
@@ -26,8 +26,12 @@ In `.pre-commit-config.yaml` under the `repos:` section, add the following:
 
 ## Credits
 
-The actual code this hook was written by [@asottile and various contributors to the official pre-commit-hooks repository](https://github.com/pre-commit/pre-commit-hooks/commits/master/pre_commit_hooks/check_json.py). The current author (Ben Mares) replaced the `json` library with `json5` and published it as a separate hook.
+This project was adapted by Simon van Lierde from the original [check-json5](https://gitlab.com/bmares/check-json5) by Ben Mares, which itself was based on [@asottile and various contributors to the official pre-commit-hooks repository](https://github.com/pre-commit/pre-commit-hooks/commits/master/pre_commit_hooks/check_json.py).
+
+I have updated this fork to use [uv](https://github.com/astral-sh/uv) for dependency management instead of Poetry.
 
 ## License
 
-This hook is published under the [MIT license](LICENSE). The original pre-commit-hooks collection (from which this hook is derived) is also published under the MIT license, [included here](LICENSE.pre-commit-hooks).
+This project is published under the [MIT license](LICENSE).
+
+It is based on [check-json5](https://gitlab.com/bmares/check-json5) by Ben Mares ([MIT license](https://gitlab.com/bmares/check-json5/-/blob/main/LICENSE)), which itself is adapted from the [pre-commit-hooks repository](https://github.com/pre-commit/pre-commit-hooks) by Anthony Sottile et al. ([MIT license](https://github.com/pre-commit/pre-commit-hooks/blob/main/LICENSE)).
