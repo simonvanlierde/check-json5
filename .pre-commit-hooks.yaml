@@ -3,4 +3,4 @@
   description: checks json files for syntax parsable as json5 (with comments).
   entry: check-json5
   language: python
-  files: \.(json|json5|jsonc)$
+  files: \.(json|jsonc|json5|geojson|jsonld)$
