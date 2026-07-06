@@ -6,13 +6,13 @@
   name            = "check-json5"
   readme          = "README.md"
   requires-python = ">=3.10"
-  version         = "1.1.0"
+  version         = "1.2.0"
 
   [project.scripts]
     check-json5 = "pre_commit_hooks.check_json5:main"
 
 [dependency-groups]
-  dev = ["pre-commit>=4.6.0"]
+  dev = ["pre-commit>=4.6.0", "pytest>=8", "pytest-cov>=5", "ruff>=0.15.20", "ty>=0.0.56"]
 
 [tool.ruff]
   fix            = true
@@ -23,82 +23,11 @@
     docstring-code-format = true
 
   [tool.ruff.lint]
-    extend-select = [
-      "A",      # flake8-builtins (checks for conflicts with Python builtins)
-      "ANN",    # flake8-annotations (checks for missing type annotations)
-      "ARG",    # flake8-unused-arguments
-      "B",      # flake8-bugbear (fixes typical bugs)
-      "BLE",    # flake8-blind-except
-      "C4",     # flake8-comprehensions (fixes iterable comprehensions)
-      "C90",    # mccabe
-      "D",      # pydocstyle
-      "E",      # pycodestyle errors
-      "EM",     # flake8-errmsgs (checks for error messages)
-      "FBT",    # flake8-boolean-trap
-      "FIX",    # flake8-fixme
-      "FLY",    # flynt (replaces `str.join` calls with f-strings)
-      "FURB",   # refurb (refurbishes code)
-      "G",      # flake8-logging-format
-      "I",      # isort
-      "ICN",    # flake8-import-conventions
-      "INP",    # flake8-no-pep420 (checks for implicit namespace packages)
-      "ISC",    # flake8-implicit-str-concat (fixes implicit string concatenation)
-      "N",      # pep8-naming (checks for naming conventions)
-      "PERF",   # Perflint (checks for performance issues)
-      "PGH",    # pygrep-hooks (checks for common Python issues)
-      "PIE",    # flake8-pie (checks for miscellaneous issues)
-      "PL",     # Pylint (checks for pylint errors)
-      "PTH",    # flake8-use-pathlib (ensures pathlib is used instead of os.path)
-      "Q004",   # flake8-quotes: unnecessary-escaped-quote (other 'Q' rules can conflict with formatter)
-      "RET",    # flake8-return (checks return values)
-      "RUF",    # Ruff-specific rules
-      "S",      # flake8-bandit (security)
-      "SIM",    # flake8-simplify
-      "TCH",    # flake8-type-checking
-      "TID252", # flake8-tidy-imports: relative-imports (replaces relative imports with absolute imports)
-      "TRY",    # tryceratops (checks for common issues with try-except blocks)
-      "UP",     # pyupgrade (upgrades Python syntax)
-      "W",      # pycodestyle warnings
-    ]
-
-    fixable = [
-      "B",      # flake8-bugbear (fixes typical bugs)
-      "C4",     # flake8-comprehensions (fixes iterable comprehensions)
-      "D",      # pydocstyle
-      "E",      # pycodestyle errors
-      "EM",     # flake8-errmsgs (checks for error messages)
-      "FLY",    # flynt (replaces `str.join` calls with f-strings)
-      "FURB",   # refurb (refurbishes code)
-      "G",      # flake8-logging-format
-      "I",      # isort
-      "ICN",    # flake8-import-conventions
-      "ISC",    # flake8-implicit-str-concat (fixes implicit string concatenation)
-      "N",      # pep8-naming (checks for naming conventions)
-      "PERF",   # Perflint (checks for performance issues)
-      "PGH",    # pygrep-hooks (checks for common Python issues)
-      "PIE",    # flake8-pie (checks for miscellaneous issues)
-      "PL",     # Pylint (checks for pylint errors)
-      "PTH",    # lake8-use-pathlib (ensures pathlib is used instead of os.path)
-      "Q004",   # flake8-quotes: unnecessary-escaped-quote (other 'Q' rules can conflict with formatter)
-      "RET",    # flake8-return (checks return values)
-      "RUF",    # Ruff-specific rules
-      "S",      # flake8-bandit (security)
-      "SIM",    # flake8-simplify
-      "TCH",    # flake8-type-checking
-      "TID252", # flake8-tidy-imports: relative-imports (replaces relative imports with absolute imports)
-      "TRY",    # tryceratops (checks for common issues with try-except blocks)
-      "UP",     # pyupgrade (upgrades Python syntax)
-      "W",      # pycodestyle warnings
-    ]
+    extend-select = ["ALL"]
+    fixable       = ["ALL"]
 
     # These rules are ignored to prevent conflicts with formatter or because they are overly strict
     ignore = [
-      "ANN204", # missing-return-type-special-method
-      "ANN401", # any-type
-      "D102",   # undocumented-public-method
-      "D104",   # undocumented-public-package
-      "D105",   # undocumented-magic-method
-      "D107",   # undocumented-public-init
       "D206",   # indent-with-spaces
       "D300",   # triple-single-quotes
       "E111",   # indentation-with-invalid-multiple
@@ -109,6 +38,11 @@
       "RET504", # unnecessary-assign
       "W191",   # tab-indentation
     ]
+
+    [tool.ruff.lint.per-file-ignores]
+      "tests/**" = ["S101", "D103"]
+      # CLI entry point: printing failures to stdout is the hook's job.
+      "pre_commit_hooks/check_json5.py" = ["T201"]
 
     [tool.ruff.lint.pydocstyle]
       convention = "google"
