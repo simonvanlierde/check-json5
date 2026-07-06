@@ -1,6 +1,6 @@
 [project]
   authors         = [{ "name" = "Simon van Lierde", "email" = "30519500-simonvanlierde@users.noreply.gitlab.com" }]
-  dependencies    = ["json5>=0.12.1"]
+  dependencies    = ["json5>=0.15.0"]
   description     = "pre-commit hook to check json files for syntax parseable as json5 (with comments)"
   license         = "MIT"
   name            = "check-json5"
