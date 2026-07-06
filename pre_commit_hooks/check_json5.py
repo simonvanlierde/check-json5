@@ -2,14 +2,11 @@
 
 import argparse
 import json
-import logging
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
 import json5
-
-logger = logging.getLogger(__name__)
 
 
 def raise_duplicate_keys(ordered_pairs: Iterable[tuple[str, Any]]) -> dict[str, Any]:
@@ -51,14 +48,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     for filename in args.filenames:
         path = Path(filename)
         if not path.is_file():
-            logger.error("%s: No such file", filename)
+            print(f"{filename}: No such file")
             retval = 1
             continue
         try:
             # utf-8-sig transparently strips a leading BOM if present.
             text = path.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError) as exc:
-            logger.error("%s: Failed to read (%s)", filename, exc)  # noqa: TRY400
+            print(f"{filename}: Failed to read ({exc})")
             retval = 1
             continue
         try:
@@ -69,7 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except json.JSONDecodeError:
                 json5.loads(text, object_pairs_hook=raise_duplicate_keys)
         except ValueError as exc:
-            logger.error("%s: Failed to json decode (%s)", filename, exc)  # noqa: TRY400
+            print(f"{filename}: Failed to json decode ({exc})")
             retval = 1
     return retval
 
