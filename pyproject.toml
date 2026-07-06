@@ -12,7 +12,7 @@
     check-json5 = "pre_commit_hooks.check_json5:main"
 
 [dependency-groups]
-  dev = ["pre-commit>=4.3.0"]
+  dev = ["pre-commit>=4.6.0"]
 
 [tool.ruff]
   fix            = true
