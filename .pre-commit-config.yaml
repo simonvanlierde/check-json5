@@ -1,9 +1,5 @@
+# Dependabot bumps these revs, so a hook run never edits this file.
 repos:
-    - repo: https://gitlab.com/vojko.pribudic.foss/pre-commit-update
-      rev: v0.8.0
-      hooks:
-          - id: pre-commit-update
-
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v6.0.0
       hooks:
@@ -16,7 +12,8 @@ repos:
             args: ["--markdown-linebreak-ext", "md"]
 
     - repo: https://github.com/astral-sh/ruff-pre-commit
-      rev: v0.13.2
+      # Same ruff as uv.lock, so the hook and `uv run ruff` agree.
+      rev: v0.15.20
       hooks:
           - id: ruff-check
           - id: ruff-format
