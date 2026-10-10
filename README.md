@@ -18,6 +18,7 @@ parser on ordinary JSON.
   pure-Python `json5` parser only when a file actually uses JSON5 features (~500× faster on large
   strict-JSON files; see [Performance](#performance)).
 - Duplicate-key detection on both paths.
+- Accepts `NaN` and `Infinity` (both parsers allow them), so strict-JSON consumers may still reject such files.
 - Drop-in replacement for `check-json`.
 
 ## Links
