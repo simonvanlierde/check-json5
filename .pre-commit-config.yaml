@@ -13,7 +13,7 @@ repos:
 
     - repo: https://github.com/astral-sh/ruff-pre-commit
       # Same ruff as uv.lock, so the hook and `uv run ruff` agree.
-      rev: v0.15.20
+      rev: v0.16.5
       hooks:
           - id: ruff-check
           - id: ruff-format
