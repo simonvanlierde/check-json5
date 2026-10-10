@@ -32,7 +32,7 @@ In `.pre-commit-config.yaml`, under `repos:`, add:
 
 ```yaml
 - repo: https://github.com/simonvanlierde/check-json5
-  rev: v1.2.0
+  rev: v1.2.1
   hooks:
     - id: check-json5
 ```
