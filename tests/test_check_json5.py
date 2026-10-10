@@ -1,5 +1,6 @@
 """Tests for the check-json5 pre-commit hook."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -35,12 +36,16 @@ def test_strict_json_fast_path_passes(tmp_path: Path) -> None:
     assert main([write(tmp_path, '{"a": 1, "b": 2}')]) == 0
 
 
-def test_strict_json_never_imports_json5(tmp_path: Path) -> None:
-    # A fresh interpreter: this one has json5 loaded by the tests above.
+def test_strict_json_run_skips_slow_imports(tmp_path: Path) -> None:
+    # A fresh interpreter: this one has them loaded already. Each costs a few ms per hook run.
     f = write(tmp_path, '{"a": 1}')
-    code = f"import sys; from pre_commit_hooks.check_json5 import main; main([{f!r}]); print('json5' in sys.modules)"
+    code = (
+        "import json, sys; before = set(sys.modules); from pre_commit_hooks.check_json5 import main; "
+        f"main([{f!r}]); print(json.dumps(sorted(set(sys.modules) - before)))"
+    )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout  # noqa: S603
-    assert out.strip() == "False"
+    loaded = set(json.loads(out))
+    assert not loaded & {"argparse", "json5", "pathlib", "typing"}, loaded
 
 
 def test_strict_json_duplicate_keys_fail(tmp_path: Path) -> None:
