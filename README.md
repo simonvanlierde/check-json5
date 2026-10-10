@@ -56,14 +56,19 @@ The pure-Python `json5` parser is slow on large files. Since most `.json` files 
 hook tries the C-speed stdlib `json` parser first and only falls back to `json5` when a file uses
 comments or trailing commas. Duplicate-key detection works on both paths.
 
-Parse time per file (strict JSON, taking the fast path):
+Time for one hook call per file (strict JSON, taking the fast path), best of three runs of
+`uv run python scripts/bench.py` on 2026-10-10 (Intel i9-14900KF, Linux, Python 3.13.7, json5 0.15.0,
+shared host under load):
 
-| File size    | Before (`json5` only) | After (fast path) | Speedup |
-| ------------ | --------------------- | ----------------- | ------- |
-| ~1 KB config | 7 ms                  | <0.1 ms           | ~600×   |
-| ~50 KB       | 235 ms                | 0.4 ms            | ~645×   |
-| ~500 KB      | 2.4 s                 | 4 ms              | ~575×   |
-| ~2 MB        | 10.4 s                | 21 ms             | ~500×   |
+| File size | Before (`json5` only) | After (fast path) | Speedup |
+| --------- | --------------------- | ----------------- | ------- |
+| 1 KB      | 2.9 ms                | 0.08 ms           | ~35×    |
+| 47 KB     | 137 ms                | 0.28 ms           | ~490×   |
+| 483 KB    | 1.4 s                 | 2.1 ms            | ~660×   |
+| 2 MB      | 5.7 s                 | 9.3 ms            | ~615×   |
+
+The script generates its fixture files in a temporary directory, so nothing large is committed.
+Timings vary between runs by up to 2× on a loaded machine; the order of magnitude holds.
 
 Files that use JSON5 syntax still go through the `json5` parser and are unchanged. For tiny config
 files the absolute saving is negligible next to Python's own startup cost; the win matters on large
