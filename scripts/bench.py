@@ -1,7 +1,7 @@
 """Time the hook on strict-JSON files with and without the stdlib json fast path.
 
 Run with `uv run python scripts/bench.py`. Fixtures are generated into a temporary
-directory, so nothing large is committed. Each timing is the best of several runs.
+directory, so nothing large is committed. Each timing is the best of 10 runs.
 """
 
 import json
@@ -13,6 +13,7 @@ from unittest import mock
 from pre_commit_hooks import check_json5
 
 SIZES = [1_000, 50_000, 500_000, 2_000_000]  # target bytes per fixture
+REPEAT = 10  # runs per timing; the best one is reported
 
 
 def make_json(target_bytes: int) -> str:
@@ -41,9 +42,9 @@ def main() -> None:
         for size in SIZES:
             path = Path(tmp) / f"{size}.json"
             path.write_text(make_json(size), encoding="utf-8")
-            after = best_ms(path, repeat=20)
+            after = best_ms(path, repeat=REPEAT)
             with no_fast_path:
-                before = best_ms(path, repeat=3)
+                before = best_ms(path, repeat=REPEAT)
             kb = path.stat().st_size / 1000
             print(f"| {kb:.0f} KB | {before:.1f} ms | {after:.2f} ms | ~{before / after:.0f}x |")
 
