@@ -6,8 +6,6 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-import json5
-
 
 def raise_duplicate_keys(ordered_pairs: Iterable[tuple[str, Any]]) -> dict[str, Any]:
     """Raise an error if there are duplicate keys in the JSON object.
@@ -64,6 +62,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 json.loads(text, object_pairs_hook=raise_duplicate_keys)
             except json.JSONDecodeError:
+                # Imported here so a run over strict JSON never pays json5's import time.
+                import json5  # noqa: PLC0415
+
                 json5.loads(text, object_pairs_hook=raise_duplicate_keys)
         except ValueError as exc:
             print(f"{filename}: Failed to json decode ({exc})")
