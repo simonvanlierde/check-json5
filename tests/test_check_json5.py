@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from pre_commit_hooks.check_json5 import main
 
 
@@ -66,3 +68,25 @@ def test_missing_file_fails(tmp_path: Path) -> None:
 
 def test_no_files_passes() -> None:
     assert main([]) == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "content", "expected"),
+    [
+        ("utf8_bom", b'\xef\xbb\xbf{"a": 1}', 0),
+        ("empty_file", b"", 1),
+        ("whitespace_only", b"  \n ", 1),
+        ("top_level_scalar", b"42", 0),
+        ("nan_infinity", b'{"a": NaN, "b": Infinity, "c": -Infinity}', 0),
+        ("duplicate_keys_in_array_of_objects", b'[{"a": 1, "a": 2}]', 1),
+        ("duplicate_keys_on_json5_fallback", b'// comment\n{"a": 1, "a": 2}', 1),
+    ],
+)
+def test_edge_cases(tmp_path: Path, name: str, content: bytes, expected: int) -> None:
+    f = tmp_path / f"{name}.json"
+    f.write_bytes(content)
+    assert main([str(f)]) == expected
+
+
+def test_mixed_pass_and_fail_returns_1(tmp_path: Path) -> None:
+    assert main([write(tmp_path, "{a: 1}"), write(tmp_path, "{a:}")]) == 1

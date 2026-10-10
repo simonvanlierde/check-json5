@@ -18,6 +18,7 @@ parser on ordinary JSON.
   pure-Python `json5` parser only when a file actually uses JSON5 features (~500× faster on large
   strict-JSON files; see [Performance](#performance)).
 - Duplicate-key detection on both paths.
+- Accepts `NaN` and `Infinity` (both parsers allow them), so strict-JSON consumers may still reject such files.
 - Drop-in replacement for `check-json`.
 
 ## Links
@@ -31,7 +32,7 @@ In `.pre-commit-config.yaml`, under `repos:`, add:
 
 ```yaml
 - repo: https://github.com/simonvanlierde/check-json5
-  rev: v1.2.0
+  rev: v1.2.1
   hooks:
     - id: check-json5
 ```
@@ -56,14 +57,20 @@ The pure-Python `json5` parser is slow on large files. Since most `.json` files 
 hook tries the C-speed stdlib `json` parser first and only falls back to `json5` when a file uses
 comments or trailing commas. Duplicate-key detection works on both paths.
 
-Parse time per file (strict JSON, taking the fast path):
+Time for one hook call per file (strict JSON, taking the fast path), best of 10 runs of
+`uv run python scripts/bench.py` on 2026-10-11 (Intel i9-14900KF, Linux, Python 3.13.7, json5 0.15.0,
+load average 1.5):
 
-| File size    | Before (`json5` only) | After (fast path) | Speedup |
-| ------------ | --------------------- | ----------------- | ------- |
-| ~1 KB config | 7 ms                  | <0.1 ms           | ~600×   |
-| ~50 KB       | 235 ms                | 0.4 ms            | ~645×   |
-| ~500 KB      | 2.4 s                 | 4 ms              | ~575×   |
-| ~2 MB        | 10.4 s                | 21 ms             | ~500×   |
+| File size | Before (`json5` only) | After (fast path) | Speedup |
+| --------- | --------------------- | ----------------- | ------- |
+| 1 KB      | 2.5 ms                | 0.02 ms           | ~100×   |
+| 47 KB     | 123 ms                | 0.19 ms           | ~660×   |
+| 483 KB    | 1.3 s                 | 1.8 ms            | ~750×   |
+| 2 MB      | 5.4 s                 | 7.7 ms            | ~700×   |
+
+The script generates its fixture files in a temporary directory, so nothing large is committed.
+Timings vary between runs by up to 2× on a loaded machine. The 1 KB fast-path time is close to
+the timer's resolution, so its speed-up ranged from ~80× to ~100× across runs.
 
 Files that use JSON5 syntax still go through the `json5` parser and are unchanged. For tiny config
 files the absolute saving is negligible next to Python's own startup cost; the win matters on large
@@ -75,13 +82,11 @@ The project uses [uv](https://github.com/astral-sh/uv) for dependency management
 tests, `pre-commit` for local checks, and GitHub Actions for CI with coverage reported to Codecov.
 
 ```bash
-uv sync                 # install dependencies
-uv run pytest           # run the test suite
-uv run pytest --cov     # tests with coverage
-pre-commit run -a       # run the configured hooks locally
+uv sync                   # install dependencies
+uv run pytest             # run the test suite
+uv run pytest --cov       # tests with coverage
+uv run pre-commit run -a  # run the configured hooks locally
 ```
-
-<!-- Verify these commands against the repo's actual justfile / scripts and adjust if needed. -->
 
 ## Credits
 
