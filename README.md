@@ -59,17 +59,18 @@ comments or trailing commas. Duplicate-key detection works on both paths.
 
 Time for one hook call per file (strict JSON, taking the fast path), best of 10 runs of
 `uv run python scripts/bench.py` on 2026-10-11 (Intel i9-14900KF, Linux, Python 3.13.7, json5 0.15.0,
-shared host under load):
+load average 1.5):
 
 | File size | Before (`json5` only) | After (fast path) | Speedup |
 | --------- | --------------------- | ----------------- | ------- |
-| 1 KB      | 2.5 ms                | 0.08 ms           | ~32×    |
-| 47 KB     | 128 ms                | 0.26 ms           | ~490×   |
-| 483 KB    | 1.3 s                 | 2.1 ms            | ~630×   |
-| 2 MB      | 5.4 s                 | 8.3 ms            | ~650×   |
+| 1 KB      | 2.5 ms                | 0.02 ms           | ~100×   |
+| 47 KB     | 123 ms                | 0.19 ms           | ~660×   |
+| 483 KB    | 1.3 s                 | 1.8 ms            | ~750×   |
+| 2 MB      | 5.4 s                 | 7.7 ms            | ~700×   |
 
 The script generates its fixture files in a temporary directory, so nothing large is committed.
-Timings vary between runs by up to 2× on a loaded machine; the order of magnitude holds.
+Timings vary between runs by up to 2× on a loaded machine. The 1 KB fast-path time is close to
+the timer's resolution, so its speed-up ranged from ~80× to ~100× across runs.
 
 Files that use JSON5 syntax still go through the `json5` parser and are unchanged. For tiny config
 files the absolute saving is negligible next to Python's own startup cost; the win matters on large
