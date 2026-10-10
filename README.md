@@ -75,13 +75,11 @@ The project uses [uv](https://github.com/astral-sh/uv) for dependency management
 tests, `pre-commit` for local checks, and GitHub Actions for CI with coverage reported to Codecov.
 
 ```bash
-uv sync                 # install dependencies
-uv run pytest           # run the test suite
-uv run pytest --cov     # tests with coverage
-pre-commit run -a       # run the configured hooks locally
+uv sync                   # install dependencies
+uv run pytest             # run the test suite
+uv run pytest --cov       # tests with coverage
+uv run pre-commit run -a  # run the configured hooks locally
 ```
-
-<!-- Verify these commands against the repo's actual justfile / scripts and adjust if needed. -->
 
 ## Credits
 
