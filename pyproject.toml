@@ -28,6 +28,7 @@
 
     # These rules are ignored to prevent conflicts with formatter or because they are overly strict
     ignore = [
+      "COM812", # missing-trailing-comma: conflicts with the formatter
       "CPY001", # missing-copyright-notice: LICENSE covers the project
       "D206",   # indent-with-spaces
       "D300",   # triple-single-quotes

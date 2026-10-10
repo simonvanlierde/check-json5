@@ -22,6 +22,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
+      # The prek hooks run only where someone installed them, and never on
+      # Dependabot pull requests, so lint and types are checked here too.
+      - run: uv run --group dev ruff check --no-fix .
+      - run: uv run --group dev ruff format --check .
+      - run: uv run --group dev ty check
       - run: uv run --group dev pytest --cov=pre_commit_hooks --cov-report=term-missing --cov-report=xml --cov-fail-under=80
       - uses: codecov/codecov-action@v7
         with:
