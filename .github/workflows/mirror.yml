@@ -1,0 +1,33 @@
+name: Mirror to GitLab
+
+# GitHub is the main repository; the GitLab fork of bmares/check-json5 is kept
+# for merge requests upstream. GITLAB_TOKEN is a GitLab project access token
+# with the write_repository scope and the Maintainer role, so it can push to
+# the protected main branch.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |-
+          git push "https://oauth2:${GITLAB_TOKEN}@gitlab.com/simonvanlierde/check-json5.git" \
+            origin/main:refs/heads/main --tags
