@@ -72,6 +72,11 @@ The script generates its fixture files in a temporary directory, so nothing larg
 Timings vary between runs by up to 2× on a loaded machine. The 1 KB fast-path time is close to
 the timer's resolution, so its speed-up ranged from ~80× to ~100× across runs.
 
+To time whole hook runs instead, run `bash scripts/bench.sh` (needs
+[hyperfine](https://github.com/sharkdp/hyperfine)). It times the hook against the `json5` parser
+on 50 KB, 500 KB and 2 MB files and prints one table; `--quick` times the 50 KB file once. Each
+run includes about 20 ms of Python startup, so its speed-ups are smaller than the ones above.
+
 Files that use JSON5 syntax still go through the `json5` parser and are unchanged. For tiny config
 files the absolute saving is negligible next to Python's own startup cost; the win matters on large
 JSON files.
