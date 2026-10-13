@@ -761,8 +761,13 @@ impl<'a> Parser<'a> {
             return;
         }
         let digits = self.text[digits..self.pos].trim_start_matches('0');
-        // 256 hex digits is past f64::MAX; 14 or more, or 2⁵³ itself, is past the safe range.
-        let overflows = digits.len() > 256;
+        // A double rounds to infinity from 2¹⁰²⁴ − 2⁹⁷⁰: more than 256 hex digits, or 256 that
+        // start with thirteen `F`s and a digit from `C` up. 14 or more digits, or 2⁵³ itself, is
+        // past the safe integer range.
+        let top = digits.as_bytes().get(..14).map(<[u8]>::to_ascii_lowercase);
+        let overflows = digits.len() > 256
+            || (digits.len() == 256
+                && top.is_some_and(|top| top[..13].iter().all(|&b| b == b'f') && top[13] >= b'c'));
         let unsafe_integer = digits.len() > 14
             || u64::from_str_radix(digits, 16).is_ok_and(|n| n > MAX_SAFE_INTEGER);
         if overflows || unsafe_integer {

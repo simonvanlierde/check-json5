@@ -163,3 +163,28 @@ fn positions_follow_json5_line_terminators() {
         (Json5, "{\"é😀\": 1, \"é😀\": 2}"),
     ]));
 }
+
+#[test]
+fn hex_numbers_overflow_exactly_where_a_double_does() {
+    use jsonvet::{Rule, Severity};
+    let config = Config::new(Dialect::Json5).rule(Rule::InvalidNumber, Severity::Error);
+    let message = |hex: String| {
+        let text = format!("0x{hex}");
+        let report = check(&text, &config);
+        report.problems().first().map(ToString::to_string)
+    };
+    let overflow = Some("number overflows a double".to_owned());
+    let unsafe_integer =
+        Some("integer beyond ±(2^53 − 1) cannot be represented exactly".to_owned());
+    assert_eq!(
+        message(format!("{}C{}", "F".repeat(13), "0".repeat(242))),
+        overflow
+    );
+    assert_eq!(
+        message(format!("{}b{}", "f".repeat(13), "f".repeat(242))),
+        unsafe_integer
+    );
+    assert_eq!(message(format!("1{}", "0".repeat(256))), overflow);
+    assert_eq!(message(format!("00{}", "F".repeat(14))), unsafe_integer);
+    assert_eq!(message("1FFFFFFFFFFFFF".to_owned()), None);
+}
