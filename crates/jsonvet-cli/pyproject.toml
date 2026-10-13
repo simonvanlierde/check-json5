@@ -8,8 +8,6 @@ name = "jsonvet"
 description = "Checks JSON, JSONC, JSON5, HuJSON and JSON Lines files for syntax errors and duplicate keys."
 readme = "../../README.md"
 license = "MIT"
-# A py3-none wheel does not depend on the Python version; the shim needs 3.9.
-requires-python = ">=3.9"
 dynamic = ["version"]
 keywords = ["json", "json5", "jsonc", "lint", "pre-commit"]
 classifiers = [
@@ -25,9 +23,3 @@ Changelog = "https://github.com/simonvanlierde/jsonvet/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 bindings = "bin"
-python-source = "python"
-
-# The shim runs on whatever Python pre-commit or pip uses, from 3.9 up.
-[tool.ruff]
-extend = "../../ruff.toml"
-target-version = "py39"

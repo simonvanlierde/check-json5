@@ -38,8 +38,8 @@ until 3.0. To change anything else, switch to the `jsonvet` hook id.
   own wording. GitHub annotations are `::error` or `::warning` by severity.
 - **Breaking:** lines end at every JSON5 line terminator (LF, CR, CRLF, U+2028 and U+2029), so
   positions after a lone CR, U+2028 or U+2029 differ from 1.x.
-- **Breaking:** the importable Python module is gone. `python -m jsonvet` still runs the
-  command. The `check-json5` package on PyPI now only installs `jsonvet`.
+- **Breaking:** the importable Python module is gone. The wheel brings the `jsonvet` and
+  `check-json5` commands. The `check-json5` package on PyPI now only installs `jsonvet`.
 - The hook installs a prebuilt binary, from wheels for Linux, macOS and Windows on x86-64 and
   arm64. It needs no Rust, and no longer starts Python on every run.
 - Raw U+2028 and U+2029 inside strings pass in every JSON5 file, as the spec allows. 1.x

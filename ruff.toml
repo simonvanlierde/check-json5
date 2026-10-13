@@ -1,7 +1,6 @@
-# Lint and format settings for the repo's Python: the python -m shim, the hook placeholder,
-# the check-json5 compatibility package and scripts/.
+# Lint and format settings for the repo's Python: the hook placeholder and scripts/.
 line-length = 120
-# The scripts need 3.11; the shim pins 3.9 in its own pyproject.toml.
+# The scripts need 3.11.
 target-version = "py311"
 
 [format]
@@ -18,7 +17,7 @@ ignore = [
 [lint.per-file-ignores]
 # Standalone scripts that print their results.
 "scripts/**" = ["INP001", "T201"]
-# The placeholder is not a package, and the shim is a package's __main__.
+# The placeholder is not a package.
 "setup.py" = ["INP001"]
 
 [lint.pydocstyle]

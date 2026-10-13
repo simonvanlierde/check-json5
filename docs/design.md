@@ -21,7 +21,7 @@ These change on purpose, and the changelog marks them **Breaking**:
 - the wording of syntax errors (jsonvet has its own messages, not the json5 package's or
   Python's);
 - the output line, which gains a severity and a rule id;
-- the importable Python module (`python -m jsonvet` still runs the binary);
+- the importable Python module, which is gone: the wheel brings only the commands;
 - lines now end at every JSON5 line terminator, so positions differ from 1.4 in files that use a
   lone CR, U+2028 or U+2029;
 - the hook also checks `.jsonl` and `.ndjson` files.
@@ -121,7 +121,7 @@ A glob without `/` matches the file name at any depth, and one with `/` matches 
 ```text
 crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-general-category.
 crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output. Built into the
-                       PyPI wheels by maturin, with the python -m shim in python/jsonvet/.
+                       PyPI wheels by maturin.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
 setup.py               placeholder that pre-commit installs: pins the jsonvet wheel
 fuzz/  tests/  scripts/

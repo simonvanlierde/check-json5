@@ -39,7 +39,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
       - run: cargo deny check
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      # The repo's Python: the python -m shim, the hook placeholder and scripts/.
+      # The repo's Python: the hook placeholder and scripts/.
       # The same ruff as .pre-commit-config.yaml.
       - run: uvx ruff@0.16.10 check --no-fix .
       - run: uvx ruff@0.16.10 format --check .
@@ -141,7 +141,7 @@ jobs:
           printf '{"a": 1, "a": 2}\n' > dup.json
           uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
           uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl python -m jsonvet --version
+          uv run --isolated --no-project --with dist/*.whl jsonvet --version
 
   # The hook as users install it, on every OS: pre-commit and prek install this repository, and
   # its placeholder setup.py pins the jsonvet wheel. Until that version is on PyPI, the wheel
