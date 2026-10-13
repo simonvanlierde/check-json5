@@ -1,7 +1,6 @@
 [build-system]
-  build-backend = "setuptools.build_meta"
-  # 77 reads the SPDX `license` string below.
-  requires = ["setuptools>=77"]
+  build-backend = "uv_build"
+  requires      = ["uv_build>=0.12.19,<0.13.0"]
 
 [project]
   authors         = [{ "name" = "Simon van Lierde", "email" = "30519500-simonvanlierde@users.noreply.gitlab.com" }]
@@ -14,6 +13,7 @@
   description     = "pre-commit hook to check json files for syntax parseable as json5 (with comments)"
   keywords        = ["json", "json5", "jsonc", "lint", "pre-commit"]
   license         = "MIT"
+  license-files   = ["LICENSE"]
   name            = "check-json5"
   readme          = "README.md"
   requires-python = ">=3.10"
@@ -67,10 +67,13 @@
     [tool.ruff.lint.pydocstyle]
       convention = "google"
 
-[tool.setuptools]
-  # Named, not discovered: a stale ignored folder such as an old pre_commit_hooks/ makes
-  # discovery see two packages and refuse to build.
-  packages = ["check_json5"]
-
 [tool.uv]
-  package = true
+  # Resolve only releases at least a week old: a compromised release is usually caught
+  # and yanked within that window.
+  exclude-newer = "1 week"
+  package       = true
+
+  # The module sits at the repo root, not under src/.
+  [tool.uv.build-backend]
+    module-name = "check_json5"
+    module-root = ""

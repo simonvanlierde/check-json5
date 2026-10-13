@@ -1,11 +1,12 @@
 version: 2
+# A 7-day cooldown, the same window as uv's exclude-newer, so no update waits on the lock.
 updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "monthly"
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       uv-deps:
         patterns:
@@ -22,7 +23,7 @@ updates:
     schedule:
       interval: "monthly"
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       actions-deps:
         patterns:
@@ -33,7 +34,7 @@ updates:
     schedule:
       interval: "monthly"
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       pre-commit-deps:
         patterns:
