@@ -146,7 +146,8 @@ fn help_and_version_letters_in_a_file_name_are_a_file() {
     );
 }
 
-#[cfg(unix)]
+// Linux only: macOS file systems refuse names that are not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_file_name_that_is_not_utf8_is_opened_as_given() {
     use std::ffi::OsStr;
@@ -158,6 +159,7 @@ fn a_file_name_that_is_not_utf8_is_opened_as_given() {
         .args(["--strict", "*"])
         .arg(name)
         .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
         .output()
         .expect("run jsonvet");
     assert_eq!(
