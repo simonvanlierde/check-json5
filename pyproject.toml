@@ -67,5 +67,10 @@
     [tool.ruff.lint.pydocstyle]
       convention = "google"
 
+[tool.setuptools]
+  # Named, not discovered: a stale ignored folder such as an old pre_commit_hooks/ makes
+  # discovery see two packages and refuse to build.
+  packages = ["check_json5"]
+
 [tool.uv]
   package = true
