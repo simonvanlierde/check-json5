@@ -5,7 +5,7 @@
 
 Usage: uv run scripts/differential.py [--cases N] [--seed S] [--jsonvet PATH]
 
-It writes a corpus of random JSON-ish files plus the json5-tests suite to a temporary
+It writes random JSON-ish files, the json5-tests suite and tests/corpus to a temporary
 directory, runs both tools over it in JSON5 mode and with --strict, and compares the verdict
 for every file and, where both find no syntax error, the duplicate-key reports. It sorts every
 difference into a category. The design accepts some of them, and docs/design.md lists those. The
@@ -43,6 +43,14 @@ OBJECTS = [
 ]
 KEYS = ["a", "b c", "ünï", "$x", "1st", 'q\\"', "\\u0061", "\\ud800", "\\udbff"]
 
+# Corpus files that meet a deliberate difference listed in docs/design.md.
+KNOWN = {
+    "corpus-json5-depth-10000.json": "accepted: 1.4 stops at 9,998 levels, jsonvet at 10,000",
+    "corpus-json5-combining-mark-starts-key-escaped.json": (
+        "accepted: a \\u escape in a key must stand for a character the key could hold"
+    ),
+}
+
 LINE = re.compile(r"^(?P<file>[^:]+?):(?:(?P<line>\d+):(?P<col>\d+):)? ?(?P<rest>.*)$")
 
 
@@ -72,6 +80,11 @@ def corpus(directory: Path, cases: int, seed: int) -> list[Path]:
     for i, case in enumerate(sorted(suite.rglob("*"))):
         if case.suffix in {".json", ".json5", ".js", ".txt"}:
             path = directory / f"suite-{i:03}.json"
+            shutil.copyfile(case, path)
+            files.append(path)
+    for dialect in ("json5", "json"):  # the contract corpus, in the two dialects 1.4 knows
+        for case in sorted((ROOT / "tests" / "corpus" / dialect).iterdir()):
+            path = directory / f"corpus-{dialect}-{case.name}"
             shutil.copyfile(case, path)
             files.append(path)
     return files
@@ -115,8 +128,10 @@ def duplicates(problems: list[Problem]) -> list[tuple]:
     return sorted((p.line, p.col, p.kind, p.text) for p in problems if p.kind == "duplicate")
 
 
-def classify(text: str, ours: list[Problem], theirs: list[Problem]) -> str:
+def classify(name: str, text: str, ours: list[Problem], theirs: list[Problem]) -> str:
     """Why the two tools disagree, as an accepted category or `unexplained`."""
+    if name in KNOWN:
+        return KNOWN[name]
     flipped = failed(ours) != failed(theirs)
     if "\u2028" in text or "\u2029" in text:
         # Both are allowed in strings, and end a `//` comment, in jsonvet only. So jsonvet may
@@ -143,10 +158,10 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
                 tally["same"] += 1
                 continue
         text = path.read_text(encoding="utf-8")
-        category = classify(text, a, b)
+        category = classify(path.name, text, a, b)
         tally[category] += 1
         if len(examples[category]) < EXAMPLES:
-            examples[category].append(f"{path.name}: {text!r}\n      jsonvet: {a}\n      1.4:     {b}")
+            examples[category].append(f"{path.name}: {text[:80]!r}\n      jsonvet: {a}\n      1.4:     {b}")
     print(f"\n== {mode}: {len(files)} files")
     for category, n in tally.most_common():
         print(f"{n:6}  {category}")

@@ -1,0 +1,158 @@
+---
+source: crates/jsonvet-cli/tests/corpus.rs
+expression: out
+---
+i-json/bom.json -> 0
+    i-json/bom.json:1:1: warning[byte-order-mark] byte order mark at the start of the file
+i-json/duplicate-key.json -> 1
+    i-json/duplicate-key.json:1:10: error[duplicate-key] duplicate key $.a (first at 1:2)
+i-json/lone-surrogate.json -> 1
+    i-json/lone-surrogate.json:1:3: error[invalid-code-point] lone surrogate U+D800
+i-json/unsafe-integer.json -> 1
+    i-json/unsafe-integer.json:1:7: error[invalid-number] integer beyond ±(2^53 − 1) cannot be represented exactly
+json/bare-infinity.json -> 1
+    json/bare-infinity.json:1:7: error[syntax] NaN and Infinity are not allowed in json
+json/bom.json -> 0
+    json/bom.json:1:1: warning[byte-order-mark] byte order mark at the start of the file
+json/comment.json -> 1
+    json/comment.json:1:1: error[syntax] comments are not allowed in json
+json/duplicate-key.json -> 1
+    json/duplicate-key.json:1:10: error[duplicate-key] duplicate key $.a (first at 1:2)
+json/infinity-runs-on.json -> 1
+    json/infinity-runs-on.json:1:1: error[syntax] NaN and Infinity are not allowed in json
+json/leading-zero.json -> 1
+    json/leading-zero.json:1:2: error[syntax] expected the end of the file, found `1`
+json/lone-surrogates-are-distinct-keys.json -> 0
+json/nan-and-infinity.json -> 1
+    json/nan-and-infinity.json:1:7: error[syntax] NaN and Infinity are not allowed in json
+json/nan-runs-on.json -> 1
+    json/nan-runs-on.json:1:2: error[syntax] NaN and Infinity are not allowed in json
+json/negative-infinity-runs-on.json -> 1
+    json/negative-infinity-runs-on.json:1:2: error[syntax] NaN and Infinity are not allowed in json
+json/plain.json -> 0
+json/trailing-comma-after-comment.json -> 1
+    json/trailing-comma-after-comment.json:1:10: error[syntax] comments are not allowed in json
+json/unquoted-key.json -> 1
+    json/unquoted-key.json:1:2: error[syntax] unquoted keys are not allowed in json
+json5/bare-key-against-comment.json -> 1
+    json5/bare-key-against-comment.json:1:13: error[duplicate-key] duplicate key $.a (first at 1:2)
+json5/bom.json -> 0
+json5/combining-mark-in-key.json -> 0
+json5/combining-mark-starts-key-escaped.json -> 1
+    json5/combining-mark-starts-key-escaped.json:1:2: error[syntax] expected a key, found `\`
+json5/combining-mark-starts-key.json -> 1
+    json5/combining-mark-starts-key.json:1:2: error[syntax] expected a key, found `́`
+json5/comment-like-strings.json -> 0
+json5/comment-then-duplicate-trailing-comma.json -> 1
+    json5/comment-then-duplicate-trailing-comma.json:3:2: error[duplicate-key] duplicate key $.a (first at 2:2)
+json5/comment-then-duplicate.json -> 1
+    json5/comment-then-duplicate.json:2:10: error[duplicate-key] duplicate key $.a (first at 2:2)
+json5/comment-then-trailing-commas.json -> 0
+json5/crlf-counts-once.json -> 1
+    json5/crlf-counts-once.json:2:1: error[duplicate-key] duplicate key $.a (first at 1:2)
+json5/depth-10000.json -> 0
+json5/depth-10001.json -> 1
+    json5/depth-10001.json:1:10001: error[syntax] nested deeper than 10000 levels
+json5/dollar-keys.json -> 1
+    json5/dollar-keys.json:1:9: error[duplicate-key] duplicate key $.$a (first at 1:2)
+json5/double-comma-array.json -> 1
+    json5/double-comma-array.json:1:4: error[syntax] expected a value, found `,`
+json5/duplicate-in-array.json -> 1
+    json5/duplicate-in-array.json:1:11: error[duplicate-key] duplicate key $[0].a (first at 1:3)
+json5/duplicate-key-nested.json -> 1
+    json5/duplicate-key-nested.json:1:16: error[duplicate-key] duplicate key $.outer.a (first at 1:10)
+json5/duplicate-key.json -> 1
+    json5/duplicate-key.json:1:8: error[duplicate-key] duplicate key $.a (first at 1:2)
+json5/duplicate-then-bad-escape.json -> 1
+    json5/duplicate-then-bad-escape.json:1:11: error[duplicate-key] duplicate key $[0].a (first at 1:3)
+    json5/duplicate-then-bad-escape.json:1:22: error[syntax] `\x` needs two hex digits
+json5/duplicates-nested-escaped-in-arrays.json -> 1
+    json5/duplicates-nested-escaped-in-arrays.json:1:16: error[duplicate-key] duplicate key $.x.a (first at 1:8)
+    json5/duplicates-nested-escaped-in-arrays.json:2:27: error[duplicate-key] duplicate key $.l[1].k (first at 2:19)
+    json5/duplicates-nested-escaped-in-arrays.json:3:2: error[duplicate-key] duplicate key $.x (first at 1:2)
+json5/empty.json -> 1
+    json5/empty.json:1:1: error[syntax] expected a value, found the end of the file
+json5/error-position.json -> 1
+    json5/error-position.json:4:6: error[syntax] expected a value, found `,`
+json5/escape-letter.json -> 0
+json5/escape-nine.json -> 1
+    json5/escape-nine.json:1:3: error[syntax] invalid escape `\9`
+json5/escaped-key-equals-quoted.json -> 1
+    json5/escaped-key-equals-quoted.json:1:13: error[duplicate-key] duplicate key $.a (first at 1:2)
+json5/escaped-key-part.json -> 1
+    json5/escaped-key-part.json:1:14: error[duplicate-key] duplicate key $.ab (first at 1:2)
+json5/escaped-newline-in-string.json -> 0
+json5/hex-and-friends.json -> 0
+json5/integer-5000-digits.json -> 0
+json5/key-like-string-and-comment.json -> 1
+    json5/key-like-string-and-comment.json:1:37: error[duplicate-key] duplicate key $.s (first at 1:2)
+json5/key-with-dash.json -> 1
+    json5/key-with-dash.json:1:3: error[syntax] expected `:`, found `-`
+json5/letter-u0e33-starts-key.json -> 0
+json5/line-comment-ends-at-u2028-clean.json -> 0
+json5/line-comment-ends-at-u2028.json -> 1
+    json5/line-comment-ends-at-u2028.json:2:2: error[syntax] expected the end of the file, found `x`
+json5/lone-comma-array.json -> 1
+    json5/lone-comma-array.json:1:2: error[syntax] expected a value, found `,`
+json5/lone-comma-object.json -> 1
+    json5/lone-comma-object.json:1:2: error[syntax] expected a key, found `,`
+json5/lone-cr-moves-positions.json -> 1
+    json5/lone-cr-moves-positions.json:2:2: error[duplicate-key] duplicate key $.a (first at 1:2)
+json5/many-duplicates.json -> 1
+    json5/many-duplicates.json:2:1: error[duplicate-key] duplicate key $.a (first at 1:2)
+    json5/many-duplicates.json:3:1: error[duplicate-key] duplicate key $.a (first at 1:2)
+    json5/many-duplicates.json:4:1: error[duplicate-key] duplicate key $.a (first at 1:2)
+    json5/many-duplicates.json:5:1: error[duplicate-key] duplicate key $.a (first at 1:2)
+json5/mark-u1885-starts-key.json -> 1
+    json5/mark-u1885-starts-key.json:1:2: error[syntax] expected a key, found `ᢅ`
+json5/missing-value.json -> 1
+    json5/missing-value.json:1:10: error[syntax] expected a value, found `}`
+json5/nan-infinity.json -> 0
+json5/negative-hex.json -> 0
+json5/not-utf8.json -> 1
+    json5/not-utf8.json: error: not valid UTF-8 (byte 7)
+json5/number-led-key.json -> 1
+    json5/number-led-key.json:1:2: error[syntax] expected a key, found `1`
+json5/plain-json.json -> 0
+json5/punctuation-u00b7-in-key.json -> 1
+    json5/punctuation-u00b7-in-key.json:1:3: error[syntax] expected `:`, found `·`
+json5/quote-styles-same-key.json -> 1
+    json5/quote-styles-same-key.json:2:8: error[duplicate-key] duplicate key $.a (first at 2:2)
+    json5/quote-styles-same-key.json:2:30: error[duplicate-key] duplicate key $["b c"].d (first at 2:24)
+json5/raw-newline-in-string.json -> 1
+    json5/raw-newline-in-string.json:1:3: error[syntax] line break inside a string (started at 1:1)
+json5/raw-u2028-in-string.json -> 0
+json5/single-quoted-slashes.json -> 0
+json5/top-level-scalar.json -> 0
+json5/unclosed-comment-own-star-slash.json -> 1
+    json5/unclosed-comment-own-star-slash.json:1:12: error[syntax] unterminated block comment (started at 1:9)
+json5/unclosed-comment.json -> 1
+    json5/unclosed-comment.json:1:17: error[syntax] unterminated block comment (started at 1:10)
+json5/unclosed-escape-double.json -> 1
+    json5/unclosed-escape-double.json:1:10: error[syntax] expected the end of the file, found `"`
+json5/unclosed-escape-single.json -> 1
+    json5/unclosed-escape-single.json:1:10: error[syntax] expected the end of the file, found `'`
+json5/unclosed-openers.json -> 1
+    json5/unclosed-openers.json:1:19: error[syntax] unterminated block comment (started at 1:10)
+json5/valid-comment-trailing-comma.json -> 0
+json5/whitespace-only.json -> 1
+    json5/whitespace-only.json:2:2: error[syntax] expected a value, found the end of the file
+jsonc/comments.json -> 0
+jsonc/line-comment-not-ended-by-u2028.json -> 1
+    jsonc/line-comment-not-ended-by-u2028.json:2:4: error[syntax] expected a value, found the end of the file
+jsonc/trailing-comma.json -> 1
+    jsonc/trailing-comma.json:2:1: error[syntax] trailing comma before `}` is not allowed in jsonc
+jsonl/blank-line.jsonl -> 1
+    jsonl/blank-line.jsonl:2:1: error[syntax] blank line; JSON Lines needs a value on every line
+jsonl/crlf-duplicate.jsonl -> 1
+    jsonl/crlf-duplicate.jsonl:1:10: error[duplicate-key] duplicate key $.a (first at 1:2)
+jsonl/no-final-newline.jsonl -> 0
+    jsonl/no-final-newline.jsonl:2:4: warning[missing-final-newline] no newline at the end of the file
+jsonl/two-values-on-a-line.jsonl -> 1
+    jsonl/two-values-on-a-line.jsonl:1:3: error[syntax] expected the end of the line, found `2`
+jsonl/valid.jsonl -> 0
+jsonl/value-across-lines.jsonl -> 1
+    jsonl/value-across-lines.jsonl:1:6: error[syntax] expected a value, found U+000A
+jwcc/single-quotes.json -> 1
+    jwcc/single-quotes.json:1:2: error[syntax] single-quoted strings are not allowed in jwcc
+jwcc/trailing-comma-and-comment.json -> 0

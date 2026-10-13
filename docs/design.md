@@ -172,8 +172,9 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
 
 - **Conformance:** the json5-tests suite as a git submodule; each file's extension says whether
   it must pass or fail.
-- **Corpus:** cases from 1.4's tests, edge cases found while surveying other parsers, and every
-  fuzz finding, with expected output kept as insta snapshots.
+- **Corpus:** one file per case under `tests/corpus/<dialect>/`: cases from 1.4's tests, edge
+  cases found while surveying other parsers, and every fuzz finding. `crates/jsonvet-cli/tests/corpus.rs`
+  runs the binary on each, and one insta snapshot keeps every exit code and output line.
 - **Differential:** `scripts/differential.py` runs the corpus through `check-json5==1.4.1`
   (Python 3.13) and jsonvet, in the two dialects 1.4 knows, and compares verdicts, positions,
   paths and exit codes.
