@@ -1,0 +1,10 @@
+# file	expected (valid, invalid or either)	why, citing the spec (see conformance/README.md)
+trailing-comma-array.json	valid	One optional comma after the final element of an array
+two-trailing-commas.json	invalid	Only one comma may follow the final element
+lone-comma-object.json	invalid	The comma follows a final element; an empty object has none
+unquoted-key.json	invalid	Unquoted strings are not part of JWCC
+hex-number.json	invalid	JWCC adds only comments and trailing commas to JSON
+hash-comment.json	invalid	# comments are not valid JavaScript, so not JWCC
+line-comment-at-end.json	valid	Update of 2021-07-20: a final line comment needs no newline
+cr-does-not-end-comment.json	invalid	Line comments end at \n; \r bytes are irrelevant, so ] is inside the comment
+u2028-in-line-comment.json	either	Only \n ends a line comment, so b is comment text; but JWCC is meant to be valid JavaScript, where U+2028 ends it

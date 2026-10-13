@@ -1,0 +1,6 @@
+# file	expected (valid, invalid or either)	why, citing the spec (see conformance/README.md)
+crlf.jsonl	valid	Rule 3: \r\n works because whitespace around a value is ignored
+bom.jsonl	invalid	Rule 1: a byte order mark must NOT be included
+trailing-blank-line.jsonl	invalid	Rule 3: a final line terminator must be the last byte of the file
+scalars.jsonl	valid	Rule 2: any JSON value is permitted on a line
+padded-line.jsonl	valid	Rule 3: whitespace around a value is ignored
