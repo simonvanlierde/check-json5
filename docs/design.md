@@ -44,6 +44,10 @@ can still meet them:
 - Raw U+2028 and U+2029 inside strings pass in jsonvet, as the JSON5 spec allows; 1.4's JSON5
   path rejected them.
 - Nesting depth is unlimited in jsonvet; 1.4 failed files nested about 60 levels deep in JSON5.
+- A `\u` escape in an unquoted key must stand for a character the key could hold literally, as
+  ECMAScript 5.1 says; 1.4 passed any escape, so `{\u0301: 1}` passed there. Literal characters
+  agree: both go by general category (letters to start a key, then marks, digits and connectors
+  too), as the spec and the JS reference do, not by Unicode's `ID_Start`.
 - Syntax-error wording, and some syntax-error positions, follow the rule above.
 
 ## Dialects
@@ -172,7 +176,11 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   (Python 3.13) and jsonvet, in the two dialects 1.4 knows, and compares verdicts, positions,
   paths and exit codes.
 - **Fuzzing:** cargo-fuzz targets for raw bytes (no panics, offsets on character boundaries),
-  against serde_json (anything it accepts, jsonvet accepts as JSON) and against the json5 crate.
+  against serde_json (anything it accepts, jsonvet accepts as JSON) and against the json5 crate
+  (anything jsonvet accepts as JSON5, json5 accepts). The last skips inputs that hit json5's own
+  limits rather than the grammar's, each found by fuzzing: integers past 64 bits, lone surrogate
+  escapes, U+2028 and U+2029 in strings, and identifier characters from Unicode releases newer
+  than json5's tables.
 - **Properties:** proptest, for example that a location matches a naive recount.
 
 ## Release bar for 2.0.0
