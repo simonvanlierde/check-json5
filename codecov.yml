@@ -10,5 +10,6 @@ coverage:
       default:
         informational: true
 
+# Comment only when the project check fails: coverage_drop honours its 2-point threshold.
 comment:
-  require_changes: true
+  require_changes: "coverage_drop"
