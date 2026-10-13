@@ -90,10 +90,12 @@ runs:
         # shortcut: one command line for all files; Windows caps it at 32,767 characters, so a
         # repository with thousands of files needs batching there.
 
-        "$bin/jsonvet" "${args[@]}" -- "${files[@]}"
-        status=$?
+        # The step's shell runs with `-e`, so a failing check must not end the script before the
+        # SARIF run; the step still exits with the text run's status.
+        status=0
+        "$bin/jsonvet" "${args[@]}" -- "${files[@]}" || status=$?
         if [[ -n "$SARIF" ]]; then
           # A second run, so the log and the annotations come from the text format.
-          "$bin/jsonvet" --format sarif "${args[@]}" -- "${files[@]}" > "$SARIF"
+          "$bin/jsonvet" --format sarif "${args[@]}" -- "${files[@]}" > "$SARIF" || true
         fi
         exit "$status"
