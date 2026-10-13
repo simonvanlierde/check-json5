@@ -30,4 +30,4 @@ jobs:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |-
           git push "https://oauth2:${GITLAB_TOKEN}@gitlab.com/simonvanlierde/check-json5.git" \
-            origin/main:refs/heads/main --tags
+            origin/main:refs/heads/main 'refs/tags/v*:refs/tags/v*'
