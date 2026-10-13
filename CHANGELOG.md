@@ -8,6 +8,11 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+### Fixed
+
+- In JWCC (HuJSON) files, a `//` comment ends only at a line feed, as the JWCC text says. A lone
+  carriage return no longer ends it, so `[1, // c` + CR + `2]` fails as it should.
+
 ## [2.0.0] - 2026-10-13
 
 check-json5 is now **jsonvet**, rewritten in Rust. It gives the same pass or fail as 1.4.1 for
