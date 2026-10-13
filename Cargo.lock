@@ -202,7 +202,6 @@ version = "2.0.0"
 dependencies = [
  "jsonvet",
  "lexopt",
- "serde",
  "toml",
 ]
 

@@ -219,9 +219,17 @@ fn pyproject_tool_table_and_bad_configs() {
         ),
         ("d.json", "{\"a\": 1, \"a\": 2}"),
         ("bad.toml", "rules = { nope = \"error\" }\n"),
+        (
+            "bad-entry.toml",
+            "dialects = [{ files = \"*\", dialect = \"json\", dialekt = \"json5\" }]\n",
+        ),
     ]);
     assert_eq!(jsonvet(&dir, &["d.json"]), (0, String::new()));
     assert_eq!(jsonvet(&dir, &["--config", "bad.toml", "d.json"]).0, 2);
+    assert_eq!(
+        jsonvet(&dir, &["--config", "bad-entry.toml", "d.json"]).0,
+        2
+    );
 
     let typo = workdir(&[
         (

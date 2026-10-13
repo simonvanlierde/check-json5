@@ -1,12 +1,11 @@
 //! What to check for each file: the dialect patterns and rule severities from the config file
 //! and the command line, in that order, so the command line wins.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use jsonvet::{Config, Dialect, Rule, Severity};
-use serde::Deserialize;
+use toml::{Table, Value};
 
 use crate::glob;
 
@@ -85,33 +84,6 @@ impl Settings {
     }
 }
 
-/// The `jsonvet.toml` file, or the `[tool.jsonvet]` table of a `pyproject.toml`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileSettings {
-    #[serde(default)]
-    rules: BTreeMap<String, String>,
-    #[serde(default)]
-    dialects: Vec<FileDialectEntry>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileDialectEntry {
-    files: String,
-    dialect: String,
-}
-
-#[derive(Deserialize)]
-struct PyProject {
-    tool: Option<PyProjectTool>,
-}
-
-#[derive(Deserialize)]
-struct PyProjectTool {
-    jsonvet: Option<FileSettings>,
-}
-
 /// The config file for a run started in `start`: the first `jsonvet.toml`, or `pyproject.toml`
 /// with a `[tool.jsonvet]` table, in `start` and its parents. The search stops at the first
 /// directory with a `.git` entry, so a file above the repository is never used.
@@ -135,7 +107,7 @@ pub(crate) fn discover(start: &Path) -> Option<PathBuf> {
 /// Whether a `pyproject.toml` has a `[tool.jsonvet]` table, valid or not: `load` then reports
 /// what is wrong with it, rather than the search skipping a table with a typo.
 fn has_jsonvet_table(text: &str) -> bool {
-    match toml::from_str::<toml::Table>(text) {
+    match text.parse::<Table>() {
         Ok(table) => table
             .get("tool")
             .and_then(|tool| tool.get("jsonvet"))
@@ -144,32 +116,77 @@ fn has_jsonvet_table(text: &str) -> bool {
     }
 }
 
-/// Read a config file.
+/// Read a config file: a `jsonvet.toml`, or the `[tool.jsonvet]` table of a `pyproject.toml`.
+/// It holds `rules`, a table of rule id to severity, and `dialects`, an array of tables with a
+/// `files` glob and a `dialect`. Any other key is an error, so a typo is never ignored.
 pub(crate) fn load(path: &Path) -> Result<Settings, String> {
     let in_file = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
     let text = fs::read_to_string(path).map_err(|e| in_file(&e))?;
-    let at = |e: toml::de::Error| in_file(&e.message());
+    let table: Table = text
+        .parse()
+        .map_err(|e: toml::de::Error| in_file(&e.message()))?;
     let file = if path.file_name().is_some_and(|n| n == "pyproject.toml") {
-        toml::from_str::<PyProject>(&text)
-            .map_err(at)?
-            .tool
-            .and_then(|t| t.jsonvet)
-            .ok_or_else(|| in_file(&"no [tool.jsonvet] table"))?
+        match table.get("tool").and_then(|tool| tool.get("jsonvet")) {
+            Some(Value::Table(file)) => file,
+            Some(_) => return Err(in_file(&"`tool.jsonvet` must be a table")),
+            None => return Err(in_file(&"no [tool.jsonvet] table")),
+        }
     } else {
-        toml::from_str::<FileSettings>(&text).map_err(at)?
+        &table
     };
     let mut settings = Settings::default();
-    for (id, severity) in &file.rules {
-        let rule: Rule = id.parse().map_err(|e| in_file(&e))?;
-        let severity = parse_severity(severity).map_err(|e| in_file(&e))?;
-        settings.rules.push((rule, severity));
-    }
-    for entry in file.dialects {
-        let dialect = parse_dialect(&entry.dialect).map_err(|e| in_file(&e))?;
-        settings.dialects.push(DialectPattern {
-            files: Some(entry.files),
-            dialect,
-        });
+    for (key, value) in file {
+        match (key.as_str(), value) {
+            ("rules", Value::Table(rules)) => {
+                for (id, severity) in rules {
+                    let rule: Rule = id.parse().map_err(|e| in_file(&e))?;
+                    let severity = severity
+                        .as_str()
+                        .ok_or_else(|| in_file(&format!("`rules.{id}` must be a string")))?;
+                    let severity = parse_severity(severity).map_err(|e| in_file(&e))?;
+                    settings.rules.push((rule, severity));
+                }
+            }
+            ("dialects", Value::Array(entries)) => {
+                for entry in entries {
+                    settings
+                        .dialects
+                        .push(dialect_entry(entry).map_err(|e| in_file(&e))?);
+                }
+            }
+            ("rules", _) => return Err(in_file(&"`rules` must be a table")),
+            ("dialects", _) => return Err(in_file(&"`dialects` must be an array of tables")),
+            _ => {
+                return Err(in_file(&format!(
+                    "unknown key `{key}`; expected rules or dialects"
+                )));
+            }
+        }
     }
     Ok(settings)
+}
+
+/// One `dialects` entry: a table with exactly a `files` string and a `dialect` string.
+fn dialect_entry(entry: &Value) -> Result<DialectPattern, String> {
+    let entry = entry
+        .as_table()
+        .ok_or("each `dialects` entry must be a table")?;
+    if let Some(key) = entry
+        .keys()
+        .find(|k| !matches!(k.as_str(), "files" | "dialect"))
+    {
+        return Err(format!(
+            "unknown key `{key}` in a `dialects` entry; expected files and dialect"
+        ));
+    }
+    let string = |key: &str| {
+        entry
+            .get(key)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("each `dialects` entry needs a `{key}` string"))
+    };
+    Ok(DialectPattern {
+        files: Some(string("files")?.to_owned()),
+        dialect: parse_dialect(string("dialect")?)?,
+    })
 }
