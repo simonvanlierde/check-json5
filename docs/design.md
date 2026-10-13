@@ -191,7 +191,8 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
 2. The differential run shows no unexplained difference from 1.4.
 3. Every fuzz target runs until an hour passes with no new coverage, and none crashes. Bugs
    so far turned up in a run's first minutes, and coverage flattens soon after, so more hours
-   mostly retest covered paths. After the merge, the nightly workflow keeps fuzzing.
+   mostly retest covered paths. After the merge, the fuzz workflow runs after each parser change
+   and weekly, on a corpus it keeps between runs.
 4. The placeholder installs and runs under pre-commit and prek on Linux, macOS and Windows.
 5. A committed hyperfine table against 1.4, including the large JSONC files where 1.4 comes close.
 6. The README leads with the contract; the changelog lists every Breaking change.

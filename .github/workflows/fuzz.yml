@@ -1,10 +1,14 @@
 name: fuzz
 
-# Each night, every cargo-fuzz target runs for 20 minutes (see docs/design.md). A crashing input is
-# kept as an artifact.
+# Every cargo-fuzz target runs for 20 minutes after a merge that changes the parser, and once a
+# week (see docs/design.md). The corpus is cached between runs, so each run goes on where the last
+# one stopped. A crashing input is kept as an artifact.
 on:
+  push:
+    branches: [main]
+    paths: ["crates/jsonvet/src/**", "fuzz/**", ".github/workflows/fuzz.yml"]
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -29,13 +33,24 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-fuzz
-      - name: Seed the corpus from json5-tests
+      # No secrets or publishing here, so a cache written by any run is safe to restore.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Seed the corpus from json5-tests, failing cases included
         run: |
           mkdir -p "fuzz/corpus/$TARGET"
-          find tests/json5-tests -name '*.json*' -exec cp {} "fuzz/corpus/$TARGET/" \;
+          find tests/json5-tests -type f \( -name '*.json*' -o -name '*.js' -o -name '*.txt' \) \
+            -exec cp {} "fuzz/corpus/$TARGET/" \;
         env:
           TARGET: ${{ matrix.target }}
-      - run: cargo +nightly fuzz run -O "$TARGET" -- -max_total_time=1200 -print_final_stats=1
+      # The installed cargo-fuzz is a musl build, and builds for its own target unless told
+      # otherwise; the address sanitizer needs the runner's glibc target.
+      - run: >-
+          cargo +nightly fuzz run -O --target x86_64-unknown-linux-gnu "$TARGET" --
+          -max_total_time=1200 -print_final_stats=1
         working-directory: fuzz
         env:
           TARGET: ${{ matrix.target }}
