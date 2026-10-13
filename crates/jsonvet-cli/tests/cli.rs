@@ -229,3 +229,73 @@ fn pyproject_tool_table_and_bad_configs() {
     ]);
     assert_eq!(jsonvet(&typo, &["d.json"]).0, 2);
 }
+
+#[test]
+fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
+    let dir = workdir(&[
+        ("dup.json", "{\n  \"a\": 1,\n  \"a\": 2\n}"),
+        ("bom.json", "\u{FEFF}{}"),
+        ("ok.json", "{}"),
+    ]);
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(args)
+            .current_dir(&dir)
+            // SARIF replaces the workflow annotations, even in GitHub Actions.
+            .env("GITHUB_ACTIONS", "true")
+            .output()
+            .expect("run jsonvet");
+        let sarif: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON output");
+        (out.status.code().expect("an exit code"), sarif)
+    };
+
+    let (code, sarif) = run(&["--format", "sarif", "dup.json", "gone.json", "ok.json"]);
+    assert_eq!(code, 1);
+    assert_eq!(sarif["version"], "2.1.0");
+    assert_eq!(
+        sarif["$schema"],
+        "https://json.schemastore.org/sarif-2.1.0.json"
+    );
+    let run0 = &sarif["runs"][0];
+    assert_eq!(run0["tool"]["driver"]["name"], "jsonvet");
+    assert_eq!(run0["tool"]["driver"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        run0["tool"]["driver"]["rules"].as_array().map(Vec::len),
+        Some(7)
+    );
+    assert_eq!(run0["columnKind"], "unicodeCodePoints");
+    let results = run0["results"].as_array().expect("results");
+    assert_eq!(results.len(), 2);
+    let dup = &results[0];
+    assert_eq!(dup["ruleId"], "duplicate-key");
+    assert_eq!(dup["level"], "error");
+    assert_eq!(dup["message"]["text"], "duplicate key $.a (first at 2:3)");
+    let at = &dup["locations"][0]["physicalLocation"];
+    assert_eq!(at["artifactLocation"]["uri"], "dup.json");
+    assert_eq!(at["artifactLocation"]["uriBaseId"], "%SRCROOT%");
+    assert_eq!(at["region"]["startLine"], 3);
+    assert_eq!(at["region"]["startColumn"], 3);
+    let first = &dup["relatedLocations"][0];
+    assert_eq!(first["message"]["text"], "first copy");
+    assert_eq!(first["physicalLocation"]["region"]["startLine"], 2);
+    assert_eq!(first["physicalLocation"]["region"]["startColumn"], 3);
+    assert_eq!(results[1]["ruleId"], "unreadable");
+    assert_eq!(results[1]["message"]["text"], "no such file");
+
+    // A warning passes unless --max-warnings says otherwise, as with text output.
+    let (code, sarif) = run(&["--format=sarif", "--strict", "*.json", "bom.json"]);
+    assert_eq!(code, 0);
+    assert_eq!(sarif["runs"][0]["results"][0]["level"], "warning");
+    let args = [
+        "--format=sarif",
+        "--strict",
+        "*.json",
+        "--max-warnings",
+        "0",
+        "bom.json",
+    ];
+    assert_eq!(run(&args).0, 1);
+    let (code, sarif) = run(&["--format", "sarif", "ok.json"]);
+    assert_eq!(code, 0);
+    assert_eq!(sarif["runs"][0]["results"], serde_json::json!([]));
+}

@@ -87,7 +87,9 @@ Every problem belongs to a rule. Each rule has a default severity per dialect. `
 | `missing-final-newline` | a JSON Lines file without a final newline | warning in `jsonl` |
 
 Warnings don't fail a run unless `--max-warnings N` is exceeded. In GitHub Actions each problem is
-also printed as a `::warning` or `::error` annotation.
+also printed as a `::warning` or `::error` annotation. `--format sarif` prints one SARIF 2.1.0
+document instead, with no annotations; its JSON is written by hand, to keep serde_json out of the
+binary.
 
 Output:
 

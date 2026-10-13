@@ -75,6 +75,7 @@ Warnings don't fail a run unless there are more than `--max-warnings N`.
 --strict GLOB              the same as --dialect json:GLOB, kept from check-json5
 --error RULE, --warn RULE, --ignore RULE
 --max-warnings N
+--format text|sarif        text lines (the default), or one SARIF 2.1.0 document on stdout
 --config FILE, --no-config
 ```
 
@@ -97,6 +98,19 @@ dialects = [
 ```
 
 Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.
+
+## GitHub code scanning
+
+`--format sarif` prints one [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/)
+document instead of text lines, which GitHub code scanning and other tools read. Each problem is a
+result with its rule, severity, message and position, and a duplicate key also points at the
+first copy. A file jsonvet cannot read is a result of its own, under the rule `unreadable`. The
+exit status and `--max-warnings` work as with text output, and no workflow annotations are
+printed.
+
+```bash
+jsonvet --format sarif $(git ls-files '*.json') > jsonvet.sarif
+```
 
 ## Other ways to run it
 

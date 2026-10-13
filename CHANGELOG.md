@@ -8,6 +8,12 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+### Added
+
+- `--format sarif` prints one SARIF 2.1.0 document instead of text lines, for GitHub code
+  scanning. A duplicate key also points at its first copy, and a file that cannot be read is a
+  result under the rule `unreadable`. Exit codes and `--max-warnings` work as before.
+
 ## [2.0.0] - 2026-10-13
 
 check-json5 is now **jsonvet**, rewritten in Rust. It gives the same pass or fail as 1.4.1 for

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use jsonvet::Rule;
 use lexopt::prelude::*;
 
+use crate::output::Format;
 use crate::settings::{DialectPattern, Settings, parse_severity};
 
 pub(crate) const HELP: &str = "\
@@ -23,6 +24,8 @@ Options:
       --warn RULE               Report RULE as a warning.
       --ignore RULE             Do not check RULE.
       --max-warnings N          Fail when there are more than N warnings.
+      --format FORMAT           Print problems as text (the default) or as one SARIF 2.1.0
+                                document, for GitHub code scanning.
       --config FILE             Read settings from FILE instead of searching for one.
       --no-config               Do not read a settings file.
   -h, --help                    Print this help.
@@ -50,6 +53,7 @@ pub(crate) struct Args {
     pub(crate) settings: Settings,
     pub(crate) max_warnings: Option<usize>,
     pub(crate) config: ConfigSource,
+    pub(crate) format: Format,
 }
 
 #[derive(Debug)]
@@ -65,6 +69,7 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
     let mut settings = Settings::default();
     let mut max_warnings = None;
     let mut config = ConfigSource::Search;
+    let mut format = Format::Text;
     while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
         match arg {
             Long("dialect") => settings
@@ -88,6 +93,13 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
                     n.parse()
                         .map_err(|_| format!("--max-warnings takes a number, not `{n}`"))?,
                 );
+            }
+            Long("format") => {
+                format = match value(&mut parser)?.as_str() {
+                    "text" => Format::Text,
+                    "sarif" => Format::Sarif,
+                    other => return Err(format!("--format takes text or sarif, not `{other}`")),
+                }
             }
             Long("config") => config = ConfigSource::File(PathBuf::from(value(&mut parser)?)),
             Long("no-config") => config = ConfigSource::None,
@@ -119,6 +131,7 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
         settings,
         max_warnings,
         config,
+        format,
     }))
 }
 
@@ -145,7 +158,7 @@ fn joined(option: &str, separator: &str, rest: &OsString) -> OsString {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, ConfigSource, parse};
+    use super::{Command, ConfigSource, Format, parse};
     use jsonvet::{Rule, Severity};
 
     fn check(args: &[&str]) -> super::Args {
@@ -194,6 +207,7 @@ mod tests {
             "--max-warnings",
             "3",
             "--no-config",
+            "--format=sarif",
             "x.jsonc",
         ]);
         assert_eq!(
@@ -202,6 +216,9 @@ mod tests {
         );
         assert_eq!(args.max_warnings, Some(3));
         assert_eq!(args.config, ConfigSource::None);
+        assert_eq!(args.format, Format::Sarif);
+        assert_eq!(check(&["x.json"]).format, Format::Text);
+        assert!(parse(["--format", "json"].iter().map(Into::into)).is_err());
         assert!(parse(["--error", "nope"].iter().map(Into::into)).is_err());
         assert!(parse(["--dialect", "yaml"].iter().map(Into::into)).is_err());
         assert!(parse(["--strict"].iter().map(Into::into)).is_err());

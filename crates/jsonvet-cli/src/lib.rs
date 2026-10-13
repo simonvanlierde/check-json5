@@ -10,6 +10,7 @@ use jsonvet::Severity;
 mod args;
 mod glob;
 mod output;
+mod sarif;
 mod settings;
 
 use args::{Command, ConfigSource};
@@ -60,7 +61,7 @@ fn run_with(
     };
     let settings = from_file.overridden_by(args.settings);
 
-    let mut printer = Printer { out, annotate };
+    let mut printer = Printer::new(out, args.format, annotate);
     let (mut failed, mut warnings) = (false, 0usize);
     for file in &args.files {
         let result = check_file(file, &settings, &mut printer)
@@ -69,8 +70,7 @@ fn run_with(
         warnings += result.warnings;
     }
     printer
-        .out
-        .flush()
+        .finish()
         .map_err(|e| format!("cannot write output: {e}"))?;
     let too_many_warnings = args.max_warnings.is_some_and(|max| warnings > max);
     Ok(u8::from(failed || too_many_warnings))
