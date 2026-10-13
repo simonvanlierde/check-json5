@@ -50,6 +50,13 @@ fn syntax_in_every_dialect() {
         (Json5, "{,}"),
         (Json, "{a: 1}"),
         (Json5, "{a: 1, $b: 2, _c: 3, ünï: 4}"),
+        // Identifier characters go by general category, as in ECMAScript 5.1, not by Unicode's
+        // ID_Start and ID_Continue: U+1885 is a mark, U+00B7 punctuation, U+0E33 and U+2E2F letters.
+        (Json5, "{\u{1885}: 1}"),
+        (Json5, "{\\u1885: 1}"),
+        (Json5, "{a\u{1885}: 1}"),
+        (Json5, "{a\u{B7}: 1}"),
+        (Json5, "{\u{E33}: 1, \u{2E2F}: 2}"),
         (Json, "['x']"),
         (Json5, "['x', \"y\"]"),
         (Json, "// c\n1"),

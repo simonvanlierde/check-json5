@@ -385,7 +385,7 @@ impl<'a> Parser<'a> {
 
     fn identifier_start(&self, at: usize) -> bool {
         let c = self.char_at(at);
-        c == '$' || c == '_' || c == '\\' || unicode_ident::is_xid_start(c)
+        c == '\\' || is_identifier_start(c)
     }
 
     /// A JSON5 identifier key, decoded.
@@ -418,13 +418,9 @@ impl<'a> Parser<'a> {
                 (c, c.len_utf8())
             };
             let fits = if first {
-                c == '$' || c == '_' || unicode_ident::is_xid_start(c)
+                is_identifier_start(c)
             } else {
-                c == '$'
-                    || c == '_'
-                    || c == '\u{200C}'
-                    || c == '\u{200D}'
-                    || unicode_ident::is_xid_continue(c)
+                is_identifier_part(c)
             };
             if !fits {
                 if first {
@@ -850,4 +846,42 @@ fn is_json5_space(c: char) -> bool {
 /// Unicode noncharacters: U+FDD0 to U+FDEF, and the last two code points of every plane.
 fn is_noncharacter(code_point: u32) -> bool {
     (0xFDD0..=0xFDEF).contains(&code_point) || code_point & 0xFFFE == 0xFFFE
+}
+
+/// ECMAScript 5.1's `IdentifierStart` (section 7.6), which JSON5 identifiers follow: `$`, `_` or a
+/// letter by general category. Not Unicode's `ID_Start`, which adds and drops a few characters.
+fn is_identifier_start(c: char) -> bool {
+    use unicode_general_category::GeneralCategory::{
+        LetterNumber, LowercaseLetter, ModifierLetter, OtherLetter, TitlecaseLetter,
+        UppercaseLetter,
+    };
+    if c.is_ascii() {
+        return c.is_ascii_alphabetic() || c == '$' || c == '_';
+    }
+    matches!(
+        unicode_general_category::get_general_category(c),
+        UppercaseLetter
+            | LowercaseLetter
+            | TitlecaseLetter
+            | ModifierLetter
+            | OtherLetter
+            | LetterNumber
+    )
+}
+
+/// ECMAScript 5.1's `IdentifierPart`: a start character, a combining mark, a decimal digit, a
+/// connector punctuation, ZWNJ or ZWJ.
+fn is_identifier_part(c: char) -> bool {
+    use unicode_general_category::GeneralCategory::{
+        ConnectorPunctuation, DecimalNumber, NonspacingMark, SpacingMark,
+    };
+    if c.is_ascii() {
+        return c.is_ascii_alphanumeric() || c == '$' || c == '_';
+    }
+    is_identifier_start(c)
+        || matches!(c, '\u{200C}' | '\u{200D}')
+        || matches!(
+            unicode_general_category::get_general_category(c),
+            NonspacingMark | SpacingMark | DecimalNumber | ConnectorPunctuation
+        )
 }

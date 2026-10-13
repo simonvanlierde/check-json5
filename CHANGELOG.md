@@ -44,6 +44,8 @@ until 3.0. To change anything else, switch to the `jsonvet` hook id.
   rejected them in files that used more of JSON5 than comments and trailing commas.
 - Nesting depth has no limit. 1.x failed JSON5 files nested about 60 levels deep.
 - Numbers of any length pass; 1.x capped integers at 1,000,000 digits.
+- A `\u` escape in an unquoted JSON5 key fails when the character it stands for could not appear
+  there literally, as in `{\u0301: 1}`. 1.x passed any escape.
 
 ## [1.4.1] - 2026-10-13
 

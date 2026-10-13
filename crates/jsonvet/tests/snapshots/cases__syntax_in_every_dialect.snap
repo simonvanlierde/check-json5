@@ -1,6 +1,6 @@
 ---
 source: crates/jsonvet/tests/cases.rs
-expression: "snapshot(&[(Json, \"\"), (Json, \"   \"), (Json, r#\"{\"a\": 1}\"#),\n(Json, \"[1, 2,]\"), (Jwcc, \"[1, 2,]\"), (Json, r#\"{\"a\": 1,}\"#), (Json, \"[,]\"),\n(Json5, \"[,]\"), (Json5, \"[1,,]\"), (Json5, \"{,}\"), (Json, \"{a: 1}\"),\n(Json5, \"{a: 1, $b: 2, _c: 3, ünï: 4}\"), (Json, \"['x']\"),\n(Json5, \"['x', \\\"y\\\"]\"), (Json, \"// c\\n1\"), (Jsonc, \"// c\\n1\"),\n(Jsonc, \"/* open\"), (Json, \"[1 2]\"), (Json, r#\"{\"a\" 1}\"#),\n(Json, r#\"{\"a\":1 \"b\":2}\"#), (Json, \"1 2\"), (Json, \"[1]x\"), (Json, \"nul\"),\n(Json, \"nux\"), (Json, \"nullx\"), (Json, \"NaN\"), (Json, \"-Infinity\"),\n(Json5, \"[NaN, +Infinity, -Infinity, +NaN]\"), (Json, \"01\"), (Json, \"1.\"),\n(Json, \".5\"), (Json, \"+1\"), (Json, \"0x1F\"),\n(Json5, \"[0x1F, -0x10, .5, 5., +1, 1e3, 1E-3]\"), (Json5, \"0x\"), (Json5, \"1e\"),\n(Json5, \".\"), (Json, \"-\"), (Json, \"\\\"abc\"), (Json, \"\\\"a\\nb\\\"\"),\n(Json, \"\\\"a\\tb\\\"\"), (Json5, \"\\\"a\\tb\\\"\"), (Json, r#\"\"\\q\"\"#),\n(Json5, r#\"\"\\q\"\"#), (Json5, r#\"\"\\1\"\"#), (Json5, r#\"\"\\9\"\"#),\n(Json5, r#\"\"\\01\"\"#), (Json5, r#\"\"\\0\"\"#), (Json5, r#\"\"\\x4\"\"#),\n(Json, r#\"\"\\u12x4\"\"#), (Json5, \"\\\"a\\\\\\nb\\\"\"), (Json5, \"\\\"\\u{2028}\\\"\"),\n(Json5, \"[1, // c\\u{2028} 2]\"), (Jsonc, \"[1, // c\\u{2028} 2]\"),\n(Json5, \"\\u{A0}[\\u{3000}1\\u{FEFF}]\\u{2029}\"), (Json, \"[\\u{A0}1]\"),])"
+expression: "snapshot(&[(Json, \"\"), (Json, \"   \"), (Json, r#\"{\"a\": 1}\"#),\n(Json, \"[1, 2,]\"), (Jwcc, \"[1, 2,]\"), (Json, r#\"{\"a\": 1,}\"#), (Json, \"[,]\"),\n(Json5, \"[,]\"), (Json5, \"[1,,]\"), (Json5, \"{,}\"), (Json, \"{a: 1}\"),\n(Json5, \"{a: 1, $b: 2, _c: 3, ünï: 4}\"), (Json5, \"{\\u{1885}: 1}\"),\n(Json5, \"{\\\\u1885: 1}\"), (Json5, \"{a\\u{1885}: 1}\"), (Json5, \"{a\\u{B7}: 1}\"),\n(Json5, \"{\\u{E33}: 1, \\u{2E2F}: 2}\"), (Json, \"['x']\"),\n(Json5, \"['x', \\\"y\\\"]\"), (Json, \"// c\\n1\"), (Jsonc, \"// c\\n1\"),\n(Jsonc, \"/* open\"), (Json, \"[1 2]\"), (Json, r#\"{\"a\" 1}\"#),\n(Json, r#\"{\"a\":1 \"b\":2}\"#), (Json, \"1 2\"), (Json, \"[1]x\"), (Json, \"nul\"),\n(Json, \"nux\"), (Json, \"nullx\"), (Json, \"NaN\"), (Json, \"-Infinity\"),\n(Json5, \"[NaN, +Infinity, -Infinity, +NaN]\"), (Json, \"01\"), (Json, \"1.\"),\n(Json, \".5\"), (Json, \"+1\"), (Json, \"0x1F\"),\n(Json5, \"[0x1F, -0x10, .5, 5., +1, 1e3, 1E-3]\"), (Json5, \"0x\"), (Json5, \"1e\"),\n(Json5, \".\"), (Json, \"-\"), (Json, \"\\\"abc\"), (Json, \"\\\"a\\nb\\\"\"),\n(Json, \"\\\"a\\tb\\\"\"), (Json5, \"\\\"a\\tb\\\"\"), (Json, r#\"\"\\q\"\"#),\n(Json5, r#\"\"\\q\"\"#), (Json5, r#\"\"\\1\"\"#), (Json5, r#\"\"\\9\"\"#),\n(Json5, r#\"\"\\01\"\"#), (Json5, r#\"\"\\0\"\"#), (Json5, r#\"\"\\x4\"\"#),\n(Json, r#\"\"\\u12x4\"\"#), (Json5, \"\\\"a\\\\\\nb\\\"\"), (Json5, \"\\\"\\u{2028}\\\"\"),\n(Json5, \"[1, // c\\u{2028} 2]\"), (Jsonc, \"[1, // c\\u{2028} 2]\"),\n(Json5, \"\\u{A0}[\\u{3000}1\\u{FEFF}]\\u{2029}\"), (Json, \"[\\u{A0}1]\"),])"
 ---
 json ""
        1:1 error[syntax] expected a value, found the end of the file
@@ -25,6 +25,16 @@ json5 "{,}"
 json "{a: 1}"
        1:2 error[syntax] unquoted keys are not allowed in json
 json5 "{a: 1, $b: 2, _c: 3, ünï: 4}"
+       ok
+json5 "{\u{1885}: 1}"
+       1:2 error[syntax] expected a key, found `ᢅ`
+json5 "{\\u1885: 1}"
+       1:2 error[syntax] expected a key, found `\`
+json5 "{a\u{1885}: 1}"
+       ok
+json5 "{a·: 1}"
+       1:3 error[syntax] expected `:`, found `·`
+json5 "{ำ: 1, ⸯ: 2}"
        ok
 json "['x']"
        1:2 error[syntax] single-quoted strings are not allowed in json
