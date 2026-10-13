@@ -9,6 +9,10 @@ fuzz_target!(|text: &str| {
     if serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok() {
         let config = Config::new(Dialect::Json).rule(Rule::DuplicateKey, Severity::Off);
         let report = check(text, &config);
-        assert!(report.passed(), "serde_json accepts {text:?}, jsonvet reports {:?}", report.problems());
+        assert!(
+            report.passed(),
+            "serde_json accepts {text:?}, jsonvet reports {:?}",
+            report.problems()
+        );
     }
 });

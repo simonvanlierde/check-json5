@@ -10,8 +10,14 @@ fuzz_target!(|text: &str| {
         let report = check(text, &Config::new(dialect));
         for problem in report.problems() {
             for offset in std::iter::once(problem.offset()).chain(problem.related_offset()) {
-                assert!(offset <= text.len(), "{dialect}: offset {offset} past the end");
-                assert!(text.is_char_boundary(offset), "{dialect}: offset {offset} inside a character");
+                assert!(
+                    offset <= text.len(),
+                    "{dialect}: offset {offset} past the end"
+                );
+                assert!(
+                    text.is_char_boundary(offset),
+                    "{dialect}: offset {offset} inside a character"
+                );
                 let at = report.location(offset);
                 assert!(at.line >= 1 && at.column >= 1);
             }

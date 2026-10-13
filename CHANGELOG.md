@@ -8,6 +8,43 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+check-json5 is now **jsonvet**, rewritten in Rust. It gives the same pass or fail as 1.4.1 for
+every file in JSON5 and strict mode: on 40,228 comparisons of the two, they agree on every one.
+
+Upgrade: set `rev:` to the new tag. The repository moved to `simonvanlierde/jsonvet`, and the old
+URL still works. The `check-json5` hook id, the `check-json5` command and `--strict` keep working
+until 3.0. To change anything else, switch to the `jsonvet` hook id.
+
+### Added
+
+- Dialects: `json`, `i-json`, `jsonc`, `jwcc` (HuJSON), `json5` and `jsonl` (JSON Lines), picked
+  by file extension or with `--dialect DIALECT[:GLOB]`. `.json` files stay JSON5 by default.
+- Rules with ids and severities: `syntax`, `duplicate-key`, `invalid-number`,
+  `invalid-code-point`, `byte-order-mark` and `missing-final-newline`, changed with `--error`,
+  `--warn` and `--ignore`, and `--max-warnings N`.
+- Settings in `jsonvet.toml`, or `[tool.jsonvet]` in `pyproject.toml`, found up to the
+  repository root.
+- A duplicate key's report gives the position of the first copy too.
+- The hook also checks `.jsonl` and `.ndjson` files.
+- The `jsonvet` Rust library and the `jsonvet-cli` crate.
+
+### Changed
+
+- **Breaking:** each output line gains the severity and rule, as in
+  `file:4:5: error[duplicate-key] duplicate key $.a (first at 2:5)`. Syntax errors use jsonvet's
+  own wording. GitHub annotations are `::error` or `::warning` by severity.
+- **Breaking:** lines end at every JSON5 line terminator (LF, CR, CRLF, U+2028 and U+2029), so
+  positions after a lone CR, U+2028 or U+2029 differ from 1.x.
+- **Breaking:** the importable Python module is gone. `python -m jsonvet` and
+  `python -m check_json5` still run the command. The `check-json5` package on PyPI now only
+  installs `jsonvet`.
+- The hook installs a prebuilt binary, from wheels for Linux, macOS and Windows on x86-64 and
+  arm64. It needs no Rust, and no longer starts Python on every run.
+- Raw U+2028 and U+2029 inside strings pass in every JSON5 file, as the spec allows. 1.x
+  rejected them in files that used more of JSON5 than comments and trailing commas.
+- Nesting depth has no limit. 1.x failed JSON5 files nested about 60 levels deep.
+- Numbers of any length pass; 1.x capped integers at 1,000,000 digits.
+
 ## [1.4.1] - 2026-10-13
 
 Upgrade: set `rev: v1.4.1`. Nothing else is needed.
@@ -114,12 +151,12 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 - Renamed from `pre-commit-check-json5` to `check-json5`.
 
-[Unreleased]: https://github.com/simonvanlierde/check-json5/compare/v1.4.1...HEAD
-[1.4.1]: https://github.com/simonvanlierde/check-json5/compare/v1.4.0...v1.4.1
-[1.4.0]: https://github.com/simonvanlierde/check-json5/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/simonvanlierde/check-json5/compare/v1.2.1...v1.3.0
-[1.2.1]: https://github.com/simonvanlierde/check-json5/compare/v1.2.0...v1.2.1
-[1.2.0]: https://github.com/simonvanlierde/check-json5/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/simonvanlierde/check-json5/compare/v1.0.1...v1.1.0
-[1.0.1]: https://github.com/simonvanlierde/check-json5/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/simonvanlierde/check-json5/releases/tag/v1.0.0
+[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.2.1...v1.3.0
+[1.2.1]: https://github.com/simonvanlierde/jsonvet/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/simonvanlierde/jsonvet/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/simonvanlierde/jsonvet/releases/tag/v1.0.0
