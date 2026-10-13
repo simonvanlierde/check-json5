@@ -416,3 +416,26 @@ def test_numbers_past_the_digit_cap_fail_cleanly(
     long.write_text("[" + "1" * 6000 + "]")
     assert main([str(long)]) == 1
     assert f"{long}: a number has more than 5,000 digits" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # NaN or Infinity running on into other text once passed strict mode.
+        ("[NaN-2.5e3", [(1, 2, "NaN is not valid in strict JSON")]),
+        ("Infinitynul }", [(1, 1, "Infinity is not valid in strict JSON")]),
+        ("[-Infinity1]", [(1, 2, "-Infinity is not valid in strict JSON")]),
+    ],
+)
+def test_strict_constants_that_touch_other_text(text: str, expected: list) -> None:
+    assert check(text, strict=True) == expected
+
+
+def test_strict_constant_the_scanner_cannot_place_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(check_json5_module, "_tokens", lambda _text: iter(()))
+    assert check("[NaN]", strict=True) == [(None, None, "NaN is not valid in strict JSON")]
+
+
+def test_unquoted_keys_compare_by_decoded_escapes() -> None:
+    assert check("{\\u0061: 1, 'a': 2}") == [(1, 13, "duplicate key $.a")]
+    assert check("{a\\u0062: 1, ab: 2}") == [(1, 14, "duplicate key $.ab")]
