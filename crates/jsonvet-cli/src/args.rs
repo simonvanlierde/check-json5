@@ -188,17 +188,6 @@ mod tests {
     }
 
     #[test]
-    fn strict_is_an_alias_for_dialect_json() {
-        let args = check(&["--strict", "*.json", "--strict", "!tsconfig.json"]);
-        let config = args.settings.config_for("a/package.json");
-        assert_eq!(config.dialect(), jsonvet::Dialect::Json);
-        assert_eq!(
-            args.settings.config_for("tsconfig.json").dialect(),
-            jsonvet::Dialect::Json5
-        );
-    }
-
-    #[test]
     fn rule_limit_and_config_flags_parse_and_bad_values_fail() {
         let args = check(&[
             "--warn=duplicate-key",

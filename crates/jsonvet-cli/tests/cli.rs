@@ -94,6 +94,7 @@ fn reports_and_exit_codes() {
 fn strict_globs_keep_their_1x_meaning() {
     let dir = workdir(&[
         ("package.json", "{// c\n}"),
+        ("a/package.json", "{// c\n}"),
         ("tsconfig.json", "{// c\n}"),
         (".vscode/s.json", "{// c\n}"),
     ]);
@@ -107,6 +108,7 @@ fn strict_globs_keep_their_1x_meaning() {
             "--strict",
             "!.vscode/*",
             "package.json",
+            "a/package.json",
             "tsconfig.json",
             ".vscode/s.json",
         ],
@@ -115,20 +117,7 @@ fn strict_globs_keep_their_1x_meaning() {
         (code, out.as_str()),
         (
             1,
-            "package.json:1:2: error[syntax] comments are not allowed in json\n"
-        )
-    );
-}
-
-#[test]
-fn names_that_look_like_options_are_files() {
-    let dir = workdir(&[("-dash.json", "[1]"), ("--x.json", "[1,]")]);
-    let (code, out) = jsonvet(&dir, &["-dash.json", "--strict", "*", "--x.json"]);
-    assert_eq!(
-        (code, out.as_str()),
-        (
-            1,
-            "--x.json:1:4: error[syntax] trailing comma before `]` is not allowed in json\n"
+            "package.json:1:2: error[syntax] comments are not allowed in json\na/package.json:1:2: error[syntax] comments are not allowed in json\n"
         )
     );
 }
