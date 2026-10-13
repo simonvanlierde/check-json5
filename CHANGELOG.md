@@ -8,6 +8,32 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+### Added
+
+- The hook also runs on Tailscale's `.hujson` and `.jwcc`, VS Code's `.code-workspace` and
+  `.code-snippets`, `.webmanifest` and `.babelrc` files: all JSON, some with comments.
+
+### Changed
+
+- The hook checks JSON with only comments and trailing commas, such as `tsconfig.json`, with the
+  C-speed `json` parser instead of `json5`. Whole hook runs are 11× faster on a 50 KB file and
+  56× faster on a 2 MB one. Files that use more of JSON5 still go through `json5`.
+- A number may have up to 1,000,000 digits. 1.3.0 lifted Python's limit of 4300 altogether,
+  which let one file with a huge number stall a run. A longer number now fails its file with a
+  message.
+
+### Fixed
+
+- A JSON5 file with comments and an unescaped U+2028 or U+2029 inside a string now passes, as
+  the JSON5 spec allows. The `json5` package rejected it; strict JSON files already passed.
+- A file with a duplicate key and an undecodable string after it crashed the run with a
+  traceback and left the remaining files unchecked. It now reports the duplicate.
+- A newline in a file name is printed as `\n`, so a file name can no longer inject a GitHub
+  Actions workflow command into CI output.
+- Checking a file with many duplicate keys took time that grew with the square of their
+  number. 200,000 duplicates took 42 s; they now take under a second.
+- `--strict` patterns match `./sub/a.json` like `sub/a.json`.
+
 ## [1.3.0] - 2026-10-13
 
 Upgrade: set `rev: v1.3.0`. Nothing else is needed for the hook. Only a script that parses the
@@ -25,10 +51,11 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 ### Changed
 
-- The output format: `f.json: Failed to json decode (<string>:4 Unexpected "," at column 8)` is
-  now `f.json:4:8: Unexpected ","`.
-- The module moved from `pre_commit_hooks.check_json5` to `check_json5.check_json5`, so the PyPI
-  package no longer collides with `pre-commit-hooks`. The `check-json5` command is unchanged.
+- **Breaking:** the output format changed. `f.json: Failed to json decode (<string>:4
+  Unexpected "," at column 8)` is now `f.json:4:8: Unexpected ","`.
+- **Breaking:** the module moved from `pre_commit_hooks.check_json5` to
+  `check_json5.check_json5`, so the PyPI package no longer collides with `pre-commit-hooks`. The
+  `check-json5` command is unchanged.
 - Tested on Python 3.15.
 
 ### Fixed
