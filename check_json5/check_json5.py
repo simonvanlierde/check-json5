@@ -77,7 +77,9 @@ _JSON5_ERROR = r"(?s)<string>:(\d+) (.*) at column (\d+)"
 # Strings are matched first and kept, so a "//" or "," inside one is left alone.
 _JSONC_COMMENT = rf"(?s)({_DOUBLE_QUOTED}|{_SINGLE_QUOTED})|{_LINE_COMMENT}|{_BLOCK_COMMENT}"
 _JSONC_COMMA = rf"(?s)({_DOUBLE_QUOTED})|,(?=\s*[}}\]])"
-_CONSTANTS = frozenset({"NaN", "Infinity", "-Infinity"})
+# Longest first, so `-Infinity` is not read as `Infinity`.
+_CONSTANTS = ("-Infinity", "Infinity", "NaN")
+_IDENTIFIER_ESCAPE = r"\\u([0-9a-fA-F]{4})"
 
 # Python caps int literals at 4300 digits, which fails valid JSON with a long number. No cap at
 # all lets one file stall a run: 4 million digits take about 3 s, growing faster than the size.
@@ -138,6 +140,21 @@ def _decoded(literal: str, decode: Callable[[str], Any]) -> str:
         return literal
 
 
+def _identifier(literal: str) -> str:
+    r"""An unquoted JSON5 key with its `\uXXXX` escapes decoded, so `\u0061` and `a` are one key."""
+    if "\\u" not in literal:
+        return literal
+    return re.sub(_IDENTIFIER_ESCAPE, lambda m: chr(int(m[1], 16)), literal)
+
+
+def _constant(token: str) -> str | None:
+    """The NaN or Infinity a bare token starts with.
+
+    json stops at the constant, so the token can run on into other text, as in `NaN-2.5e3`.
+    """
+    return next((c for c in _CONSTANTS if token.startswith(c)), None)
+
+
 def _duplicates(text: str, decode: Callable[[str], Any]) -> list[tuple[int, str]]:
     """Offset and JSONPath of every key that repeats an earlier key of the same object."""
     found: list[tuple[int, str]] = []
@@ -157,7 +174,7 @@ def _duplicates(text: str, decode: Callable[[str], Any]) -> list[tuple[int, str]
         elif tok == "," and not top.is_object:
             top.index += 1
         elif tok == ":" and top.is_object:
-            key = _decoded(prev[1], decode) if prev[0] == "str" else prev[1]
+            key = _decoded(prev[1], decode) if prev[0] == "str" else _identifier(prev[1])
             if key in top.seen:
                 found.append((prev[2], _member(top.path, key)))
             top.seen.add(key)
@@ -225,8 +242,14 @@ def _check_json(text: str, *, strict: bool) -> list[Problem] | None:
         json.loads(text, object_pairs_hook=raise_duplicate_keys, parse_constant=_reject_constant if strict else None)
     except DuplicateKeyError as exc:
         return _duplicate_problems(text, json.loads, exc)
-    except NonStandardConstantError:
-        found = [(offset, tok) for kind, tok, offset in _tokens(text) if kind == "bare" and tok in _CONSTANTS]
+    except NonStandardConstantError as exc:
+        found = [
+            (offset, constant)
+            for kind, tok, offset in _tokens(text)
+            if kind == "bare" and (constant := _constant(tok)) is not None
+        ]
+        if not found:  # the scanner missed what the parser saw: still fail, just without a place
+            return [(None, None, f"{exc.args[0]} is not valid in strict JSON")]
         places = _positions(text, (offset for offset, _ in found))
         return [
             (line, col, f"{tok} is not valid in strict JSON")

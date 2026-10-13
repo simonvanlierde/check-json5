@@ -25,7 +25,7 @@
   name            = "check-json5"
   readme          = "README.md"
   requires-python = ">=3.10"
-  version         = "1.4.0"
+  version         = "1.4.1"
 
   [project.urls]
     Changelog = "https://github.com/simonvanlierde/check-json5/blob/main/CHANGELOG.md"
