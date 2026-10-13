@@ -9,12 +9,9 @@
 
 A [pre-commit](https://pre-commit.com/) hook that checks whether `.json` files parse as
 [JSON5](https://json5.org/) (JSON with comments, trailing commas, and more). It replaces the
-standard `check-json` hook. It accepts JSON5 too, and it still parses ordinary JSON with the fast
-C parser.
+standard `check-json` hook, which rejects any comment, and it still parses ordinary JSON with the
+fast C parser.
 
-## Features
-
-- Accepts JSON5 syntax (comments, trailing commas) that the standard `check-json` hook rejects.
 - Every failure names its place, as `file:line:col: message`, so editors and terminals link
   straight to it. A duplicate key also gets its path, and every repeat in a file is listed:
 
@@ -24,17 +21,11 @@ C parser.
   ```
 
 - On GitHub Actions, each failure is also an annotation on the line of the pull request diff.
-- `--strict GLOB` holds chosen files to strict JSON (no comments, trailing commas or `NaN`), for
-  files that a JSON parser reads at runtime, such as `package.json`.
-- It's fast. Strict JSON, and JSON that adds only comments and trailing commas, go through the
-  C-speed stdlib `json` parser. Only files that use more of JSON5 (single quotes, unquoted keys,
-  hex numbers) fall back to the pure-Python `json5` parser. See [Performance](#performance).
 - Accepts `NaN` and `Infinity` (both parsers allow them) unless `--strict` covers the file.
 
-## Links
-
-- 🐙 [GitHub (main)](https://github.com/simonvanlierde/check-json5)
-- 🦊 [GitLab (mirror)](https://gitlab.com/simonvanlierde/check-json5)
+Source on [GitHub](https://github.com/simonvanlierde/check-json5), mirrored on
+[GitLab](https://gitlab.com/simonvanlierde/check-json5). Release notes are in the
+[CHANGELOG](CHANGELOG.md).
 
 ## Usage
 
@@ -54,43 +45,25 @@ JSON5 and has no duplicate keys. The hook picks files by name: `.json`, `.jsonc`
 so after the swap files such as `.ipynb` notebooks are no longer checked. If you need them, add
 them with `files:`.
 
-### Strict files
-
 Some tools read their JSON files with a strict parser: a comment in `package.json` passes a JSON5
-check and then breaks `npm`. Name those files with `--strict`. Each pattern matches the file name
-at any depth, or the whole path when it contains a `/`. `*` also matches across `/`. A leading `!`
-exempts files, and the last matching pattern wins:
+check and then breaks `npm`. Name those files with `--strict` to hold them to strict JSON (no
+comments, trailing commas or `NaN`). Each pattern matches the file name at any depth, or the whole
+path when it contains a `/`. `*` also matches across `/`. A leading `!` exempts files, and the
+last matching pattern wins:
 
 ```yaml
     - id: check-json5
       args: [--strict, "*.json", --strict, "!tsconfig*.json", --strict, "!.vscode/*"]
 ```
 
-### Without pre-commit
-
-The hook is also on PyPI as a command, so you can run it on its own:
-
-```bash
-uvx check-json5 --strict package.json config/*.json
-```
-
-## Introduction
-
-JSON5 is JSON that also allows comments, trailing commas, and more. It looks like "JSONC" (JSON
-with Comments), but unlike JSONC it has a real specification. Many config files are really JSON5.
-The standard `check-json` hook rejects any comment, so it flags those files as invalid. This hook
-accepts them.
-
-The hook parses strict JSON with Python's fast built-in [`json`](https://docs.python.org/3/library/json.html)
-library, and also files that add only comments and trailing commas. Only files that use more of
-JSON5 fall back to the pure-Python [`json5`](https://pypi.org/project/json5/) library.
+The hook is also on PyPI as a command: `uvx check-json5 --strict package.json config/*.json`.
 
 ## Performance
 
-The pure-Python `json5` parser is slow on large files. Most `.json` files are strict JSON, and
-most of the rest add only comments and trailing commas. The hook parses both kinds with the
-C-speed stdlib `json` parser. It falls back to `json5` only for files that use more of JSON5
-(single quotes, unquoted keys, hex numbers). Every one of these paths finds duplicate keys.
+Strict JSON, and JSON that adds only comments and trailing commas, go through the C-speed stdlib
+`json` parser. Only files that use more of JSON5 (single quotes, unquoted keys, hex numbers) fall
+back to the pure-Python [`json5`](https://pypi.org/project/json5/) parser, which is slow on large
+files. Every path finds duplicate keys.
 
 Time for one hook call per file (strict JSON, taking the fast path), best of 10 runs of
 `uv run python scripts/bench.py` on 2026-10-11 (Intel i9-14900KF, Linux, Python 3.13.7, json5 0.15.0,
@@ -103,20 +76,13 @@ load average 1.5):
 | 483 KB    | 1.3 s                 | 1.8 ms            | ~750×   |
 | 2 MB      | 5.4 s                 | 7.7 ms            | ~700×   |
 
-The script generates its fixture files in a temporary directory, so nothing large is committed.
 Timings vary between runs by up to 2× on a loaded machine. The 1 KB fast-path time is close to
 the timer's resolution, so its speed-up ranged from ~80× to ~100× across runs.
 
-To time whole hook runs instead, run `bash scripts/bench.sh` (needs
-[hyperfine](https://github.com/sharkdp/hyperfine)). It times the hook against the `json5` parser
-on 50 KB, 500 KB and 2 MB files and prints one table. `--quick` times the 50 KB file once. Each
-run includes about 12 ms of Python startup, so its speed-ups are smaller than the ones above.
-
-Most `tsconfig.json` and `.vscode/settings.json` files use comments or trailing commas and
-nothing else from JSON5. The hook turns their comments into spaces, drops their trailing commas,
-and parses the result with the same C parser. `bash scripts/bench.sh --jsonc` times whole hook
-runs on such files against the `json5` parser alone (2026-10-13, Intel i9-14900KF, Linux, Python
-3.13, json5 0.15.0, one pinned core, load average 2.5):
+`bash scripts/bench.sh --jsonc` (needs [hyperfine](https://github.com/sharkdp/hyperfine)) times
+whole hook runs on files with only comments and trailing commas, such as most `tsconfig.json` and
+`.vscode/settings.json` files, against the `json5` parser alone (2026-10-13, Intel i9-14900KF,
+Linux, Python 3.13, json5 0.15.0, one pinned core, load average 2.5):
 
 | JSONC file | `json5` alone | Hook   | Speedup |
 | ---------- | ------------- | ------ | ------- |
@@ -126,13 +92,12 @@ runs on such files against the `json5` parser alone (2026-10-13, Intel i9-14900K
 
 About 12 ms of each run is Python starting up. Files that need the `json5` parser are no faster.
 On tiny strict-JSON files the saving disappears next to that startup cost. It matters on large
-files and on repositories with many JSONC files.
+files and on repositories with many JSONC files. Without `--jsonc`, `scripts/bench.sh` times
+strict-JSON files of 50 KB, 500 KB and 2 MB, and `--quick` times the 50 KB file once.
 
 ## Development
 
-The project uses [uv](https://github.com/astral-sh/uv) for dependency management, `pytest` for
-tests, `ruff` and `ty` for lint and types, `pre-commit` for local checks, and GitHub Actions for
-CI with coverage reported to Codecov. CI runs the lint, format, type and test commands below. The
+CI runs the lint, format, type and test commands below, with coverage reported to Codecov. The
 last two install and run the hooks in your own checkout:
 
 ```bash
