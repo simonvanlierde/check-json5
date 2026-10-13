@@ -1,5 +1,6 @@
 use std::cell::{Cell, OnceCell};
 
+use crate::parse::line_separator_at;
 use crate::{Problem, Severity};
 
 /// The problems found in one text, in document order.
@@ -89,12 +90,7 @@ fn line_starts(text: &str) -> Vec<usize> {
                 continue;
             }
             b'\n' | b'\r' => starts.push(at + 1),
-            // U+2028 and U+2029 are E2 80 A8 and E2 80 A9 in UTF-8.
-            _ if bytes.get(at + 1) == Some(&0x80)
-                && matches!(bytes.get(at + 2), Some(0xA8 | 0xA9)) =>
-            {
-                starts.push(at + 3);
-            }
+            _ if line_separator_at(bytes, at) => starts.push(at + 3),
             _ => {}
         }
         i = at + 1;

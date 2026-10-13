@@ -14,6 +14,18 @@ const LINEAR_KEYS: usize = 16;
 /// The largest integer a double holds exactly: 2⁵³ − 1.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
+/// `MAX_SAFE_INTEGER` has 16 decimal digits, so an integer with more significant digits is past
+/// it without parsing.
+const SAFE_DECIMAL_DIGITS: usize = 16;
+
+/// `MAX_SAFE_INTEGER` has 14 hex digits (`1FFFFFFFFFFFFF`), so a hex integer with more
+/// significant digits is past it without parsing.
+const SAFE_HEX_DIGITS: usize = 14;
+
+/// A double rounds to infinity from 2¹⁰²⁴ − 2⁹⁷⁰: more than 256 hex digits, or 256 that start
+/// with thirteen `F`s and a digit from `C` up.
+const DOUBLE_HEX_DIGITS: usize = 256;
+
 pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
     let dialect = config.dialect();
     let mut parser = Parser {
@@ -178,7 +190,7 @@ impl<'a> Parser<'a> {
     }
 
     fn report(&mut self, offset: usize, severity: Severity, detail: Detail) {
-        if severity > Severity::Off {
+        if severity.is_on() {
             self.problems.push(Problem {
                 offset,
                 severity,
@@ -356,7 +368,7 @@ impl<'a> Parser<'a> {
 
     fn key(&mut self) -> Result<(), Fail> {
         let start = self.pos;
-        let decode = self.duplicates > Severity::Off;
+        let decode = self.duplicates.is_on();
         let key = match self.peek() {
             Some(b'"') => self.string(b'"', decode)?,
             Some(b'\'') if self.json5 => self.string(b'\'', decode)?,
@@ -503,7 +515,7 @@ impl<'a> Parser<'a> {
                         found: char::from(b),
                     }));
                 }
-                0x80.. if self.code_points > Severity::Off => {
+                0x80.. if self.code_points.is_on() => {
                     let c = self.char_at(self.pos);
                     if is_noncharacter(u32::from(c)) {
                         self.report(
@@ -607,17 +619,17 @@ impl<'a> Parser<'a> {
             return Err(self.fail(SyntaxKind::InvalidUnicodeEscape));
         };
         self.pos += 4;
-        let code_point = if (0xD800..0xDC00).contains(&unit)
+        let code_point = if is_high_surrogate(unit)
             && self.bytes.get(self.pos..self.pos + 2) == Some(b"\\u")
             && let Some(low) = self.hex(self.pos + 2, 4)
-            && (0xDC00..0xE000).contains(&low)
+            && is_low_surrogate(low)
         {
             self.pos += 6;
             0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00)
         } else {
             unit
         };
-        if (0xD800..0xE000).contains(&code_point) || is_noncharacter(code_point) {
+        if is_surrogate(code_point) || is_noncharacter(code_point) {
             self.report(
                 at,
                 self.code_points,
@@ -742,7 +754,7 @@ impl<'a> Parser<'a> {
     }
 
     fn check_decimal(&mut self, start: usize) {
-        if self.numbers == Severity::Off {
+        if !self.numbers.is_on() {
             return;
         }
         let text = &self.text[start..self.pos];
@@ -750,25 +762,23 @@ impl<'a> Parser<'a> {
         let integer = !text.contains(['.', 'e', 'E']);
         let digits = text.trim_start_matches(['+', '-']).trim_start_matches('0');
         let unsafe_integer = integer
-            && (digits.len() > 16 || digits.parse::<u64>().is_ok_and(|n| n > MAX_SAFE_INTEGER));
+            && (digits.len() > SAFE_DECIMAL_DIGITS
+                || digits.parse::<u64>().is_ok_and(|n| n > MAX_SAFE_INTEGER));
         if overflows || unsafe_integer {
             self.report(start, self.numbers, Detail::InvalidNumber { overflows });
         }
     }
 
     fn check_hex(&mut self, start: usize, digits: usize) {
-        if self.numbers == Severity::Off {
+        if !self.numbers.is_on() {
             return;
         }
         let digits = self.text[digits..self.pos].trim_start_matches('0');
-        // A double rounds to infinity from 2¹⁰²⁴ − 2⁹⁷⁰: more than 256 hex digits, or 256 that
-        // start with thirteen `F`s and a digit from `C` up. 14 or more digits, or 2⁵³ itself, is
-        // past the safe integer range.
         let top = digits.as_bytes().get(..14).map(<[u8]>::to_ascii_lowercase);
-        let overflows = digits.len() > 256
-            || (digits.len() == 256
+        let overflows = digits.len() > DOUBLE_HEX_DIGITS
+            || (digits.len() == DOUBLE_HEX_DIGITS
                 && top.is_some_and(|top| top[..13].iter().all(|&b| b == b'f') && top[13] >= b'c'));
-        let unsafe_integer = digits.len() > 14
+        let unsafe_integer = digits.len() > SAFE_HEX_DIGITS
             || u64::from_str_radix(digits, 16).is_ok_and(|n| n > MAX_SAFE_INTEGER);
         if overflows || unsafe_integer {
             self.report(start, self.numbers, Detail::InvalidNumber { overflows });
@@ -809,10 +819,8 @@ impl<'a> Parser<'a> {
         let mut from = self.pos + 2;
         while let Some(found) = memchr::memchr3(b'\n', b'\r', 0xE2, &self.bytes[from..]) {
             let at = from + found;
-            let separator = self.bytes[at] != 0xE2
-                || (self.json5
-                    && self.bytes.get(at + 1) == Some(&0x80)
-                    && matches!(self.bytes.get(at + 2), Some(0xA8 | 0xA9)));
+            let separator =
+                self.bytes[at] != 0xE2 || (self.json5 && line_separator_at(self.bytes, at));
             if separator {
                 self.pos = at;
                 return;
@@ -857,9 +865,29 @@ fn is_json5_space(c: char) -> bool {
     )
 }
 
+/// Whether U+2028 or U+2029 starts at `at`. In UTF-8 they are `E2 80 A8` and `E2 80 A9`.
+pub(crate) fn line_separator_at(bytes: &[u8], at: usize) -> bool {
+    matches!(bytes.get(at..at + 3), Some([0xE2, 0x80, 0xA8 | 0xA9]))
+}
+
 /// Unicode noncharacters: U+FDD0 to U+FDEF, and the last two code points of every plane.
 fn is_noncharacter(code_point: u32) -> bool {
     (0xFDD0..=0xFDEF).contains(&code_point) || code_point & 0xFFFE == 0xFFFE
+}
+
+/// The first half of a UTF-16 surrogate pair.
+fn is_high_surrogate(unit: u32) -> bool {
+    (0xD800..0xDC00).contains(&unit)
+}
+
+/// The second half of a UTF-16 surrogate pair.
+fn is_low_surrogate(unit: u32) -> bool {
+    (0xDC00..0xE000).contains(&unit)
+}
+
+/// Either half of a UTF-16 surrogate pair, which is no character on its own.
+pub(crate) fn is_surrogate(code_point: u32) -> bool {
+    (0xD800..0xE000).contains(&code_point)
 }
 
 /// ECMAScript 5.1's `IdentifierStart` (section 7.6), which JSON5 identifiers follow: `$`, `_` or a

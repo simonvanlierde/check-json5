@@ -112,6 +112,11 @@ impl Severity {
             Severity::Error => "error",
         }
     }
+
+    /// True unless the rule is `Off`, so its problems get checked and reported.
+    pub(crate) fn is_on(self) -> bool {
+        self != Severity::Off
+    }
 }
 
 impl fmt::Display for Severity {

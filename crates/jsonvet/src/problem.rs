@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::parse::is_surrogate;
 use crate::{Dialect, Rule, Severity};
 
 /// One problem in a file: what is wrong, where, and how much it matters.
@@ -96,7 +97,7 @@ impl fmt::Display for Detail {
             Detail::InvalidNumber { overflows: false } => {
                 f.write_str("integer beyond ±(2^53 − 1) cannot be represented exactly")
             }
-            Detail::InvalidCodePoint { code_point } if (0xD800..0xE000).contains(code_point) => {
+            Detail::InvalidCodePoint { code_point } if is_surrogate(*code_point) => {
                 write!(f, "lone surrogate U+{code_point:04X}")
             }
             Detail::InvalidCodePoint { code_point } => {
