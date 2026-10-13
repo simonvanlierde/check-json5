@@ -1,4 +1,7 @@
-"""Based on https://gitlab.com/bmares/check-json5/-/blob/db9b5c0f76dea9b0f28097b4421e4b40f39b2266/pypackages/pre_commit_hooks/check_json5.py."""
+"""Check JSON and JSON5 files for syntax errors and duplicate keys: a pre-commit hook and CLI.
+
+Based on https://gitlab.com/bmares/check-json5/-/blob/db9b5c0f76dea9b0f28097b4421e4b40f39b2266/pypackages/pre_commit_hooks/check_json5.py.
+"""
 
 from __future__ import annotations
 
@@ -75,6 +78,7 @@ _JSON5_ERROR = r"(?s)<string>:(\d+) (.*) at column (\d+)"
 _JSONC_COMMENT = rf"(?s)({_DOUBLE_QUOTED}|{_SINGLE_QUOTED})|{_LINE_COMMENT}|{_BLOCK_COMMENT}"
 _JSONC_COMMA = rf"(?s)({_DOUBLE_QUOTED})|,(?=\s*[}}\]])"
 _NOT_NEWLINE = r"[^\n\r\u2028\u2029]"
+_CONSTANTS = frozenset({"NaN", "Infinity", "-Infinity"})
 
 
 def _strip_jsonc(text: str) -> str:
@@ -112,52 +116,74 @@ def _member(path: str, key: str) -> str:
     return f"{path}.{key}" if re.fullmatch(_IDENTIFIER, key) else f"{path}[{json.dumps(key)}]"
 
 
+class _Frame:
+    """One open object or array while scanning, and where the scan is inside it."""
+
+    __slots__ = ("index", "is_object", "key", "path", "seen")
+
+    def __init__(self, bracket: str, path: str) -> None:
+        self.is_object = bracket == "{"
+        self.path = path
+        self.seen: set[str] = set()
+        self.key = ""  # the current key, in an object
+        self.index = 0  # the current item, in an array
+
+    def child_path(self) -> str:
+        return _member(self.path, self.key) if self.is_object else f"{self.path}[{self.index}]"
+
+
+def _decoded(literal: str, decode: Callable[[str], Any]) -> str:
+    # The parser stopped at the first repeat, so a string after it may not decode.
+    try:
+        return decode(literal)
+    except ValueError:
+        return literal
+
+
 def _duplicates(text: str, decode: Callable[[str], Any]) -> list[tuple[int, str]]:
     """Offset and JSONPath of every key that repeats an earlier key of the same object."""
     found: list[tuple[int, str]] = []
-    # One frame per open container: [bracket, its path, keys seen (objects), current key or index].
-    stack: list[list[Any]] = []
+    stack: list[_Frame] = []
     prev = ("", "", 0)
     for kind, tok, offset in _tokens(text):
         top = stack[-1] if stack else None
         if kind != "punct":
             pass
         elif tok in "{[":
-            stack.append([tok, _child_path(top), set(), None if tok == "{" else 0])
+            stack.append(_Frame(tok, top.child_path() if top else "$"))
         elif tok in "}]":
             if stack:
                 stack.pop()
         elif top is None:
             pass
-        elif tok == "," and top[0] == "[":
-            top[3] += 1
-        elif tok == ":" and top[0] == "{":
-            key = decode(prev[1]) if prev[0] == "str" else prev[1]
-            if key in top[2]:
-                found.append((prev[2], _member(top[1], key)))
-            top[2].add(key)
-            top[3] = key
+        elif tok == "," and not top.is_object:
+            top.index += 1
+        elif tok == ":" and top.is_object:
+            key = _decoded(prev[1], decode) if prev[0] == "str" else prev[1]
+            if key in top.seen:
+                found.append((prev[2], _member(top.path, key)))
+            top.seen.add(key)
+            top.key = key
         prev = (kind, tok, offset)
     return found
 
 
-def _child_path(parent: list[Any] | None) -> str:
-    if parent is None:
-        return "$"
-    if parent[0] == "{":
-        return _member(parent[1], parent[3] or "")
-    return f"{parent[1]}[{parent[3]}]"
+def _positions(text: str, offsets: Iterable[int]) -> Iterator[tuple[int, int]]:
+    """1-based line and column of each offset, sharing one pass over the text's newlines."""
+    from bisect import bisect_right  # noqa: PLC0415
 
-
-def _position(text: str, offset: int) -> tuple[int, int]:
-    return text.count("\n", 0, offset) + 1, offset - text.rfind("\n", 0, offset)
+    starts = [0, *(m.end() for m in re.finditer("\n", text))]
+    for offset in offsets:
+        line = bisect_right(starts, offset)
+        yield line, offset - starts[line - 1] + 1
 
 
 def _duplicate_problems(text: str, decode: Callable[[str], Any], exc: DuplicateKeyError) -> list[Problem]:
     found = _duplicates(text, decode)
     if not found:  # the scanner missed what the parser saw: still fail, just without a place
         return [(None, None, f"duplicate key {exc.key!r}")]
-    return [(*_position(text, offset), f"duplicate key {path}") for offset, path in found]
+    places = _positions(text, (offset for offset, _ in found))
+    return [(line, col, f"duplicate key {path}") for (line, col), (_, path) in zip(places, found, strict=True)]
 
 
 def check(text: str, *, strict: bool = False) -> list[Problem]:
@@ -168,6 +194,8 @@ def check(text: str, *, strict: bool = False) -> list[Problem]:
 
     Raises:
         RecursionError: If the text nests deeper than the parser can follow.
+        ValueError: If an integer has more digits than Python allows (4300 by default);
+            `main` lifts that limit with `sys.set_int_max_str_digits(0)`.
 
     """
     problems = _check_json(text, strict=strict)
@@ -196,17 +224,15 @@ def _check_json(text: str, *, strict: bool) -> list[Problem] | None:
     """Problems as strict JSON, or None when the text is not strict JSON and may be JSON5."""
     try:
         # Fast path: strict JSON parses at C speed and covers most files.
-        if strict:
-            json.loads(text, object_pairs_hook=raise_duplicate_keys, parse_constant=_reject_constant)
-        else:
-            json.loads(text, object_pairs_hook=raise_duplicate_keys)
+        json.loads(text, object_pairs_hook=raise_duplicate_keys, parse_constant=_reject_constant if strict else None)
     except DuplicateKeyError as exc:
         return _duplicate_problems(text, json.loads, exc)
     except NonStandardConstantError:
+        found = [(offset, tok) for kind, tok, offset in _tokens(text) if kind == "bare" and tok in _CONSTANTS]
+        places = _positions(text, (offset for offset, _ in found))
         return [
-            (*_position(text, offset), f"{tok} is not valid in strict JSON")
-            for kind, tok, offset in _tokens(text)
-            if kind == "bare" and tok in {"NaN", "Infinity", "-Infinity"}
+            (line, col, f"{tok} is not valid in strict JSON")
+            for (line, col), (_, tok) in zip(places, found, strict=True)
         ]
     except json.JSONDecodeError as exc:
         return [(exc.lineno, exc.colno, f"not strict JSON: {exc.msg}")] if strict else None
@@ -248,7 +274,7 @@ def is_strict(filename: str, patterns: Sequence[str]) -> bool:
         return False
     from fnmatch import fnmatchcase  # noqa: PLC0415
 
-    path = filename.replace(os.sep, "/")
+    path = os.path.normpath(filename).replace(os.sep, "/")
     name = path.rsplit("/", 1)[-1]
     strict = False
     for pattern in patterns:
@@ -263,10 +289,17 @@ def _escape(value: str, *, prop: bool = False) -> str:
     return value.replace(":", "%3A").replace(",", "%2C") if prop else value
 
 
+def _one_line(value: str) -> str:
+    # A newline in a file name would start a line of its own, which GitHub Actions reads
+    # as a workflow command when it starts with `::`.
+    return value.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def report(filename: str, problem: Problem, *, annotate: bool = False) -> None:
     """Print one problem as `file:line:col: message`, plus a GitHub annotation when `annotate`."""
     line, col, msg = problem
-    print(f"{filename}: {msg}" if line is None else f"{filename}:{line}:{col}: {msg}")
+    where = _one_line(filename) if line is None else f"{_one_line(filename)}:{line}:{col}"
+    print(f"{where}: {_one_line(msg)}")
     if annotate:
         where = "" if line is None else f",line={line},col={col}"
         print(f"::error file={_escape(filename, prop=True)}{where},title=check-json5::{_escape(msg)}")
@@ -279,7 +312,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv: options and filenames. If None, defaults to sys.argv[1:].
 
     Returns:
-        An exit code indicating success (0) or failure (1).
+        0 when every file passes, 1 when any fails. argparse exits with 2 on a bad option.
 
     """
     args = sys.argv[1:] if argv is None else list(argv)
@@ -295,7 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             metavar="GLOB",
             help="files matching GLOB must be strict JSON; repeat it, `!GLOB` exempts (last match wins)",
         )
-        parser.add_argument("filenames", nargs="*")
+        parser.add_argument("filenames", nargs="*", help="the files to check")
         ns = parser.parse_args(args)
         args, strict_patterns = ns.filenames, ns.strict
 

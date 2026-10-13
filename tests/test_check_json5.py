@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from check_json5 import check_json5 as check_json5_module
 from check_json5.check_json5 import _check_json, _check_json5, _escape, _strip_jsonc, check, is_strict, main
 
 
@@ -44,7 +45,11 @@ def test_strict_json_fast_path_passes(tmp_path: Path) -> None:
     assert main([write(tmp_path, '{"a": 1, "b": 2}')]) == 0
 
 
-@pytest.mark.parametrize("content", ['{"a": 1}', '// c\n{"a": [1, 2,], /* c */}'], ids=["json", "jsonc"])
+@pytest.mark.parametrize(
+    "content",
+    ['{"a": 1}', '// c\n{"a": [1, 2,], /* c */}', '// c\n{"a": 1, "a": 2}'],
+    ids=["json", "jsonc", "jsonc-duplicate"],
+)
 def test_json_and_jsonc_runs_skip_slow_imports(tmp_path: Path, content: str) -> None:
     # A fresh interpreter: this one has them loaded already. Each costs a few ms per hook run.
     f = write(tmp_path, content)
@@ -53,7 +58,7 @@ def test_json_and_jsonc_runs_skip_slow_imports(tmp_path: Path, content: str) -> 
         f"main([{f!r}]); print(json.dumps(sorted(set(sys.modules) - before)))"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout  # noqa: S603
-    loaded = set(json.loads(out))
+    loaded = set(json.loads(out.splitlines()[-1]))  # after any problems the hook printed
     assert not loaded & {"argparse", "json5", "pathlib", "typing"}, loaded
 
 
@@ -269,3 +274,124 @@ def test_unclosed_openers_take_linear_time(opener: str) -> None:
     start = time.perf_counter()
     assert check(text)
     assert time.perf_counter() - start < LINEAR_TIME_LIMIT_S
+
+
+def test_unclosed_comment_that_ends_in_its_own_star_slash_stays() -> None:
+    assert _strip_jsonc('{"a":1} /*/') == '{"a":1} /*/'
+    assert check('{"a":1} /*/')
+
+
+def test_duplicate_then_undecodable_string(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # The scan reads past the first repeat, where a key may not decode; that once crashed the run.
+    dup = tmp_path / "dup.json"
+    dup.write_text('[{"a": 1, "a": 2}, {"\\x": 0}]')
+    bad = tmp_path / "bad.json"
+    bad.write_text("{a:}")
+    assert main([str(dup), str(bad)]) == 1
+    out = capsys.readouterr().out
+    assert f"{dup}:1:11: duplicate key $[0].a" in out
+    assert f"{bad}:1:4: Unexpected" in out
+
+
+def test_file_name_cannot_start_a_workflow_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert main([str(tmp_path / "a\n::warning::x.json")]) == 1
+    plain, annotation = capsys.readouterr().out.splitlines()
+    assert plain.endswith("a\\n::warning::x.json: No such file")
+    assert annotation.startswith("::error file=")
+
+
+def test_github_annotations_need_the_true_value(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    assert main([str(tmp_path / "gone.json")]) == 1
+    assert "::error" not in capsys.readouterr().out
+
+
+def test_annotation_message_keeps_colons_and_commas() -> None:
+    assert _escape("a\rb") == "a%0Db"
+    assert _escape("not strict JSON: x, y") == "not strict JSON: x, y"
+
+
+def test_many_duplicates_take_linear_time() -> None:
+    # Each position once rescanned the text before it: 200,000 repeats took about half a minute.
+    import time  # noqa: PLC0415
+
+    n = 200_000
+    text = "{" + ",\n".join(['"a": 1'] * n) + "}"
+    start = time.perf_counter()
+    problems = check(text)
+    assert time.perf_counter() - start < LINEAR_TIME_LIMIT_S
+    assert len(problems) == n - 1
+    assert problems[-1] == (n, 1, "duplicate key $.a")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A bare key directly against a comment.
+        ("{a/*x*/: 1, a: 2}", [(1, 13, "duplicate key $.a")]),
+        ("{$a: 1, $a: 2}", [(1, 9, "duplicate key $.$a")]),
+        # CRLF line ends count once.
+        ('{"a": 1,\r\n"a": 2}', [(2, 1, "duplicate key $.a")]),
+    ],
+)
+def test_more_duplicate_positions(text: str, expected: list) -> None:
+    assert check(text) == expected
+
+
+def test_strict_mode_rejects_bare_infinity() -> None:
+    assert check('{"a": Infinity}', strict=True) == [(1, 7, "Infinity is not valid in strict JSON")]
+
+
+def test_strict_file_may_start_with_a_bom(tmp_path: Path) -> None:
+    # Strict mode never falls back to json5, so only the utf-8-sig read accepts the BOM.
+    f = tmp_path / "a.json"
+    f.write_bytes(b'\xef\xbb\xbf{"a": 1}')
+    assert main(["--strict", "*", str(f)]) == 0
+
+
+@pytest.mark.parametrize(
+    ("filename", "patterns", "expected"),
+    [
+        ("src/a.json", ["*.json", "!src/*.json"], False),
+        ("A.JSON", ["*.json"], False),
+        ("./sub/a.json", ["sub/*.json"], True),
+    ],
+)
+def test_is_strict_edge_cases(filename: str, patterns: list[str], *, expected: bool) -> None:
+    assert is_strict(filename, patterns) is expected
+
+
+def test_unlocated_duplicate_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(check_json5_module, "_duplicates", lambda *_: [])
+    assert check('{"a": 1, "a": 2}') == [(None, None, "duplicate key 'a'")]
+
+
+def test_unreadable_file_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = write(tmp_path, "{}")
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("builtins.open", refuse)
+    assert main([f]) == 1
+    assert "Failed to read" in capsys.readouterr().out
+
+
+def test_recursion_error_fails_only_that_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Python 3.14's C parser no longer recurses, so force the error to test the handler everywhere.
+    def deep(*_args: object, **_kwargs: object) -> None:
+        raise RecursionError
+
+    monkeypatch.setattr(check_json5_module, "check", deep)
+    f = write(tmp_path, "[]")
+    assert main([f]) == 1
+    assert f"{f}: nested too deeply to check" in capsys.readouterr().out
