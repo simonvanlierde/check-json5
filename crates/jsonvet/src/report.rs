@@ -1,4 +1,4 @@
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 
 use crate::{Problem, Severity};
 
@@ -8,6 +8,9 @@ pub struct Report<'a> {
     text: &'a str,
     problems: Vec<Problem>,
     line_starts: OnceCell<Vec<usize>>,
+    /// The furthest location found so far, as (offset, line, column). A later offset on the
+    /// same line counts on from it, so locating every problem on a long line stays linear.
+    furthest: Cell<(usize, usize, usize)>,
 }
 
 /// A 1-based line and column. Lines end at LF, CR, CRLF, U+2028 and U+2029, as JSON5 defines
@@ -28,6 +31,7 @@ impl<'a> Report<'a> {
             text,
             problems,
             line_starts: OnceCell::new(),
+            furthest: Cell::new((0, 1, 1)),
         }
     }
 
@@ -43,16 +47,30 @@ impl<'a> Report<'a> {
 
     /// The line and column of a byte offset in the text. The first call finds the line starts;
     /// later calls cost a binary search and a count of the characters before the offset on its
-    /// line. An offset past the end is treated as the end.
+    /// line, counted from the line start or from the furthest offset found on that line,
+    /// whichever is nearer.
+    /// An offset past the end is treated as the end.
     pub fn location(&self, offset: usize) -> Location {
         let offset = offset.min(self.text.len());
         let starts = self.line_starts.get_or_init(|| line_starts(self.text));
         let line = starts.partition_point(|&s| s <= offset);
         let start = starts[line - 1];
-        let column = self
-            .text
-            .get(start..offset)
-            .map_or(1, |s| s.chars().count() + 1);
+        let count =
+            |from: usize, to: usize| self.text.get(from..to).map_or(0, |s| s.chars().count());
+        let (furthest, furthest_line, furthest_column) = self.furthest.get();
+        let column = if furthest_line != line {
+            1 + count(start, offset)
+        } else if furthest <= offset {
+            furthest_column + count(furthest, offset)
+        } else if furthest - offset < offset - start {
+            // A "first at" offset just before the latest problem: count back from it.
+            furthest_column - count(offset, furthest)
+        } else {
+            1 + count(start, offset)
+        };
+        if offset >= furthest {
+            self.furthest.set((offset, line, column));
+        }
         Location { line, column }
     }
 }
@@ -86,7 +104,7 @@ fn line_starts(text: &str) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::line_starts;
+    use super::{Location, Report, line_starts};
 
     #[test]
     fn every_json5_line_terminator_starts_a_line() {
@@ -95,5 +113,21 @@ mod tests {
             vec![0, 2, 5, 7, 11, 15]
         );
         assert_eq!(line_starts("no breaks, but é and ★"), vec![0]);
+    }
+
+    #[test]
+    fn locations_agree_in_any_order() {
+        let report = Report::new("aé★b\ncdé", Vec::new());
+        let at = |offset| report.location(offset);
+        let expected = [
+            (6, (1, 4)),
+            (1, (1, 2)),
+            (9, (2, 2)),
+            (7, (1, 5)),
+            (12, (2, 4)),
+        ];
+        for (offset, (line, column)) in expected {
+            assert_eq!(at(offset), Location { line, column }, "offset {offset}");
+        }
     }
 }

@@ -76,6 +76,11 @@ proptest! {
                 prop_assert_eq!((at.line, at.column), recount(&text, offset));
             }
         }
+        // Again backwards: `location` counts from its last answer when that is nearer.
+        for problem in report.problems().iter().rev() {
+            let at = report.location(problem.offset());
+            prop_assert_eq!((at.line, at.column), recount(&text, problem.offset()));
+        }
     }
 
     #[test]
