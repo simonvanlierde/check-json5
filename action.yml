@@ -1,0 +1,99 @@
+# The jsonvet GitHub Action: `uses: simonvanlierde/jsonvet@v2`. It installs jsonvet from PyPI
+# into a virtual environment, so it needs only the Python that every hosted runner has.
+name: jsonvet
+description: Check JSON, JSONC, JSON5, HuJSON and JSON Lines files, with optional SARIF output
+author: Simon van Lierde
+branding:
+  icon: check-square
+  color: green
+
+inputs:
+  files:
+    description: >-
+      Files to check: paths or globs, separated by spaces (`**` matches folders too). By default,
+      every tracked file the pre-commit hook would check.
+    required: false
+    default: ""
+  args:
+    description: Extra jsonvet options, separated by spaces, such as `--strict package.json`.
+    required: false
+    default: ""
+  sarif:
+    description: >-
+      Also write a SARIF file to this path, for github/codeql-action/upload-sarif. The log and the
+      annotations stay as they are.
+    required: false
+    default: ""
+  version:
+    description: >-
+      The jsonvet version to install from PyPI, or `latest`. By default, the version of the
+      action's tag: `v2` installs the newest 2.x, `v2.1.0` installs 2.1.0, and any other ref the
+      newest release.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Run jsonvet
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        ARGS: ${{ inputs.args }}
+        SARIF: ${{ inputs.sarif }}
+        VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        # No `set -u`: macOS runners may run bash 3.2, which calls an empty array unbound.
+        set -o pipefail
+        if [[ -n "$VERSION" ]]; then
+          spec="==$VERSION"
+          [[ "$VERSION" == latest ]] && spec=""
+        elif [[ "$ACTION_REF" =~ ^v[0-9]+(\.[0-9]+){0,2}$ ]]; then
+          version="${ACTION_REF#v}"
+          dots="${version//[^.]/}"
+          # A full version pins it; a major or minor tag takes the newest release under it.
+          if [[ ${#dots} -eq 2 ]]; then spec="==$version"; else spec="==$version.*"; fi
+        else
+          spec=""
+        fi
+
+        venv="$RUNNER_TEMP/jsonvet-venv"
+        python=python3
+        # On Windows `python3` can be the Microsoft Store stub.
+        [[ "$RUNNER_OS" == Windows ]] && python=python
+        "$python" -m venv "$venv" || exit 2
+        bin="$venv/bin"
+        [[ -d "$bin" ]] || bin="$venv/Scripts"
+        "$bin/python" -m pip install -q --disable-pip-version-check "jsonvet$spec" || exit 2
+        "$bin/jsonvet" --version
+
+        # Word splitting is the point here: both inputs are space-separated lists.
+        set -f
+        # shellcheck disable=SC2206
+        args=($ARGS)
+        set +f
+        if [[ -n "$FILES" ]]; then
+          shopt -s globstar 2>/dev/null || true # bash 4 and later
+          # shellcheck disable=SC2206
+          files=($FILES)
+        else
+          # The same file names as the pre-commit hook's `files` pattern. A pathspec `*` also
+          # matches `/`, so `*.json` finds files at any depth.
+          files=()
+          while IFS= read -r file; do files+=("$file"); done < <(
+            git -c core.quotepath=off ls-files -- '*.json' '*.jsonc' '*.json5' '*.geojson' \
+              '*.jsonld' '*.hujson' '*.jwcc' '*.code-workspace' '*.code-snippets' \
+              '*.webmanifest' '*.jsonl' '*.ndjson' '.babelrc' '*/.babelrc'
+          )
+        fi
+        # shortcut: one command line for all files; Windows caps it at 32,767 characters, so a
+        # repository with thousands of files needs batching there.
+
+        "$bin/jsonvet" "${args[@]}" -- "${files[@]}"
+        status=$?
+        if [[ -n "$SARIF" ]]; then
+          # A second run, so the log and the annotations come from the text format.
+          "$bin/jsonvet" --format sarif "${args[@]}" -- "${files[@]}" > "$SARIF"
+        fi
+        exit "$status"

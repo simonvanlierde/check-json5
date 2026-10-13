@@ -36,6 +36,27 @@ The hook installs a prebuilt binary from PyPI, so it needs no Rust. It checks fi
 `.code-workspace`, `.code-snippets`, `.webmanifest` and `.babelrc`. In GitHub Actions each problem
 also becomes an annotation on the pull request.
 
+## Use it as a GitHub Action
+
+```yaml
+- uses: simonvanlierde/jsonvet@v2
+```
+
+The action installs jsonvet from PyPI into a virtual environment, so it runs on Linux, macOS and
+Windows runners with no other setup, and the step fails when a file has an error. Inputs, all
+optional:
+
+| Input     | What it does                                                                         |
+| --------- | ------------------------------------------------------------------------------------ |
+| `files`   | paths or globs to check, separated by spaces; by default every tracked file the hook would check |
+| `args`    | extra options, separated by spaces, such as `--strict package.json`                  |
+| `sarif`   | also write a SARIF file to this path (see [GitHub code scanning](#github-code-scanning)) |
+| `version` | the jsonvet version to install, or `latest`                                          |
+
+Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
+installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
+to a commit SHA, it installs the newest release unless you set `version`.
+
 ## Dialects
 
 Each file is checked in the dialect its extension implies, and `--dialect` or the config file can
@@ -110,6 +131,30 @@ printed.
 
 ```bash
 jsonvet --format sarif $(git ls-files '*.json') > jsonvet.sarif
+```
+
+The action's `sarif` input writes that file next to the usual log and annotations. Upload it with
+`github/codeql-action/upload-sarif`, which needs `security-events: write`:
+
+```yaml
+jobs:
+  jsonvet:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: simonvanlierde/jsonvet@v2
+        with:
+          sarif: jsonvet.sarif
+      # Upload when jsonvet found problems too: that is when the step fails.
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        if: success() || failure()
+        with:
+          sarif_file: jsonvet.sarif
 ```
 
 ## Other ways to run it

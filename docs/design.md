@@ -126,6 +126,7 @@ crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, outp
                        PyPI wheels by maturin.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
 setup.py               placeholder that pre-commit installs: pins the jsonvet wheel
+action.yml             the GitHub Action: installs the jsonvet wheel from PyPI and runs it
 fuzz/  tests/  scripts/
 ```
 

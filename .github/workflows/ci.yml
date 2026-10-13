@@ -123,10 +123,10 @@ jobs:
       - run: cargo build --release --locked -p jsonvet-cli
       - run: uv run scripts/differential.py --cases 5000
 
-  # The wheel, built the way the release does, and the hook as users install it, on every OS:
-  # pre-commit and prek install this repository, and its placeholder setup.py pins the jsonvet
-  # wheel. Until that version is on PyPI, the wheel built here stands in for it, through pip's
-  # and uv's find-links settings.
+  # The wheel, built the way the release does, and the hook and the action as users install them,
+  # on every OS: pre-commit and prek install this repository, and its placeholder setup.py pins
+  # the jsonvet wheel. Until that version is on PyPI, the wheel built here stands in for it,
+  # through pip's and uv's find-links settings.
   hook:
     strategy:
       fail-fast: false
@@ -162,3 +162,32 @@ jobs:
               exit 1
             fi
           done
+      # The action from this checkout, installing the wheel built above instead of PyPI's.
+      - name: Run the action on a duplicate key
+        id: action-bad
+        continue-on-error: true
+        uses: $/
+        env:
+          PIP_NO_INDEX: "1"
+          PIP_FIND_LINKS: ${{ github.workspace }}/dist
+        with:
+          files: dup.json ok.json
+          sarif: jsonvet.sarif
+      - name: Check that the action failed and wrote one SARIF result
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.action-bad.outcome }}
+        run: |
+          test "$OUTCOME" = failure
+          uv run --isolated --no-project python -c '
+          import json
+          results = json.load(open("jsonvet.sarif"))["runs"][0]["results"]
+          assert [r["ruleId"] for r in results] == ["duplicate-key"], results
+          '
+      - name: Run the action on a valid file
+        uses: $/
+        env:
+          PIP_NO_INDEX: "1"
+          PIP_FIND_LINKS: ${{ github.workspace }}/dist
+        with:
+          files: ok.json
