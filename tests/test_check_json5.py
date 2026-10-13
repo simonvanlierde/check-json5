@@ -88,5 +88,23 @@ def test_edge_cases(tmp_path: Path, name: str, content: bytes, expected: int) ->
     assert main([str(f)]) == expected
 
 
+def test_int_over_4300_digits_passes(tmp_path: Path) -> None:
+    assert main([write(tmp_path, '{"n": ' + "1" * 5000 + "}")]) == 0
+
+
+@pytest.mark.parametrize("prefix", ["", "// comment\n"], ids=["fast_path", "json5_fallback"])
+def test_nesting_past_recursion_limit_fails_only_that_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], prefix: str
+) -> None:
+    deep = tmp_path / "deep.json"
+    deep.write_text(prefix + "[" * 100_000 + "]" * 100_000)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{a:}")
+    assert main([str(deep), str(bad)]) == 1
+    out = capsys.readouterr().out
+    assert f"{deep}: Failed" in out
+    assert f"{bad}: Failed" in out
+
+
 def test_mixed_pass_and_fail_returns_1(tmp_path: Path) -> None:
     assert main([write(tmp_path, "{a: 1}"), write(tmp_path, "{a:}")]) == 1

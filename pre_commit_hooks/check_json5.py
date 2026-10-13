@@ -46,6 +46,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         An exit code indicating success (0) or failure (1).
 
     """
+    # Python caps int literals at 4300 digits (3.10.7+), which fails valid JSON with a long number.
+    if hasattr(sys, "set_int_max_str_digits"):
+        sys.set_int_max_str_digits(0)
     retval = 0
     for filename in sys.argv[1:] if argv is None else argv:
         if not os.path.isfile(filename):  # noqa: PTH113
@@ -71,7 +74,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 import json5  # noqa: PLC0415
 
                 json5.loads(text, object_pairs_hook=raise_duplicate_keys)
-        except ValueError as exc:
+        # RecursionError: a deeply nested file fails on its own instead of ending the run.
+        except (ValueError, RecursionError) as exc:
             print(f"{filename}: Failed to json decode ({exc})")
             retval = 1
     return retval
