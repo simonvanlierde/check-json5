@@ -135,6 +135,23 @@ runs in all, they agree on every one. What changes, and why, is listed in the
 - the importable Python module is gone; `python -m jsonvet` and `python -m check_json5` still
   run the command.
 
+## Speed
+
+Median wall time of one run over the files, from `uv run scripts/bench.py` on 12 cores of a
+Ryzen 7 H 255 under Linux. Both tools give the same verdict in every case:
+
+| Case                       | check-json5 1.4.1 | jsonvet 2.0 | Speed-up |
+| -------------------------- | ----------------: | ----------: | -------: |
+| 1,100 config files         |             40 ms |     12.5 ms |       3x |
+| 2.7 MB JSON                |             41 ms |      9.8 ms |       4x |
+| 2.7 MB JSON, duplicate key |            330 ms |     11.6 ms |      29x |
+| 120 KB JSONC               |             22 ms |      1.5 ms |      15x |
+| 1.8 MB JSON5               |         11,641 ms |      8.3 ms |   1,398x |
+
+1.4 sent JSON, and JSONC with its comments stripped, to Python's C parser, so those were
+already fast. Any other JSON5 syntax went to a pure-Python parser, and so did the second pass
+that finds a duplicate key's position. jsonvet does everything in one pass of one parser.
+
 ## How it is tested
 
 - the [json5-tests](https://github.com/json5/json5-tests) suite, all 114 cases;
@@ -152,6 +169,7 @@ cargo test --workspace                         # tests, including json5-tests (g
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 uv run scripts/differential.py                 # compare with check-json5 1.4.1
+uv run scripts/bench.py                        # time against check-json5 1.4.1
 cargo +nightly fuzz run check                  # fuzzing, from fuzz/
 ```
 
