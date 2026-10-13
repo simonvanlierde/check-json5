@@ -1,15 +1,31 @@
+[build-system]
+  build-backend = "setuptools.build_meta"
+  # 77 reads the SPDX `license` string below.
+  requires = ["setuptools>=77"]
+
 [project]
   authors         = [{ "name" = "Simon van Lierde", "email" = "30519500-simonvanlierde@users.noreply.gitlab.com" }]
+  classifiers     = [
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+  ]
   dependencies    = ["json5>=0.15.0"]
   description     = "pre-commit hook to check json files for syntax parseable as json5 (with comments)"
+  keywords        = ["json", "json5", "jsonc", "lint", "pre-commit"]
   license         = "MIT"
   name            = "check-json5"
   readme          = "README.md"
   requires-python = ">=3.10"
-  version         = "1.2.1"
+  version         = "1.3.0"
+
+  [project.urls]
+    Changelog = "https://github.com/simonvanlierde/check-json5/blob/main/CHANGELOG.md"
+    Issues    = "https://github.com/simonvanlierde/check-json5/issues"
+    Source    = "https://github.com/simonvanlierde/check-json5"
 
   [project.scripts]
-    check-json5 = "pre_commit_hooks.check_json5:main"
+    check-json5 = "check_json5.check_json5:main"
 
 [dependency-groups]
   dev = ["pre-commit>=4.6.0", "pytest>=8", "pytest-cov>=5", "ruff>=0.15.20", "ty>=0.0.56"]
@@ -46,7 +62,7 @@
       # Standalone script that prints a results table.
       "scripts/**" = ["INP001", "T201"]
       # CLI entry point: printing failures to stdout is the hook's job.
-      "pre_commit_hooks/check_json5.py" = ["T201"]
+      "check_json5/check_json5.py" = ["T201"]
 
     [tool.ruff.lint.pydocstyle]
       convention = "google"

@@ -43,7 +43,7 @@ EOF
 cd "$tmp"
 PATH="$(dirname "$py"):$PATH"
 hyperfine "${runs[@]}" -N --style basic --export-markdown table.md -L size "$sizes" \
-  "python -m pre_commit_hooks.check_json5 {size}.json" \
+  "python -m check_json5.check_json5 {size}.json" \
   "python -c 'import json5,sys; json5.loads(open(sys.argv[1]).read())' {size}.json" \
   >&2
 cat table.md
