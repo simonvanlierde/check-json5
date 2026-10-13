@@ -1,0 +1,14 @@
+# CI's `pytest --cov-fail-under=80` is the coverage gate. Codecov reports, and only fails a
+# pull request when total coverage drops by more than 2 points.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        informational: true
+
+comment:
+  require_changes: true
