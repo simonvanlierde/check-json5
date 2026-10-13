@@ -4,6 +4,7 @@ pre-commit runs `pip install .` on a hook repository. Without this file that wou
 Rust project from source. The release workflow keeps the pinned version equal to the tag.
 """
 
-from setuptools import setup
+# pip's isolated build provides setuptools when it installs the hook; the dev environment has none.
+from setuptools import setup  # ty: ignore[unresolved-import]
 
 setup(name="pre_commit_placeholder_package", version="0.0.0", install_requires=["jsonvet==2.0.0a0"])

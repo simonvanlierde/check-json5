@@ -24,12 +24,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REFERENCE = ["uvx", "--quiet", "--python", "3.13", "--from", "check-json5==1.4.1", "check-json5"]
+BATCH = 500  # files per run, to keep the command line short
+EXAMPLES = 5  # differences shown per category
 
 TOKENS = [
     "{", "}", "[", "]", ":", ",", ",", '"a"', '"b"', "'a'", "a", "$k", "1", "-2.5e3", "0x1F", ".5", "5.",
     "+1", "01", "NaN", "Infinity", "true", "null", "nul", "// c\n", "/* c */", "/*", "*/", "\n", "\r\n",
-    " ", "\t", '"//"', '",]"', "\\", '"\\u0061"', '"\\q"', '"\\x41"', '"a\\\nb"', "é", " ", '"',
-    " ", "﻿",
+    " ", "\t", '"//"', '",]"', "\\", '"\\u0061"', '"\\q"', '"\\x41"', '"a\\\nb"', "é", "\u00a0", '"',
+    "\u2028", "\ufeff",
 ]  # fmt: skip
 
 # A JSON-shaped skeleton with a repeated key, so duplicates get compared on valid documents.
@@ -40,9 +42,12 @@ OBJECTS = [
 ]
 KEYS = ["a", "b c", "ünï", "$x", "1st", 'q\\"', "\\u0061"]
 
+LINE = re.compile(r"^(?P<file>[^:]+?):(?:(?P<line>\d+):(?P<col>\d+):)? ?(?P<rest>.*)$")
+
 
 def corpus(directory: Path, cases: int, seed: int) -> list[Path]:
-    rng = random.Random(seed)
+    """Write `cases` generated files and the json5-tests suite to `directory`."""
+    rng = random.Random(seed)  # noqa: S311 - test data, not security
     files = []
     for i in range(cases):
         if i % 4 == 0:
@@ -61,20 +66,18 @@ def corpus(directory: Path, cases: int, seed: int) -> list[Path]:
     return files
 
 
-LINE = re.compile(r"^(?P<file>[^:]+?):(?:(?P<line>\d+):(?P<col>\d+):)? ?(?P<rest>.*)$")
-
-
 def run(command: list[str], files: list[Path], cwd: Path) -> dict[str, list[tuple]]:
-    """Problems per file name, as (line, col, kind, text). Runs in batches to keep the
-    command line short."""
+    """Problems per file name, as (line, col, kind, severity, text).
+
+    A tool that cannot start also exits 1, but prints only to stderr; that stops the run.
+    """
     found: dict[str, list[tuple]] = defaultdict(list)
     names = [f.name for f in files]
-    for start in range(0, len(names), 500):
-        out = subprocess.run(
-            [*command, *names[start : start + 500]], cwd=cwd, capture_output=True, text=True, check=False
+    for start in range(0, len(names), BATCH):
+        out = subprocess.run(  # noqa: S603 - our own command line
+            [*command, *names[start : start + BATCH]], cwd=cwd, capture_output=True, text=True, check=False
         )
-        # A tool that cannot start also exits 1, but prints nothing on stdout.
-        if out.returncode not in (0, 1) or (out.returncode == 1 and not out.stdout and out.stderr):
+        if out.returncode not in {0, 1} or (out.returncode == 1 and not out.stdout and out.stderr):
             sys.exit(f"{' '.join(command[:6])} failed with {out.returncode}: {out.stderr}")
         for line in out.stdout.splitlines():
             m = LINE.match(line)
@@ -92,10 +95,16 @@ def run(command: list[str], files: list[Path], cwd: Path) -> dict[str, list[tupl
 
 
 def failed(problems: list[tuple]) -> bool:
+    """Whether any problem is an error."""
     return any(p[3] == "error" for p in problems)
 
 
-def classify(mode: str, text: str, ours: list[tuple], theirs: list[tuple]) -> str:
+def duplicates(problems: list[tuple]) -> list[tuple]:
+    """The duplicate-key reports, as (line, col, kind, path)."""
+    return sorted((*p[:3], p[4]) for p in problems if p[2] == "duplicate")
+
+
+def classify(text: str, ours: list[tuple], theirs: list[tuple]) -> str:
     """Why the two tools disagree, as an accepted category or `unexplained`."""
     if "\u2028" in text or "\u2029" in text:
         return "accepted: U+2028/U+2029 (line terminators in jsonvet, and allowed in strings by the spec)"
@@ -107,6 +116,7 @@ def classify(mode: str, text: str, ours: list[tuple], theirs: list[tuple]) -> st
 
 
 def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[str]) -> Counter:
+    """Run both tools on `files` and print how their reports differ, by category."""
     ours = run([jsonvet, "--no-config", *extra], files, cwd)
     theirs = run([*REFERENCE, *extra], files, cwd)
     tally: Counter = Counter()
@@ -115,14 +125,13 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
         a, b = ours.get(path.name, []), theirs.get(path.name, [])
         if failed(a) == failed(b):
             syntax_free = not any(p[2] == "other" and p[3] == "error" for p in a + b)
-            dups = lambda ps: sorted(p[:3] + (p[4],) for p in ps if p[2] == "duplicate")  # noqa: E731
-            if not syntax_free or dups(a) == dups(b):
+            if not syntax_free or duplicates(a) == duplicates(b):
                 tally["same"] += 1
                 continue
         text = path.read_text(encoding="utf-8")
-        category = classify(mode, text, a, b)
+        category = classify(text, a, b)
         tally[category] += 1
-        if len(examples[category]) < 5:
+        if len(examples[category]) < EXAMPLES:
             examples[category].append(f"{path.name}: {text!r}\n      jsonvet: {a}\n      1.4:     {b}")
     print(f"\n== {mode}: {len(files)} files")
     for category, n in tally.most_common():
@@ -135,15 +144,17 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
 
 
 def check_reference(cwd: Path) -> None:
-    """Fetch the reference fresh, then make sure it passes a valid file and fails an invalid one,
-    so a broken install can never pass as "no problems"."""
+    """Fetch the reference fresh, and check it passes a valid file and fails an invalid one.
+
+    Otherwise a broken install would read as a file with no problems.
+    """
     (cwd / "probe-ok.json").write_text("{}")
     (cwd / "probe-bad.json").write_text("[1,]")
     refresh = [REFERENCE[0], "--refresh-package", "check-json5", *REFERENCE[1:]]
-    ok = subprocess.run(
+    ok = subprocess.run(  # noqa: S603 - our own command line
         [*refresh, "--strict", "*", "probe-ok.json"], cwd=cwd, capture_output=True, text=True, check=False
     )
-    bad = subprocess.run(
+    bad = subprocess.run(  # noqa: S603 - our own command line
         [*REFERENCE, "--strict", "*", "probe-bad.json"], cwd=cwd, capture_output=True, text=True, check=False
     )
     if ok.returncode != 0 or bad.returncode != 1 or "probe-bad.json" not in bad.stdout:
@@ -153,6 +164,7 @@ def check_reference(cwd: Path) -> None:
 
 
 def main() -> int:
+    """Run the comparison in both modes; 1 when a difference is unexplained."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cases", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=7)
