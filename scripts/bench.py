@@ -2,7 +2,7 @@
 
 Run with `uv run python scripts/bench.py`. Fixtures are generated into a temporary
 directory, so nothing large is committed. Each timing is the best of 10 runs, and a full
-run takes about two minutes: the json5 arm alone needs several seconds per 2 MB parse.
+run takes about two minutes: json5 alone needs several seconds per 2 MB parse.
 """
 
 import json

@@ -15,9 +15,9 @@ version for a new option or output, the patch version for a fix.
 
 ### Changed
 
-- JSON with only comments and trailing commas, such as `tsconfig.json`, is checked with the
-  C-speed `json` parser instead of `json5`: whole hook runs are 11× faster on a 50 KB file and 56×
-  on a 2 MB one. Files that use more of JSON5 still go through `json5`.
+- The hook checks JSON with only comments and trailing commas, such as `tsconfig.json`, with the
+  C-speed `json` parser instead of `json5`. Whole hook runs are 11× faster on a 50 KB file and
+  56× faster on a 2 MB one. Files that use more of JSON5 still go through `json5`.
 
 ### Fixed
 
@@ -27,8 +27,8 @@ version for a new option or output, the patch version for a fix.
   traceback and left the remaining files unchecked. It now reports the duplicate.
 - A newline in a file name is printed as `\n`, so a file name can no longer inject a GitHub
   Actions workflow command into CI output.
-- A file with many duplicate keys took time that grew with the square of their number: 200,000
-  took 42 s, and now take under a second.
+- Checking a file with many duplicate keys took time that grew with the square of their
+  number. 200,000 duplicates took 42 s; they now take under a second.
 - `--strict` patterns match `./sub/a.json` like `sub/a.json`.
 
 ## [1.3.0] - 2026-10-13
@@ -48,10 +48,11 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 ### Changed
 
-- **Breaking:** the output format: `f.json: Failed to json decode (<string>:4 Unexpected "," at column 8)` is
-  now `f.json:4:8: Unexpected ","`.
-- **Breaking:** the module moved from `pre_commit_hooks.check_json5` to `check_json5.check_json5`, so the PyPI
-  package no longer collides with `pre-commit-hooks`. The `check-json5` command is unchanged.
+- **Breaking:** the output format changed. `f.json: Failed to json decode (<string>:4
+  Unexpected "," at column 8)` is now `f.json:4:8: Unexpected ","`.
+- **Breaking:** the module moved from `pre_commit_hooks.check_json5` to
+  `check_json5.check_json5`, so the PyPI package no longer collides with `pre-commit-hooks`. The
+  `check-json5` command is unchanged.
 - Tested on Python 3.15.
 
 ### Fixed

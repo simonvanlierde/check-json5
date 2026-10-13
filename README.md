@@ -25,9 +25,9 @@ JSON.
 - On GitHub Actions, each failure is also an annotation on the line of the pull request diff.
 - `--strict GLOB` holds chosen files to strict JSON (no comments, trailing commas or `NaN`), for
   files that a JSON parser reads at runtime, such as `package.json`.
-- Fast paths: strict JSON, and JSON with only comments and trailing commas, are parsed with the
-  C-speed stdlib `json` parser. Only files that use more of JSON5 (single quotes, unquoted keys,
-  hex numbers) fall back to the pure-Python `json5` parser. See [Performance](#performance).
+- Fast paths: the hook parses strict JSON, and JSON with only comments and trailing commas, with
+  the C-speed stdlib `json` parser. Only files that use more of JSON5 (single quotes, unquoted
+  keys, hex numbers) fall back to the pure-Python `json5` parser. See [Performance](#performance).
 - Accepts `NaN` and `Infinity` (both parsers allow them) unless `--strict` covers the file.
 
 ## Links
@@ -86,10 +86,10 @@ of JSON5 fall back to the pure-Python [`json5`](https://pypi.org/project/json5/)
 
 ## Performance
 
-The pure-Python `json5` parser is slow on large files. Most `.json` files are strict JSON, and most
-of the rest add only comments and trailing commas, so the hook parses both with the C-speed stdlib
-`json` parser. It falls back to `json5` only for files that use more of JSON5 (single quotes,
-unquoted keys, hex numbers). Duplicate-key detection works on every path.
+The pure-Python `json5` parser is slow on large files. Most `.json` files are strict JSON, and
+most of the rest add only comments and trailing commas. The hook parses both kinds with the
+C-speed stdlib `json` parser. It falls back to `json5` only for files that use more of JSON5
+(single quotes, unquoted keys, hex numbers). Duplicate-key detection works on every path.
 
 Time for one hook call per file (strict JSON, taking the fast path), best of 10 runs of
 `uv run python scripts/bench.py` on 2026-10-11 (Intel i9-14900KF, Linux, Python 3.13.7, json5 0.15.0,
@@ -111,11 +111,11 @@ To time whole hook runs instead, run `bash scripts/bench.sh` (needs
 on 50 KB, 500 KB and 2 MB files and prints one table; `--quick` times the 50 KB file once. Each
 run includes about 12 ms of Python startup, so its speed-ups are smaller than the ones above.
 
-A file with comments or trailing commas but nothing else from JSON5, the usual shape of a
-`tsconfig.json` or `.vscode/settings.json`, has its comments turned into spaces and its trailing
-commas dropped, and then goes through the same C parser. `bash scripts/bench.sh --jsonc` times
-whole hook runs on such files against the `json5` parser alone (2026-10-13, Intel i9-14900KF,
-Linux, Python 3.13, json5 0.15.0, one pinned core, load average 2.5):
+Most `tsconfig.json` and `.vscode/settings.json` files use comments or trailing commas and
+nothing else from JSON5. The hook turns their comments into spaces, drops their trailing commas,
+and parses the result with the same C parser. `bash scripts/bench.sh --jsonc` times whole hook
+runs on such files against the `json5` parser alone (2026-10-13, Intel i9-14900KF, Linux, Python
+3.13, json5 0.15.0, one pinned core, load average 2.5):
 
 | JSONC file | `json5` alone | Hook   | Speedup |
 | ---------- | ------------- | ------ | ------- |
@@ -124,8 +124,8 @@ Linux, Python 3.13, json5 0.15.0, one pinned core, load average 2.5):
 | 2 MB       | 7.8 s         | 141 ms | ~56×    |
 
 About 12 ms of each run is Python starting up. Files that need the `json5` parser are unchanged.
-For tiny strict-JSON files the saving is negligible next to that startup cost; the win matters on
-large files and on many JSONC files.
+On tiny strict-JSON files the saving disappears next to that startup cost. It matters on large
+files and on repositories with many JSONC files.
 
 ## Development
 
@@ -134,12 +134,13 @@ tests, `ruff` and `ty` for lint and types, `pre-commit` for local checks, and Gi
 CI with coverage reported to Codecov. These are the commands CI runs:
 
 ```bash
-uv sync                                                # install dependencies
-uv run ruff check --no-fix . && uv run ruff format --check .
-uv run ty check
-uv run pytest --cov=check_json5 --cov-fail-under=95   # tests with coverage, as in CI
-uv run pre-commit install                              # run the hooks on every commit
-uv run pre-commit run -a                               # run the hooks over the whole tree
+uv sync                                               # install dependencies
+uv run ruff check --no-fix .                          # lint
+uv run ruff format --check .                          # formatting
+uv run ty check                                       # types
+uv run pytest --cov=check_json5 --cov-fail-under=95   # tests with coverage
+uv run pre-commit install                             # run the hooks on every commit
+uv run pre-commit run -a                              # run the hooks over the whole tree
 ```
 
 ## Credits
