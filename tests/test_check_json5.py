@@ -217,7 +217,7 @@ def test_message_escaping_for_annotations() -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('{"a": 1, // c\n "b": [1, 2,], /* c\n c */}', '{"a": 1,     \n "b": [1, 2 ]      \n     }'),
+        ('{"a": 1, // c\n "b": [1, 2,], /* c\n c */}', '{"a": 1,  \n "b": [1, 2 ]   }'),
         # Only a comma after a value goes.
         ("[,]", "[,]"),
         ("[1,,]", "[1,,]"),
@@ -403,3 +403,16 @@ def test_file_name_starting_with_a_dash(tmp_path: Path, monkeypatch: pytest.Monk
     Path("-bad.json").write_text("{a:}")
     assert main(["-dash.json"]) == 0
     assert main(["--strict", "*.json", "-dash.json", "-bad.json"]) == 1
+
+
+def test_numbers_past_the_digit_cap_fail_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A lower cap keeps the test fast; 4500 digits is still past Python's default of 4300.
+    monkeypatch.setattr(check_json5_module, "MAX_INT_DIGITS", 5000)
+    ok = write(tmp_path, "[" + "1" * 4500 + "]")
+    assert main([ok]) == 0
+    long = tmp_path / "long.json"
+    long.write_text("[" + "1" * 6000 + "]")
+    assert main([str(long)]) == 1
+    assert f"{long}: a number has more than 5,000 digits" in capsys.readouterr().out

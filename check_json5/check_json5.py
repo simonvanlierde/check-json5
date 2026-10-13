@@ -60,7 +60,7 @@ def _reject_constant(name: str) -> float:
 # match instead would rescan to the end from every later quote or `/*`, which is quadratic.
 _DOUBLE_QUOTED = r'"(?:[^"\\]|\\.)*(?:"|\\?\Z)'
 _SINGLE_QUOTED = r"'(?:[^'\\]|\\.)*(?:'|\\?\Z)"
-_BLOCK_COMMENT = r"/\*(?:.*?\*/|.*)"
+_BLOCK_COMMENT = r"/\*(?:.*?\*/|(?P<open>.*))"  # `open`: no closing */
 # A line comment ends at any JSON5 line terminator: \n, \r, U+2028 or U+2029.
 _LINE_COMMENT = r"//[^\n\r\u2028\u2029]*"
 
@@ -77,23 +77,21 @@ _JSON5_ERROR = r"(?s)<string>:(\d+) (.*) at column (\d+)"
 # Strings are matched first and kept, so a "//" or "," inside one is left alone.
 _JSONC_COMMENT = rf"(?s)({_DOUBLE_QUOTED}|{_SINGLE_QUOTED})|{_LINE_COMMENT}|{_BLOCK_COMMENT}"
 _JSONC_COMMA = rf"(?s)({_DOUBLE_QUOTED})|,(?=\s*[}}\]])"
-_NOT_NEWLINE = r"[^\n\r\u2028\u2029]"
 _CONSTANTS = frozenset({"NaN", "Infinity", "-Infinity"})
+
+# Python caps int literals at 4300 digits, which fails valid JSON with a long number. No cap at
+# all lets one file stall a run: 4 million digits take about 3 s, growing faster than the size.
+MAX_INT_DIGITS = 1_000_000
 
 
 def _strip_jsonc(text: str) -> str:
-    """Turn comments into spaces and drop trailing commas, so JSONC parses as JSON.
+    """Turn each comment into one space and drop trailing commas, so JSONC parses as JSON.
 
     Only a comma that follows a value is dropped: `[,]` and `[1,,]` stay invalid. An
     unclosed comment is left as it is, so the result fails to parse and json5 decides.
     """
-
-    def blank(m: re.Match[str]) -> str:
-        tok = m[0]
-        unclosed = tok.startswith("/*") and (len(tok) < 4 or not tok.endswith("*/"))  # noqa: PLR2004
-        return tok if m[1] or unclosed else re.sub(_NOT_NEWLINE, " ", tok)
-
-    text = re.sub(_JSONC_COMMENT, blank, text)
+    # Positions always come from the original text, so a comment can shrink to one space.
+    text = re.sub(_JSONC_COMMENT, lambda m: m[0] if m[1] or m["open"] is not None else " ", text)
 
     def comma(m: re.Match[str]) -> str:
         if m[1]:
@@ -195,7 +193,7 @@ def check(text: str, *, strict: bool = False) -> list[Problem]:
     Raises:
         RecursionError: If the text nests deeper than the parser can follow.
         ValueError: If an integer has more digits than Python allows (4300 by default);
-            `main` lifts that limit with `sys.set_int_max_str_digits(0)`.
+            `main` raises that limit to `MAX_INT_DIGITS`.
 
     """
     problems = _check_json(text, strict=strict)
@@ -334,9 +332,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ns, unknown = parser.parse_known_args(args)
         args, strict_patterns = [*ns.filenames, *unknown], ns.strict
 
-    # Python caps int literals at 4300 digits (3.10.7+), which fails valid JSON with a long number.
-    if hasattr(sys, "set_int_max_str_digits"):
-        sys.set_int_max_str_digits(0)
+    if hasattr(sys, "set_int_max_str_digits"):  # 3.10.7+
+        sys.set_int_max_str_digits(MAX_INT_DIGITS)
     annotate = os.environ.get("GITHUB_ACTIONS") == "true"
     retval = 0
     for filename in args:
@@ -351,6 +348,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 problems = [(None, None, f"Failed to read ({exc})")]
             except RecursionError:  # fails this file instead of ending the run
                 problems = [(None, None, "nested too deeply to check")]
+            except ValueError as exc:  # an integer longer than MAX_INT_DIGITS, with no position
+                if "integer string conversion" not in str(exc):
+                    raise
+                problems = [(None, None, f"a number has more than {MAX_INT_DIGITS:,} digits")]
         for problem in problems:
             report(filename, problem, annotate=annotate)
         retval |= bool(problems)

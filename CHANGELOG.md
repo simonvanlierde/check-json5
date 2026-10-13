@@ -18,6 +18,9 @@ version for a new option or output, the patch version for a fix.
 - The hook checks JSON with only comments and trailing commas, such as `tsconfig.json`, with the
   C-speed `json` parser instead of `json5`. Whole hook runs are 11× faster on a 50 KB file and
   56× faster on a 2 MB one. Files that use more of JSON5 still go through `json5`.
+- A number may have up to 1,000,000 digits. 1.3.0 lifted Python's limit of 4300 altogether,
+  which let one file with a huge number stall a run. A longer number now fails its file with a
+  message.
 
 ### Fixed
 
