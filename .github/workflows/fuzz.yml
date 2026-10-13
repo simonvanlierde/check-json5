@@ -46,7 +46,11 @@ jobs:
             -exec cp {} "fuzz/corpus/$TARGET/" \;
         env:
           TARGET: ${{ matrix.target }}
-      - run: cargo +nightly fuzz run -O "$TARGET" -- -max_total_time=1200 -print_final_stats=1
+      # The installed cargo-fuzz is a musl build, and builds for its own target unless told
+      # otherwise; the address sanitizer needs the runner's glibc target.
+      - run: >-
+          cargo +nightly fuzz run -O --target x86_64-unknown-linux-gnu "$TARGET" --
+          -max_total_time=1200 -print_final_stats=1
         working-directory: fuzz
         env:
           TARGET: ${{ matrix.target }}
