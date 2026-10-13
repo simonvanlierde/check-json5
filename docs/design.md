@@ -101,8 +101,7 @@ A glob without `/` matches the file name at any depth, and one with `/` matches 
 ```text
 crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-ident.
 crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output. Built into the
-                       PyPI wheels by maturin.
-python/                the python -m shims
+                       PyPI wheels by maturin, with the python -m shim in python/jsonvet/.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
 setup.py               placeholder that pre-commit installs: pins the jsonvet wheel
 fuzz/  benches/  tests/  scripts/
