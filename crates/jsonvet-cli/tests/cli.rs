@@ -220,4 +220,13 @@ fn pyproject_tool_table_and_bad_configs() {
     ]);
     assert_eq!(jsonvet(&dir, &["d.json"]), (0, String::new()));
     assert_eq!(jsonvet(&dir, &["--config", "bad.toml", "d.json"]).0, 2);
+
+    let typo = workdir(&[
+        (
+            "pyproject.toml",
+            "[tool.jsonvet]\nrule = { duplicate-key = \"ignore\" }\n",
+        ),
+        ("d.json", "{}"),
+    ]);
+    assert_eq!(jsonvet(&typo, &["d.json"]).0, 2);
 }

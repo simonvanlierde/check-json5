@@ -122,13 +122,7 @@ pub(crate) fn discover(start: &Path) -> Option<PathBuf> {
             return Some(own);
         }
         let pyproject = dir.join("pyproject.toml");
-        if pyproject.is_file()
-            && fs::read_to_string(&pyproject)
-                .ok()
-                .and_then(|text| toml::from_str::<PyProject>(&text).ok())
-                .and_then(|p| p.tool?.jsonvet)
-                .is_some()
-        {
+        if fs::read_to_string(&pyproject).is_ok_and(|text| has_jsonvet_table(&text)) {
             return Some(pyproject);
         }
         if dir.join(".git").exists() {
@@ -136,6 +130,18 @@ pub(crate) fn discover(start: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Whether a `pyproject.toml` has a `[tool.jsonvet]` table, valid or not: `load` then reports
+/// what is wrong with it, rather than the search skipping a table with a typo.
+fn has_jsonvet_table(text: &str) -> bool {
+    match toml::from_str::<toml::Table>(text) {
+        Ok(table) => table
+            .get("tool")
+            .and_then(|tool| tool.get("jsonvet"))
+            .is_some(),
+        Err(_) => text.contains("[tool.jsonvet"),
+    }
 }
 
 /// Read a config file.
