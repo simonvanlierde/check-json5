@@ -5,6 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![release](https://img.shields.io/github/v/release/simonvanlierde/check-json5)](https://github.com/simonvanlierde/check-json5/releases/latest)
 
 A [pre-commit](https://pre-commit.com/) hook that checks whether `.json` files parse as
 [JSON5](https://json5.org/) (JSON with comments, trailing commas, and more). It replaces the
