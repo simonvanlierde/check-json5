@@ -7,4 +7,12 @@ Rust project from source. The release workflow keeps the pinned version equal to
 # pip's isolated build provides setuptools when it installs the hook; the dev environment has none.
 from setuptools import setup  # ty: ignore[unresolved-import]
 
-setup(name="pre_commit_placeholder_package", version="0.0.0", install_requires=["jsonvet==2.0.0a0"])
+# No packages: without these, setuptools looks for them in every top-level folder and stops,
+# because `crates/`, `compat/` and `fuzz/` all look like packages.
+setup(
+    name="pre_commit_placeholder_package",
+    version="0.0.0",
+    install_requires=["jsonvet==2.0.0a0"],
+    packages=[],
+    py_modules=[],
+)
