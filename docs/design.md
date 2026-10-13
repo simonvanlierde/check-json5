@@ -42,7 +42,9 @@ can still meet them:
 - Lines end at lone CR, U+2028 and U+2029 in jsonvet, so positions after one of them differ.
 - Raw U+2028 and U+2029 inside strings pass in jsonvet, as the JSON5 spec allows; 1.4's JSON5
   path rejected them.
-- Nesting depth is unlimited in jsonvet; 1.4 failed files nested about 60 levels deep in JSON5.
+- Nesting deeper than 10,000 levels is a syntax error in jsonvet (`Config::max_depth` changes
+  it). 1.4 stopped at 9,998 levels, or 9,994 in files with JSON5 syntax, so only files from 9,995
+  to 10,000 levels deep get a different verdict.
 - A `\u` escape in an unquoted key must stand for a character the key could hold literally, as
   ECMAScript 5.1 says; 1.4 passed any escape, so `{\u0301: 1}` passed there. Literal characters
   agree: both go by general category (letters to start a key, then marks, digits and connectors
@@ -152,8 +154,9 @@ Behind that interface:
 
 - a single-pass byte scanner, with memchr to skip through comments, and a UTF-8 decode only for
   bytes from 0x80 up;
-- an explicit stack of frames instead of recursion, so there is no depth limit. The frames also
-  hold each object's keys for duplicate detection and give the JSONPath of any problem;
+- an explicit stack of frames instead of recursion, so the depth limit is a setting, not the
+  call stack's size. The frames also hold each object's keys for duplicate detection and give
+  the JSONPath of any problem;
 - keys compared by their decoded value, borrowed from the input unless they contain an escape;
 - line starts found once with memchr, and only when the first location is asked for.
 

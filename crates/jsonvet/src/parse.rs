@@ -38,6 +38,7 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
         duplicate_key: config.severity(Rule::DuplicateKey),
         invalid_number: config.severity(Rule::InvalidNumber),
         invalid_code_point: config.severity(Rule::InvalidCodePoint),
+        max_depth: config.depth_limit(),
         problems: Vec::new(),
         stack: Vec::new(),
     };
@@ -102,6 +103,7 @@ struct Parser<'a> {
     duplicate_key: Severity,
     invalid_number: Severity,
     invalid_code_point: Severity,
+    max_depth: usize,
     problems: Vec<Problem>,
     stack: Vec<Frame<'a>>,
 }
@@ -319,7 +321,11 @@ impl<'a> Parser<'a> {
         Ok(self.state_after_value())
     }
 
-    fn open(&mut self, container: Container) -> State {
+    fn open(&mut self, container: Container) -> Result<State, Fail> {
+        if self.stack.len() >= self.max_depth {
+            let limit = self.max_depth;
+            return Err(Fail::at(self.pos, SyntaxKind::TooDeep { limit }));
+        }
         let segment = match self.stack.last() {
             None => Segment::Root,
             Some(parent) => match parent.container {
@@ -336,10 +342,10 @@ impl<'a> Parser<'a> {
             element_index: 0,
         });
         self.pos += 1;
-        match container {
+        Ok(match container {
             Container::Object => State::ObjectFirst,
             Container::Array => State::ArrayFirst,
-        }
+        })
     }
 
     fn value(&mut self) -> Result<State, Fail> {
@@ -347,8 +353,8 @@ impl<'a> Parser<'a> {
             return Err(self.unexpected(Expected::Value));
         };
         match b {
-            b'{' => return Ok(self.open(Container::Object)),
-            b'[' => return Ok(self.open(Container::Array)),
+            b'{' => return self.open(Container::Object),
+            b'[' => return self.open(Container::Array),
             b'"' => {
                 self.string(b'"', false)?;
             }

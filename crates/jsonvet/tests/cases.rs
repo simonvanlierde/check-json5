@@ -195,3 +195,18 @@ fn hex_numbers_overflow_exactly_where_a_double_does() {
     assert_eq!(message(format!("00{}", "F".repeat(14))), unsafe_integer);
     assert_eq!(message("1FFFFFFFFFFFFF".to_owned()), None);
 }
+
+#[test]
+fn nesting_stops_at_the_depth_limit() {
+    let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    let config = Config::new(Dialect::Json);
+    assert!(check(&nested(Config::DEFAULT_MAX_DEPTH), &config).passed());
+    let too_deep = nested(Config::DEFAULT_MAX_DEPTH + 1);
+    let report = check(&too_deep, &config);
+    let problem = &report.problems()[0];
+    assert_eq!(problem.offset(), Config::DEFAULT_MAX_DEPTH);
+    assert_eq!(problem.to_string(), "nested deeper than 10000 levels");
+    let shallow = Config::new(Dialect::Json5).max_depth(2);
+    assert!(check("{a: [1]}", &shallow).passed());
+    assert!(!check("{a: [{}]}", &shallow).passed());
+}

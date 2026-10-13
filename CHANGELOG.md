@@ -42,7 +42,8 @@ until 3.0. To change anything else, switch to the `jsonvet` hook id.
   arm64. It needs no Rust, and no longer starts Python on every run.
 - Raw U+2028 and U+2029 inside strings pass in every JSON5 file, as the spec allows. 1.x
   rejected them in files that used more of JSON5 than comments and trailing commas.
-- Nesting depth has no limit. 1.x failed JSON5 files nested about 60 levels deep.
+- Nesting deeper than 10,000 levels is a syntax error, about where 1.4 stopped (9,998 levels).
+  Library users can change it with `Config::max_depth`.
 - Numbers of any length pass; 1.x capped integers at 1,000,000 digits.
 - A `\u` escape in an unquoted JSON5 key fails when the character it stands for could not appear
   there literally, as in `{\u0301: 1}`. 1.x passed any escape.

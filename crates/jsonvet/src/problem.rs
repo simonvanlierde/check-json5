@@ -170,6 +170,11 @@ pub enum SyntaxKind {
     UnterminatedComment,
     /// An empty line in a JSON Lines file.
     BlankLine,
+    /// An object or array opened one level past `Config::depth_limit`.
+    TooDeep {
+        /// The limit that was passed.
+        limit: usize,
+    },
 }
 
 /// What the parser needed where it found something else.
@@ -257,6 +262,7 @@ impl fmt::Display for SyntaxError {
             SyntaxKind::BlankLine => {
                 f.write_str("blank line; JSON Lines needs a value on every line")
             }
+            SyntaxKind::TooDeep { limit } => write!(f, "nested deeper than {limit} levels"),
         }
     }
 }

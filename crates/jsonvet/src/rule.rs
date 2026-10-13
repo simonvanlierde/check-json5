@@ -130,15 +130,33 @@ impl fmt::Display for Severity {
 pub struct Config {
     dialect: Dialect,
     overrides: [Option<Severity>; Rule::ALL.len()],
+    max_depth: usize,
 }
 
 impl Config {
+    /// How deep objects and arrays may nest by default: about where check-json5 1.4 stopped
+    /// (9,998 levels), so files it passed still pass, and the same as Go's `encoding/json`.
+    pub const DEFAULT_MAX_DEPTH: usize = 10_000;
+
     /// The dialect's defaults.
     pub fn new(dialect: Dialect) -> Self {
         Config {
             dialect,
             overrides: [None; Rule::ALL.len()],
+            max_depth: Self::DEFAULT_MAX_DEPTH,
         }
+    }
+
+    /// Set how deep objects and arrays may nest; one level deeper is a syntax error.
+    #[must_use]
+    pub fn max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
+        self
+    }
+
+    /// How deep objects and arrays may nest under this config.
+    pub fn depth_limit(&self) -> usize {
+        self.max_depth
     }
 
     /// Set one rule's severity. `Rule::Syntax` stays an error whatever is set here.
