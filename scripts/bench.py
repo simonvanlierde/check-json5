@@ -10,7 +10,7 @@ import timeit
 from pathlib import Path
 from unittest import mock
 
-from pre_commit_hooks import check_json5
+from check_json5 import check_json5
 
 SIZES = [1_000, 50_000, 500_000, 2_000_000]  # target bytes per fixture
 REPEAT = 10  # runs per timing; the best one is reported

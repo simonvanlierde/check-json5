@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from pre_commit_hooks.check_json5 import main
+from check_json5.check_json5 import _escape, check, is_strict, main
+
+
+@pytest.fixture(autouse=True)
+def _no_github_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CI sets it, and its annotation lines would break the exact-output assertions.
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
 
 def write(tmp_path: Path, content: str) -> str:
@@ -42,7 +48,7 @@ def test_strict_json_run_skips_slow_imports(tmp_path: Path) -> None:
     # A fresh interpreter: this one has them loaded already. Each costs a few ms per hook run.
     f = write(tmp_path, '{"a": 1}')
     code = (
-        "import json, sys; before = set(sys.modules); from pre_commit_hooks.check_json5 import main; "
+        "import json, sys; before = set(sys.modules); from check_json5.check_json5 import main; "
         f"main([{f!r}]); print(json.dumps(sorted(set(sys.modules) - before)))"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout  # noqa: S603
@@ -102,9 +108,101 @@ def test_nesting_past_recursion_limit_fails_only_that_file(
     bad.write_text("{a:}")
     assert main([str(deep), str(bad)]) == 1
     out = capsys.readouterr().out
-    assert f"{deep}: Failed" in out
-    assert f"{bad}: Failed" in out
+    # Python 3.14's C parser no longer recurses on arrays, so the deep file may pass there.
+    assert f"{deep}:" not in out or f"{deep}: nested too deeply to check" in out
+    assert f"{bad}:1:4: Unexpected" in out
 
 
 def test_mixed_pass_and_fail_returns_1(tmp_path: Path) -> None:
     assert main([write(tmp_path, "{a: 1}"), write(tmp_path, "{a:}")]) == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("// c\n{\n  a: 1,\n  b: ,\n}", [(4, 6, 'Unexpected ","')]),
+        ("", [(None, None, "Empty strings are not legal JSON5")]),
+        ('{"a": 1,\n "a": 2}', [(2, 2, "duplicate key $.a")]),
+        # Nested, in arrays, through an escape, and each one reported.
+        (
+            '{"x": {"a": 1, "\\u0061": 2},\n "l": [{"k": 1}, {"k": 2, "k": 3}],\n "x": 0}',
+            [(1, 16, "duplicate key $.x.a"), (2, 27, "duplicate key $.l[1].k"), (3, 2, "duplicate key $.x")],
+        ),
+        # A key-like string or comment is not a key.
+        ('{"s": "\\"a\\": 1, // no", /* "s": */ "s": 2}', [(1, 37, "duplicate key $.s")]),
+        (
+            "// c\n{a: 1, 'a': 2, \"b c\": {d: 1, d: 2}}",
+            [(2, 8, "duplicate key $.a"), (2, 30, 'duplicate key $["b c"].d')],
+        ),
+    ],
+)
+def test_problems_carry_their_position(text: str, expected: list) -> None:
+    assert check(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"a": 1}', []),
+        ("{a: 1}", [(1, 2, "not strict JSON: Expecting property name enclosed in double quotes")]),
+        ("// c\n{}", [(1, 1, "not strict JSON: Expecting value")]),
+        (
+            '{"a": NaN,\n "b": [-Infinity]}',
+            [(1, 7, "NaN is not valid in strict JSON"), (2, 8, "-Infinity is not valid in strict JSON")],
+        ),
+        ('{"a": 1, "a": 2}', [(1, 10, "duplicate key $.a")]),
+    ],
+)
+def test_strict_mode(text: str, expected: list) -> None:
+    assert check(text, strict=True) == expected
+
+
+@pytest.mark.parametrize(
+    ("filename", "patterns", "expected"),
+    [
+        ("a/package.json", [], False),
+        ("a/package.json", ["package.json"], True),
+        ("a/b/x.json", ["*.json"], True),
+        ("a/tsconfig.json", ["*.json", "!tsconfig*.json"], False),
+        ("a/tsconfig.json", ["!tsconfig*.json", "*.json"], True),
+        ("src/x.json", ["src/*.json"], True),
+        ("lib/src/x.json", ["src/*.json"], False),
+    ],
+)
+def test_is_strict(filename: str, patterns: list[str], *, expected: bool) -> None:
+    assert is_strict(filename, patterns) is expected
+
+
+def test_strict_flag_applies_per_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "package.json").write_text('{"a": 1, // c\n}')
+    (tmp_path / "tsconfig.json").write_text('{"a": 1, // c\n}')
+    files = [str(tmp_path / "package.json"), str(tmp_path / "tsconfig.json")]
+    assert main(["--strict", "*.json", "--strict", "!tsconfig.json", *files]) == 1
+    out = capsys.readouterr().out
+    assert "package.json:1:10: not strict JSON" in out
+    assert "tsconfig.json" not in out
+
+
+def test_output_is_file_line_col(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    f = write(tmp_path, "{a:}")
+    assert main([f]) == 1
+    assert capsys.readouterr().out == f'{f}:1:4: Unexpected "}}"\n'
+
+
+def test_github_annotations(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    f = tmp_path / "a,b:c.json"
+    f.write_text('{"a": 1, "a": 2}')
+    missing = tmp_path / "gone.json"
+    assert main([str(f), str(missing)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    escaped = str(f).replace(":", "%3A").replace(",", "%2C")
+    assert lines[1] == f"::error file={escaped},line=1,col=10,title=check-json5::duplicate key $.a"
+    assert lines[3] == f"::error file={missing},title=check-json5::No such file"
+
+
+def test_message_escaping_for_annotations() -> None:
+    assert _escape("50% a\nb") == "50%25 a%0Ab"
+    assert _escape("a:b,c", prop=True) == "a%3Ab%2Cc"

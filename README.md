@@ -7,19 +7,28 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A [pre-commit](https://pre-commit.com/) hook that checks whether `.json` files parse as
-[JSON5](https://json5.org/) (JSON with comments, trailing commas, and more). A drop-in replacement
-for the standard `check-json` hook that also accepts JSON5, without giving up the speed of the C
-parser on ordinary JSON.
+[JSON5](https://json5.org/) (JSON with comments, trailing commas, and more). It replaces the
+standard `check-json` hook, accepts JSON5 too, and keeps the speed of the C parser on ordinary
+JSON.
 
 ## Features
 
 - Accepts JSON5 syntax (comments, trailing commas) that the standard `check-json` hook rejects.
+- Every failure names its place, as `file:line:col: message`, so editors and terminals link
+  straight to it. A duplicate key also gets its path, and every repeat in a file is listed:
+
+  ```text
+  config.json:4:5: duplicate key $.server.port
+  config.json:9:3: duplicate key $.plugins[2].name
+  ```
+
+- On GitHub Actions, each failure is also an annotation on the line of the pull request diff.
+- `--strict GLOB` holds chosen files to strict JSON (no comments, no `NaN`), for files that a
+  JSON parser reads at runtime, such as `package.json`.
 - Fast path: strict JSON is parsed with the C-speed stdlib `json` parser, falling back to the
   pure-Python `json5` parser only when a file actually uses JSON5 features (~500× faster on large
   strict-JSON files; see [Performance](#performance)).
-- Duplicate-key detection on both paths.
-- Accepts `NaN` and `Infinity` (both parsers allow them), so strict-JSON consumers may still reject such files.
-- Drop-in replacement for `check-json`.
+- Accepts `NaN` and `Infinity` (both parsers allow them) unless `--strict` covers the file.
 
 ## Links
 
@@ -32,13 +41,35 @@ In `.pre-commit-config.yaml`, under `repos:`, add:
 
 ```yaml
 - repo: https://github.com/simonvanlierde/check-json5
-  rev: v1.2.1
+  rev: v1.3.0
   hooks:
     - id: check-json5
 ```
 
 Remove the original `check-json` hook if it is already included. A file passes when it parses as
-JSON5 and has no duplicate keys.
+JSON5 and has no duplicate keys. The hook picks files by extension (`.json`, `.jsonc`, `.json5`,
+`.geojson`, `.jsonld`), while `check-json` picks them by type, so files such as `.babelrc` or
+`.ipynb` are no longer checked after the swap. Add them with `files:` if you need them.
+
+### Strict files
+
+Some JSON files are read by a strict parser at runtime: a comment in `package.json` passes a JSON5
+check and then breaks `npm`. Name those files with `--strict`. Each pattern matches the file name
+at any depth, or the whole path when it contains a `/`. `*` also matches across `/`. A leading `!`
+exempts files, and the last matching pattern wins:
+
+```yaml
+    - id: check-json5
+      args: [--strict, "*.json", --strict, "!tsconfig*.json", --strict, "!.vscode/*"]
+```
+
+### Without pre-commit
+
+The hook is also a command on PyPI:
+
+```bash
+uvx check-json5 --strict package.json config/*.json
+```
 
 ## Introduction
 
