@@ -248,3 +248,24 @@ def test_jsonc_shortcut_never_changes_a_verdict() -> None:
     for _ in range(5000):
         text = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 20)))
         assert bool(check(text)) == bool(without_shortcut(text)), text
+
+
+def test_line_comment_ends_at_every_json5_line_terminator() -> None:
+    # The code after U+2028 is not part of the comment, so its error is found.
+    assert check('{"a": 1} // c\u2028 x')
+    assert check('{"a": 1} // c\u2028') == []
+
+
+# Generous for a loaded CI runner; the quadratic version needed minutes.
+LINEAR_TIME_LIMIT_S = 5
+
+
+@pytest.mark.parametrize("opener", ["/* ", '"\\', "'\\"], ids=["comment", "double", "single"])
+def test_unclosed_openers_take_linear_time(opener: str) -> None:
+    # Each opener used to rescan to the end of the text: 80,000 took minutes, now well under a second.
+    import time  # noqa: PLC0415
+
+    text = '{"a": 1} ' + opener * 80_000
+    start = time.perf_counter()
+    assert check(text)
+    assert time.perf_counter() - start < LINEAR_TIME_LIMIT_S

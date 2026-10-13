@@ -53,18 +53,27 @@ def _reject_constant(name: str) -> float:
 # The patterns stay strings, compiled by `re` on first use and cached there, so a run over
 # strict JSON never pays to compile them at import.
 #
+# An unclosed string or block comment runs to the end of the text in one match. Failing to
+# match instead would rescan to the end from every later quote or `/*`, which is quadratic.
+_DOUBLE_QUOTED = r'"(?:[^"\\]|\\.)*(?:"|\\?\Z)'
+_SINGLE_QUOTED = r"'(?:[^'\\]|\\.)*(?:'|\\?\Z)"
+_BLOCK_COMMENT = r"/\*(?:.*?\*/|.*)"
+# A line comment ends at any JSON5 line terminator: \n, \r, U+2028 or U+2029.
+_LINE_COMMENT = r"//[^\n\r\u2028\u2029]*"
+
 # Only ever run over text a parser has looked at, so it can be loose: it skips what it
 # does not recognise. Strings come before comments so a "//" inside one stays a string.
-_LEXER = r"""(?xs)(?P<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')
-      | (?P<skip>\s+|//[^\n\r\u2028\u2029]*|/\*.*?\*/)
-      | (?P<punct>[{}\[\]:,])
-      | (?P<bare>[^\s{}\[\]:,"'/]+)"""
+_LEXER = (
+    rf"(?xs)(?P<str>{_DOUBLE_QUOTED}|{_SINGLE_QUOTED})"
+    rf"| (?P<skip>\s+|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
+    r"| (?P<punct>[{}\[\]:,])"
+    r"""| (?P<bare>[^\s{}\[\]:,"'/]+)"""
+)
 _IDENTIFIER = r"[A-Za-z_$][\w$]*"
 _JSON5_ERROR = r"(?s)<string>:(\d+) (.*) at column (\d+)"
-# Strings are matched first and kept, so a "//" or "," inside one is left alone. A line
-# comment ends at any JSON5 line terminator: \n, \r, U+2028 or U+2029.
-_JSONC_COMMENT = r"""(?s)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|//[^\n\r\u2028\u2029]*|/\*.*?\*/"""
-_JSONC_COMMA = r'(?s)("(?:[^"\\]|\\.)*")|,(?=\s*[}\]])'
+# Strings are matched first and kept, so a "//" or "," inside one is left alone.
+_JSONC_COMMENT = rf"(?s)({_DOUBLE_QUOTED}|{_SINGLE_QUOTED})|{_LINE_COMMENT}|{_BLOCK_COMMENT}"
+_JSONC_COMMA = rf"(?s)({_DOUBLE_QUOTED})|,(?=\s*[}}\]])"
 _NOT_NEWLINE = r"[^\n\r\u2028\u2029]"
 
 
@@ -74,7 +83,13 @@ def _strip_jsonc(text: str) -> str:
     Only a comma that follows a value is dropped: `[,]` and `[1,,]` stay invalid. An
     unclosed comment is left as it is, so the result fails to parse and json5 decides.
     """
-    text = re.sub(_JSONC_COMMENT, lambda m: m[0] if m[1] else re.sub(_NOT_NEWLINE, " ", m[0]), text)
+
+    def blank(m: re.Match[str]) -> str:
+        tok = m[0]
+        unclosed = tok.startswith("/*") and (len(tok) < 4 or not tok.endswith("*/"))  # noqa: PLR2004
+        return tok if m[1] or unclosed else re.sub(_NOT_NEWLINE, " ", tok)
+
+    text = re.sub(_JSONC_COMMENT, blank, text)
 
     def comma(m: re.Match[str]) -> str:
         if m[1]:
