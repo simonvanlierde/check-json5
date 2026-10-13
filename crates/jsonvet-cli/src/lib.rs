@@ -43,7 +43,7 @@ fn run_with(
     let args =
         match args::parse(args).map_err(|e| format!("{e}\n\nRun `jsonvet --help` for usage."))? {
             Command::Help => return print(out, args::HELP),
-            Command::Version => return print(out, &format!("jsonvet {}", jsonvet::VERSION)),
+            Command::Version => return print(out, concat!("jsonvet ", env!("CARGO_PKG_VERSION"))),
             Command::Check(args) => args,
         };
     let from_file = match &args.config {

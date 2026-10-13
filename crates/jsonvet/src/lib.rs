@@ -23,12 +23,9 @@ mod report;
 mod rule;
 
 pub use dialect::{Dialect, UnknownDialect};
-pub use problem::{Detail, Expected, Feature, Problem, SyntaxError, SyntaxKind};
+pub use problem::Problem;
 pub use report::{Location, Report};
 pub use rule::{Config, Rule, Severity, UnknownRule};
-
-/// The crate version, which the command line prints.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Check one text and return every problem in it, in document order. Checking stops at the
 /// first syntax error; problems found before it stay in the report.

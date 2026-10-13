@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::path::{self, Segment};
-use crate::problem::{Detail, Expected, Feature, SyntaxError, SyntaxKind};
+use crate::problem::{Detail, SyntaxError, SyntaxKind};
 use crate::{Config, Dialect, Problem, Rule, Severity};
 
 /// Past this many keys, an object's duplicate check switches from a linear scan to a hash map.
@@ -38,7 +38,7 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
         duplicate_key: config.severity(Rule::DuplicateKey),
         invalid_number: config.severity(Rule::InvalidNumber),
         invalid_code_point: config.severity(Rule::InvalidCodePoint),
-        max_depth: config.depth_limit(),
+        max_depth: config.max_depth,
         problems: Vec::new(),
         stack: Vec::new(),
     };
@@ -190,11 +190,11 @@ impl<'a> Parser<'a> {
     }
 
     /// The error for whatever sits at the current position when `expected` was needed.
-    fn unexpected(&self, expected: Expected) -> Fail {
+    fn unexpected(&self, expected: &'static str) -> Fail {
         self.unexpected_at(self.pos, expected)
     }
 
-    fn unexpected_at(&self, at: usize, expected: Expected) -> Fail {
+    fn unexpected_at(&self, at: usize, expected: &'static str) -> Fail {
         if at >= self.bytes.len() {
             Fail::at(at, SyntaxKind::UnexpectedEnd { expected })
         } else {
@@ -208,11 +208,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn not_allowed(&self, at: usize, feature: Feature) -> Fail {
+    fn not_allowed(&self, at: usize, what: &'static str) -> Fail {
         Fail::at(
             at,
             SyntaxKind::NotAllowed {
-                feature,
+                what,
                 dialect: self.dialect,
             },
         )
@@ -259,14 +259,14 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     State::Value
                 }
-                State::Colon => return Err(self.unexpected(Expected::Colon)),
+                State::Colon => return Err(self.unexpected("`:`")),
                 State::AfterValue => self.after_value()?,
                 State::Done => {
                     return match self.peek() {
                         None => Ok(()),
                         Some(b'\n') if self.json_lines => Ok(()),
-                        Some(_) if self.json_lines => Err(self.unexpected(Expected::LineEnd)),
-                        Some(_) => Err(self.unexpected(Expected::End)),
+                        Some(_) if self.json_lines => Err(self.unexpected("the end of the line")),
+                        Some(_) => Err(self.unexpected("the end of the file")),
                     };
                 }
             };
@@ -301,11 +301,7 @@ impl<'a> Parser<'a> {
             }
             Some(b'}') if object => self.close('}', false),
             Some(b']') if !object => self.close(']', false),
-            _ => Err(self.unexpected(if object {
-                Expected::CommaOrBrace
-            } else {
-                Expected::CommaOrBracket
-            })),
+            _ => Err(self.unexpected(if object { "`,` or `}`" } else { "`,` or `]`" })),
         }
     }
 
@@ -350,7 +346,7 @@ impl<'a> Parser<'a> {
 
     fn value(&mut self) -> Result<State, Fail> {
         let Some(b) = self.peek() else {
-            return Err(self.unexpected(Expected::Value));
+            return Err(self.unexpected("a value"));
         };
         match b {
             b'{' => return self.open(Container::Object),
@@ -361,12 +357,12 @@ impl<'a> Parser<'a> {
             b'\'' if self.json5 => {
                 self.string(b'\'', false)?;
             }
-            b'\'' => return Err(self.not_allowed(self.pos, Feature::SingleQuotes)),
+            b'\'' => return Err(self.not_allowed(self.pos, "single-quoted strings are")),
             b'-' | b'+' | b'.' | b'0'..=b'9' | b'I' | b'N' => self.number()?,
-            b't' => self.literal("true")?,
-            b'f' => self.literal("false")?,
-            b'n' => self.literal("null")?,
-            _ => return Err(self.unexpected(Expected::Value)),
+            b't' => self.literal("`true`")?,
+            b'f' => self.literal("`false`")?,
+            b'n' => self.literal("`null`")?,
+            _ => return Err(self.unexpected("a value")),
         }
         Ok(self.state_after_value())
     }
@@ -412,14 +408,14 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(b'"') => self.string(b'"', decode),
             Some(b'\'') if self.json5 => self.string(b'\'', decode),
-            Some(b'\'') => Err(self.not_allowed(start, Feature::SingleQuotes)),
+            Some(b'\'') => Err(self.not_allowed(start, "single-quoted strings are")),
             Some(_) if self.identifier_start(start) => {
                 if !self.json5 {
-                    return Err(self.not_allowed(start, Feature::UnquotedKeys));
+                    return Err(self.not_allowed(start, "unquoted keys are"));
                 }
                 self.identifier().map(Some)
             }
-            _ => Err(self.unexpected(Expected::Key)),
+            _ => Err(self.unexpected("a key")),
         }
     }
 
@@ -474,7 +470,7 @@ impl<'a> Parser<'a> {
             };
             if !fits {
                 if self.pos == start {
-                    return Err(self.unexpected(Expected::Key));
+                    return Err(self.unexpected("a key"));
                 }
                 break;
             }
@@ -679,13 +675,13 @@ impl<'a> Parser<'a> {
     fn number(&mut self) -> Result<(), Fail> {
         let start = self.pos;
         match self.peek() {
-            Some(b'+') if !self.json5 => return Err(self.not_allowed(start, Feature::Json5Numbers)),
+            Some(b'+') if !self.json5 => return Err(self.not_allowed(start, "this number form is")),
             Some(b'+' | b'-') => self.pos += 1,
             _ => {}
         }
         match self.peek() {
-            Some(b'I') => self.nan_or_infinity(start, "Infinity"),
-            Some(b'N') => self.nan_or_infinity(start, "NaN"),
+            Some(b'I') => self.nan_or_infinity(start, "`Infinity`"),
+            Some(b'N') => self.nan_or_infinity(start, "`NaN`"),
             Some(b'0') if matches!(self.bytes.get(self.pos + 1), Some(b'x' | b'X')) => {
                 self.hex_number(start)
             }
@@ -696,7 +692,7 @@ impl<'a> Parser<'a> {
     /// The rest of a JSON5 hex number such as `-0x1F`, from its `0x`. `start` is at the sign.
     fn hex_number(&mut self, start: usize) -> Result<(), Fail> {
         if !self.json5 {
-            return Err(self.not_allowed(start, Feature::Json5Numbers));
+            return Err(self.not_allowed(start, "this number form is"));
         }
         self.pos += 2;
         let hex_start = self.pos;
@@ -704,7 +700,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         if self.pos == hex_start {
-            return Err(self.unexpected(Expected::HexDigit));
+            return Err(self.unexpected("a hex digit"));
         }
         self.check_hex(start, hex_start);
         Ok(())
@@ -723,16 +719,16 @@ impl<'a> Parser<'a> {
             let fraction_digits = self.bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit);
             if !int_digits && !fraction_digits {
                 // A point with no digit on either side, such as `-.`, is no value at all.
-                return Err(self.unexpected_at(int_start, Expected::Value));
+                return Err(self.unexpected_at(int_start, "a value"));
             }
             if !self.json5 && int_digits != fraction_digits {
                 // Only JSON5 allows a point with digits on one side alone, as in `.5` and `5.`.
-                return Err(self.not_allowed(start, Feature::Json5Numbers));
+                return Err(self.not_allowed(start, "this number form is"));
             }
             self.pos += 1;
             self.skip_digits();
         } else if !int_digits {
-            return Err(self.unexpected(Expected::Digit));
+            return Err(self.unexpected("a digit"));
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
             self.pos += 1;
@@ -740,7 +736,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
             if !self.skip_digits() {
-                return Err(self.unexpected(Expected::Digit));
+                return Err(self.unexpected("a digit"));
             }
         }
         self.check_decimal(start);
@@ -759,19 +755,22 @@ impl<'a> Parser<'a> {
     /// `NaN` or `Infinity`, which only JSON5 allows. `start` is at the sign, if there is one.
     fn nan_or_infinity(&mut self, start: usize, word: &'static str) -> Result<(), Fail> {
         if !self.json5 {
-            return Err(if self.text[self.pos..].starts_with(word) {
-                self.not_allowed(start, Feature::NanAndInfinity)
-            } else {
-                self.unexpected(Expected::Value)
-            });
+            return Err(
+                if self.text[self.pos..].starts_with(word.trim_matches('`')) {
+                    self.not_allowed(start, "NaN and Infinity are")
+                } else {
+                    self.unexpected("a value")
+                },
+            );
         }
         self.literal(word)
     }
 
+    /// A literal such as `null`. `word` comes in backticks, as an error message shows it.
     fn literal(&mut self, word: &'static str) -> Result<(), Fail> {
-        for &expected in word.as_bytes() {
+        for &expected in word.trim_matches('`').as_bytes() {
             if self.peek() != Some(expected) {
-                return Err(self.unexpected(Expected::Literal(word)));
+                return Err(self.unexpected(word));
             }
             self.pos += 1;
         }
@@ -831,7 +830,7 @@ impl<'a> Parser<'a> {
                 b' ' | b'\t' | b'\r' | b'\n' => self.pos += 1,
                 b'/' => match self.bytes.get(self.pos + 1) {
                     Some(b'/' | b'*') if !self.dialect.comments() => {
-                        return Err(self.not_allowed(self.pos, Feature::Comments));
+                        return Err(self.not_allowed(self.pos, "comments are"));
                     }
                     Some(b'/') => self.line_comment(),
                     Some(b'*') => self.block_comment()?,

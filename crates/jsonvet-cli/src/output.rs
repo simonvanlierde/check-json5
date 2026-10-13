@@ -4,7 +4,7 @@
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
-use jsonvet::{Detail, Problem, Report, Severity};
+use jsonvet::{Problem, Report, Rule, Severity};
 
 /// A newline in a file name or message would start a line of its own, which GitHub Actions
 /// reads as a workflow command when it starts with `::`.
@@ -43,7 +43,7 @@ impl<W: Write> Printer<W> {
         let mut message = problem.to_string();
         if let Some(related) = problem.related_offset() {
             let first = report.location(related);
-            let what = if matches!(problem.detail(), Detail::DuplicateKey { .. }) {
+            let what = if problem.rule() == Rule::DuplicateKey {
                 "first at"
             } else {
                 "started at"

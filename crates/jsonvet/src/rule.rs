@@ -130,7 +130,7 @@ impl fmt::Display for Severity {
 pub struct Config {
     dialect: Dialect,
     overrides: [Option<Severity>; Rule::ALL.len()],
-    max_depth: usize,
+    pub(crate) max_depth: usize,
 }
 
 impl Config {
@@ -152,11 +152,6 @@ impl Config {
     pub fn max_depth(mut self, depth: usize) -> Self {
         self.max_depth = depth;
         self
-    }
-
-    /// How deep objects and arrays may nest under this config.
-    pub fn depth_limit(&self) -> usize {
-        self.max_depth
     }
 
     /// Set one rule's severity. `Rule::Syntax` stays an error whatever is set here.

@@ -22,11 +22,6 @@ impl Problem {
         self.severity
     }
 
-    /// What is wrong.
-    pub fn detail(&self) -> &Detail {
-        &self.detail
-    }
-
     /// The rule the problem belongs to.
     pub fn rule(&self) -> Rule {
         match self.detail {
@@ -57,12 +52,9 @@ impl fmt::Display for Problem {
     }
 }
 
-impl std::error::Error for Problem {}
-
 /// What a problem is about.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Detail {
+pub(crate) enum Detail {
     /// A syntax error.
     Syntax(SyntaxError),
     /// A key repeated in the same object.
@@ -111,33 +103,32 @@ impl fmt::Display for Detail {
 
 /// A syntax error: the first place where the text stops being valid in its dialect.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SyntaxError {
+pub(crate) struct SyntaxError {
     /// What went wrong.
-    pub kind: SyntaxKind,
+    pub(crate) kind: SyntaxKind,
     /// Where the unterminated string or comment the error is about starts, if it is about one.
-    pub started: Option<usize>,
+    pub(crate) started: Option<usize>,
 }
 
 /// The kinds of syntax error.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SyntaxKind {
+pub(crate) enum SyntaxKind {
     /// The text ended where something else was needed.
     UnexpectedEnd {
-        /// What was needed.
-        expected: Expected,
+        /// What was needed, as the message names it: "a value", "`:`".
+        expected: &'static str,
     },
     /// A character that cannot continue the document here.
     Unexpected {
         /// The character found.
         found: char,
-        /// What was needed instead.
-        expected: Expected,
+        /// What was needed instead, as for `UnexpectedEnd`.
+        expected: &'static str,
     },
     /// Syntax that a larger dialect allows but this one does not.
     NotAllowed {
-        /// The syntax.
-        feature: Feature,
+        /// The syntax as the message names it: "comments are".
+        what: &'static str,
         /// The dialect being checked.
         dialect: Dialect,
     },
@@ -170,53 +161,11 @@ pub enum SyntaxKind {
     UnterminatedComment,
     /// An empty line in a JSON Lines file.
     BlankLine,
-    /// An object or array opened one level past `Config::depth_limit`.
+    /// An object or array opened one level past the config's maximum depth.
     TooDeep {
         /// The limit that was passed.
         limit: usize,
     },
-}
-
-/// What the parser needed where it found something else.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Expected {
-    /// Any value.
-    Value,
-    /// An object key.
-    Key,
-    /// `:` after a key.
-    Colon,
-    /// `,` or `]` after an array element.
-    CommaOrBracket,
-    /// `,` or `}` after an object member.
-    CommaOrBrace,
-    /// Nothing more: the document's value is complete.
-    End,
-    /// The end of the line, in JSON Lines.
-    LineEnd,
-    /// A decimal digit.
-    Digit,
-    /// A hexadecimal digit.
-    HexDigit,
-    /// The rest of a literal such as `null`.
-    Literal(&'static str),
-}
-
-/// Syntax that only some dialects allow.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Feature {
-    /// `//` and `/* */` comments.
-    Comments,
-    /// Strings in single quotes.
-    SingleQuotes,
-    /// Object keys without quotes.
-    UnquotedKeys,
-    /// `NaN` and `Infinity`.
-    NanAndInfinity,
-    /// Hex numbers, a leading `+`, and a leading or trailing decimal point.
-    Json5Numbers,
 }
 
 impl fmt::Display for SyntaxError {
@@ -228,14 +177,7 @@ impl fmt::Display for SyntaxError {
             SyntaxKind::Unexpected { found, expected } => {
                 write!(f, "expected {expected}, found {}", Shown(*found))
             }
-            SyntaxKind::NotAllowed { feature, dialect } => {
-                let what = match feature {
-                    Feature::Comments => "comments are",
-                    Feature::SingleQuotes => "single-quoted strings are",
-                    Feature::UnquotedKeys => "unquoted keys are",
-                    Feature::NanAndInfinity => "NaN and Infinity are",
-                    Feature::Json5Numbers => "this number form is",
-                };
+            SyntaxKind::NotAllowed { what, dialect } => {
                 write!(f, "{what} not allowed in {dialect}")
             }
             SyntaxKind::TrailingComma { close, dialect } => {
@@ -263,25 +205,6 @@ impl fmt::Display for SyntaxError {
                 f.write_str("blank line; JSON Lines needs a value on every line")
             }
             SyntaxKind::TooDeep { limit } => write!(f, "nested deeper than {limit} levels"),
-        }
-    }
-}
-
-impl std::error::Error for SyntaxError {}
-
-impl fmt::Display for Expected {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Expected::Value => f.write_str("a value"),
-            Expected::Key => f.write_str("a key"),
-            Expected::Colon => f.write_str("`:`"),
-            Expected::CommaOrBracket => f.write_str("`,` or `]`"),
-            Expected::CommaOrBrace => f.write_str("`,` or `}`"),
-            Expected::End => f.write_str("the end of the file"),
-            Expected::LineEnd => f.write_str("the end of the line"),
-            Expected::Digit => f.write_str("a digit"),
-            Expected::HexDigit => f.write_str("a hex digit"),
-            Expected::Literal(word) => write!(f, "`{word}`"),
         }
     }
 }
