@@ -46,7 +46,7 @@ pub(crate) enum ConfigSource {
 
 #[derive(Debug)]
 pub(crate) struct Args {
-    pub(crate) files: Vec<String>,
+    pub(crate) files: Vec<OsString>,
     pub(crate) settings: Settings,
     pub(crate) max_warnings: Option<usize>,
     pub(crate) config: ConfigSource,
@@ -91,20 +91,26 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
             }
             Long("config") => config = ConfigSource::File(PathBuf::from(value(&mut parser)?)),
             Long("no-config") => config = ConfigSource::None,
-            Short('h') | Long("help") => return Ok(Command::Help),
-            Short('V') | Long("version") => return Ok(Command::Version),
-            Value(file) => files.push(file.to_string_lossy().into_owned()),
+            Value(file) => files.push(file),
             // pre-commit puts file names after the options with no `--`, so a name like
-            // `-x.json` or `--y.json` is a file, not an unknown option.
-            Short(c) => files.push(format!("-{c}{}", rest(&mut parser))),
-            Long(name) => {
-                let name = format!("--{name}");
+            // `-x.json`, `-h.json` or `--y.json` is a file, not an option.
+            Short(c) => {
                 let rest = rest(&mut parser);
-                files.push(if rest.is_empty() {
-                    name
-                } else {
-                    format!("{name}={rest}")
-                });
+                match (c, rest.is_empty()) {
+                    ('h', true) => return Ok(Command::Help),
+                    ('V', true) => return Ok(Command::Version),
+                    _ => files.push(joined(&format!("-{c}"), "", &rest)),
+                }
+            }
+            Long(name) => {
+                let name = name.to_owned();
+                let rest = rest(&mut parser);
+                match (name.as_str(), rest.is_empty()) {
+                    ("help", true) => return Ok(Command::Help),
+                    ("version", true) => return Ok(Command::Version),
+                    (_, true) => files.push(format!("--{name}").into()),
+                    _ => files.push(joined(&format!("--{name}"), "=", &rest)),
+                }
             }
         }
     }
@@ -126,11 +132,15 @@ fn value(parser: &mut lexopt::Parser) -> Result<String, String> {
 
 /// The rest of the current argument after an unknown option: the remaining letters of
 /// `-dash.json`, or the value of `--name=value`.
-fn rest(parser: &mut lexopt::Parser) -> String {
-    parser
-        .optional_value()
-        .map(|v| v.to_string_lossy().into_owned())
-        .unwrap_or_default()
+fn rest(parser: &mut lexopt::Parser) -> OsString {
+    parser.optional_value().unwrap_or_default()
+}
+
+fn joined(option: &str, separator: &str, rest: &OsString) -> OsString {
+    let mut name = OsString::from(option);
+    name.push(separator);
+    name.push(rest);
+    name
 }
 
 #[cfg(test)]
@@ -147,8 +157,34 @@ mod tests {
 
     #[test]
     fn files_that_look_like_options_stay_files() {
-        let args = check(&["-dash.json", "--x.json", "--", "--y.json", "a.json"]);
-        assert_eq!(args.files, ["-dash.json", "--x.json", "--y.json", "a.json"]);
+        let args = check(&[
+            "-dash.json",
+            "-h.json",
+            "--help=x",
+            "--x.json",
+            "--",
+            "--y.json",
+            "a.json",
+        ]);
+        assert_eq!(
+            args.files,
+            [
+                "-dash.json",
+                "-h.json",
+                "--help=x",
+                "--x.json",
+                "--y.json",
+                "a.json"
+            ]
+        );
+        assert!(matches!(
+            parse(["a.json", "-h"].iter().map(Into::into)),
+            Ok(Command::Help)
+        ));
+        assert!(matches!(
+            parse(["--version"].iter().map(Into::into)),
+            Ok(Command::Version)
+        ));
     }
 
     #[test]

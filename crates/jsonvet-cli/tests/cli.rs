@@ -134,6 +134,39 @@ fn names_that_look_like_options_are_files() {
 }
 
 #[test]
+fn help_and_version_letters_in_a_file_name_are_a_file() {
+    let dir = workdir(&[("bad.json", "[1,"), ("-h.json", "{}"), ("-V.json", "{}")]);
+    let (code, out) = jsonvet(&dir, &["bad.json", "-h.json", "-V.json"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (
+            1,
+            "bad.json:1:4: error[syntax] expected a value, found the end of the file\n"
+        )
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_name_that_is_not_utf8_is_opened_as_given() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    let dir = workdir(&[]);
+    let name = OsStr::from_bytes(b"caf\xe9.json");
+    fs::write(dir.join(name), "[1,]").expect("write file");
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(["--strict", "*"])
+        .arg(name)
+        .current_dir(&dir)
+        .output()
+        .expect("run jsonvet");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "caf\u{FFFD}.json:1:4: error[syntax] trailing comma before `]` is not allowed in json\n"
+    );
+}
+
+#[test]
 fn config_file_and_its_search() {
     let dir = workdir(&[
         (

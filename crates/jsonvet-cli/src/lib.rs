@@ -1,6 +1,6 @@
 //! The jsonvet command line, shared by the `jsonvet` and `check-json5` binaries.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::process::ExitCode;
@@ -82,39 +82,29 @@ struct Counts {
     warnings: usize,
 }
 
+/// Check one file. The name is opened as given; its lossy UTF-8 form is only for output and
+/// glob matching.
 fn check_file(
-    file: &str,
+    file: &OsStr,
     settings: &Settings,
     printer: &mut Printer<impl Write>,
 ) -> io::Result<Counts> {
-    let path = Path::new(file);
-    let unreadable = |message: String| {
-        (
-            message,
-            Counts {
-                errors: 1,
-                warnings: 0,
-            },
-        )
+    let text = match std::fs::read(Path::new(file)) {
+        Ok(bytes) => String::from_utf8(bytes)
+            .map_err(|e| format!("not valid UTF-8 (byte {})", e.utf8_error().valid_up_to())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err("no such file".to_owned()),
+        Err(e) => Err(format!("cannot read: {e}")),
     };
-    let text = if path.is_file() {
-        match std::fs::read(path) {
-            Ok(bytes) => String::from_utf8(bytes).map_err(|e| {
-                unreadable(format!(
-                    "not valid UTF-8 (byte {})",
-                    e.utf8_error().valid_up_to()
-                ))
-            }),
-            Err(e) => Err(unreadable(format!("cannot read: {e}"))),
-        }
-    } else {
-        Err(unreadable("no such file".to_owned()))
-    };
+    let name = file.to_string_lossy();
+    let file = name.as_ref();
     let text = match text {
         Ok(text) => text,
-        Err((message, counts)) => {
+        Err(message) => {
             printer.unreadable(file, &message)?;
-            return Ok(counts);
+            return Ok(Counts {
+                errors: 1,
+                warnings: 0,
+            });
         }
     };
     let report = jsonvet::check(&text, &settings.config_for(file));
