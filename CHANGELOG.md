@@ -8,6 +8,18 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-13
+
+Upgrade: set `rev: v1.4.1`. Nothing else is needed.
+
+### Fixed
+
+- `--strict` passed a file where `NaN` or `Infinity` runs on into other text, such as
+  `[NaN-2.5e3` or `Infinitynul }`. Those files now fail, with the constant's position.
+- An unquoted JSON5 key written with a `\u` escape, such as `\u0061`, was compared with its
+  escape still in place, so it did not match `a` or `'a'`, and its path showed the escape. Keys
+  now compare by their decoded name.
+
 ## [1.4.0] - 2026-10-13
 
 Upgrade: set `rev: v1.4.0`. Nothing else is needed.
@@ -102,7 +114,8 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 - Renamed from `pre-commit-check-json5` to `check-json5`.
 
-[Unreleased]: https://github.com/simonvanlierde/check-json5/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/check-json5/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/simonvanlierde/check-json5/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/simonvanlierde/check-json5/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/simonvanlierde/check-json5/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/simonvanlierde/check-json5/compare/v1.2.0...v1.2.1
