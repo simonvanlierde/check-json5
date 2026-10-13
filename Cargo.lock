@@ -200,6 +200,7 @@ dependencies = [
 name = "jsonvet-cli"
 version = "2.0.0"
 dependencies = [
+ "insta",
  "jsonvet",
  "lexopt",
  "toml",

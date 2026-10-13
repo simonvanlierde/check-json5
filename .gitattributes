@@ -1,0 +1,2 @@
+# Line endings in the corpus are test data; git must not convert them.
+tests/corpus/** -text

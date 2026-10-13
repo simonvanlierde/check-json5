@@ -1,4 +1,6 @@
 # Dependabot bumps these revs, so a hook run never edits this file.
+# The corpus files keep their bytes exactly: missing final newlines, CRs, trailing spaces.
+exclude: ^tests/corpus/
 repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v6.0.0
