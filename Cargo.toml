@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/jsonvet", "crates/jsonvet-cli"]
+# cargo-fuzz needs nightly; the fuzz crate builds on its own.
+exclude = ["fuzz"]
 resolver = "3"
 
 [workspace.package]
