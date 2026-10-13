@@ -24,7 +24,7 @@ def find_binary(name: str = "jsonvet") -> str:
     )
     candidates += [
         site_packages.parents[2] / "bin" / exe,  # <env>/lib/pythonX.Y/site-packages
-        site_packages.parent.parent / "Scripts" / exe,  # <env>\Lib\site-packages on Windows
+        site_packages.parents[1] / "Scripts" / exe,  # <env>\Lib\site-packages on Windows
         site_packages / "bin" / exe,  # pip install --target
     ]
     for path in candidates:

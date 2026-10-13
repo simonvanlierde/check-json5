@@ -21,6 +21,7 @@ import sys
 import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 REFERENCE = ["uvx", "--quiet", "--python", "3.13", "--from", "check-json5==1.4.1", "check-json5"]
@@ -45,6 +46,16 @@ KEYS = ["a", "b c", "ünï", "$x", "1st", 'q\\"', "\\u0061", "\\ud800", "\\udbff
 LINE = re.compile(r"^(?P<file>[^:]+?):(?:(?P<line>\d+):(?P<col>\d+):)? ?(?P<rest>.*)$")
 
 
+class Problem(NamedTuple):
+    """One reported problem. `kind` is `duplicate` for a duplicate key and `other` otherwise."""
+
+    line: str | None
+    col: str | None
+    kind: str
+    severity: str
+    text: str
+
+
 def corpus(directory: Path, cases: int, seed: int) -> list[Path]:
     """Write `cases` generated files and the json5-tests suite to `directory`."""
     rng = random.Random(seed)  # noqa: S311 - test data, not security
@@ -66,12 +77,12 @@ def corpus(directory: Path, cases: int, seed: int) -> list[Path]:
     return files
 
 
-def run(command: list[str], files: list[Path], cwd: Path) -> dict[str, list[tuple]]:
-    """Problems per file name, as (line, col, kind, severity, text).
+def run(command: list[str], files: list[Path], cwd: Path) -> dict[str, list[Problem]]:
+    """Problems per file name.
 
     A tool that cannot start also exits 1, but prints only to stderr; that stops the run.
     """
-    found: dict[str, list[tuple]] = defaultdict(list)
+    found: dict[str, list[Problem]] = defaultdict(list)
     names = [f.name for f in files]
     for start in range(0, len(names), BATCH):
         out = subprocess.run(  # noqa: S603 - our own command line
@@ -90,21 +101,21 @@ def run(command: list[str], files: list[Path], cwd: Path) -> dict[str, list[tupl
             kind = "duplicate" if rest.startswith("duplicate key ") else "other"
             if kind == "duplicate":
                 rest = rest.split(" (first at ")[0]
-            found[m["file"]].append((m["line"], m["col"], kind, severity, rest))
+            found[m["file"]].append(Problem(m["line"], m["col"], kind, severity, rest))
     return found
 
 
-def failed(problems: list[tuple]) -> bool:
+def failed(problems: list[Problem]) -> bool:
     """Whether any problem is an error."""
-    return any(p[3] == "error" for p in problems)
+    return any(p.severity == "error" for p in problems)
 
 
-def duplicates(problems: list[tuple]) -> list[tuple]:
-    """The duplicate-key reports, as (line, col, kind, path)."""
-    return sorted((*p[:3], p[4]) for p in problems if p[2] == "duplicate")
+def duplicates(problems: list[Problem]) -> list[tuple]:
+    """The duplicate-key reports without their severity, sorted, as (line, col, kind, text)."""
+    return sorted((p.line, p.col, p.kind, p.text) for p in problems if p.kind == "duplicate")
 
 
-def classify(text: str, ours: list[tuple], theirs: list[tuple]) -> str:
+def classify(text: str, ours: list[Problem], theirs: list[Problem]) -> str:
     """Why the two tools disagree, as an accepted category or `unexplained`."""
     flipped = failed(ours) != failed(theirs)
     if "\u2028" in text or "\u2029" in text:
@@ -127,7 +138,7 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
     for path in files:
         a, b = ours.get(path.name, []), theirs.get(path.name, [])
         if failed(a) == failed(b):
-            syntax_free = not any(p[2] == "other" and p[3] == "error" for p in a + b)
+            syntax_free = not any(p.kind == "other" and p.severity == "error" for p in a + b)
             if not syntax_free or duplicates(a) == duplicates(b):
                 tally["same"] += 1
                 continue
