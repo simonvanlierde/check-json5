@@ -48,8 +48,9 @@ In `.pre-commit-config.yaml`, under `repos:`, add:
 
 Remove the original `check-json` hook if it is already included. A file passes when it parses as
 JSON5 and has no duplicate keys. The hook picks files by extension (`.json`, `.jsonc`, `.json5`,
-`.geojson`, `.jsonld`), while `check-json` picks them by type, so files such as `.babelrc` or
-`.ipynb` are no longer checked after the swap. Add them with `files:` if you need them.
+`.geojson`, `.jsonld`, and Tailscale's `.hujson`), while `check-json` picks them by type, so
+files such as `.babelrc` or `.ipynb` are no longer checked after the swap. Add them with `files:`
+if you need them.
 
 ### Strict files
 

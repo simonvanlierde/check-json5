@@ -8,6 +8,10 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+### Added
+
+- The hook also runs on `.hujson` files, Tailscale's JSON with comments and trailing commas.
+
 ### Changed
 
 - JSON with only comments and trailing commas, such as `tsconfig.json`, is checked with the
