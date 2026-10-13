@@ -198,9 +198,10 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
 5. A committed hyperfine table against 1.4, including the large JSONC files where 1.4 comes close.
 6. The README leads with the contract; the changelog lists every Breaking change.
 
-Before the first upload, the PyPI trusted publisher of `check-json5` must name this repository,
-and `jsonvet` needs a pending publisher. The `check-json5` package uploads after the `jsonvet`
-wheels.
+A release publishes to PyPI and crates.io from `release.yml`, with trusted publishing on both.
+The `check-json5` package uploads after the `jsonvet` wheels, and `jsonvet-cli` after the
+`jsonvet` crate. crates.io only allows trusted publishing for a crate that already exists, so 2.0.0
+went up by hand.
 
 ## Not in 2.0
 
