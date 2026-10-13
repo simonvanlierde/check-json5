@@ -1,22 +1,18 @@
 name: release
 
-# Publishes to PyPI with trusted publishing: no API token. The publisher is set up once at
-# https://pypi.org/manage/account/publishing/ for repo simonvanlierde/check-json5,
-# workflow `release.yml`, environment `pypi`.
+# Publishes jsonvet's wheels to PyPI, then the check-json5 compatibility package, with trusted
+# publishing: no API token. Both PyPI projects trust this workflow and the `pypi` environment,
+# which only accepts v* tags and needs a reviewer, so an edited copy of this workflow on a branch
+# cannot publish.
 #
-# In the repo's Settings > Environments, `pypi` only accepts tags matching `v*` and needs
-# a reviewer. Otherwise anyone who can push a branch could dispatch an edited copy of
-# this workflow and publish from it.
+# The wheels hold the jsonvet and check-json5 binaries (maturin bindings = "bin"), so a
+# pre-commit or prek install downloads a prebuilt binary and never compiles Rust.
 #
-# The build job re-runs the full suite, since a release tag can point at a commit that
-# never went green. It then runs the suite against the installed wheel, the only place
-# packaging faults such as a wrong module name show up.
-#
-# `id-token: write` exposes an OpenID Connect (OIDC) request token to every step in its
-# job, so publish is a separate job that runs no project code.
+# `id-token: write` exposes an OpenID Connect (OIDC) request token to every step in its job, so
+# the publish jobs run no project code.
 
-# No workflow_dispatch: a manual run can target any branch, and neither trusted
-# publishing nor the environment checks which ref it publishes.
+# No workflow_dispatch: a manual run can target any branch, and neither trusted publishing nor
+# the environment checks which ref it publishes.
 on:
   release:
     types: [published]
@@ -25,42 +21,99 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # The tag must name the same release as the crates and the hook placeholder's pin.
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: The versions agree and match the tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # An assignment, not a pipe, so a failed check stops the step.
+          versions=$(uv run scripts/check-versions.py)
+          echo "$versions"
+          version=$(echo "$versions" | awk '/^Cargo.toml/ {print $2}')
+          test "v$version" = "$TAG" || { echo "tag $TAG does not match version $version"; exit 1; }
+
+  wheels:
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: x86_64, manylinux: auto}
+          - {os: ubuntu-latest, target: aarch64, manylinux: auto}
+          - {os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2}
+          - {os: ubuntu-latest, target: aarch64, manylinux: musllinux_1_2}
+          - {os: macos-latest, target: x86_64-apple-darwin}
+          - {os: macos-latest, target: aarch64-apple-darwin}
+          - {os: windows-latest, target: x86_64-pc-windows-msvc}
+          - {os: windows-latest, target: aarch64-pc-windows-msvc}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No cache: an entry written from any branch is restorable here, which would put
+      # attacker-controlled bytes into a wheel this workflow publishes.
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          working-directory: crates/jsonvet-cli
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --locked --out ../../dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}
+          path: dist/
+
+  sdist:
+    needs: versions
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # No cache: an entry written from any branch is restorable here, which would put
-      # attacker-controlled bytes into the wheel this workflow publishes.
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          working-directory: crates/jsonvet-cli
+          command: sdist
+          args: --out ../../dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-sdist
+          path: dist/
+
+  # Install the Linux wheel from what the matrix built, and run it, before anything uploads.
+  smoke:
+    needs: wheels
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheels-ubuntu-latest-x86_64-auto
+          path: dist/
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
-
-      # Publish only what passes, on the exact commit being released.
-      - run: uv sync --locked
-      - run: uv run ruff check --no-fix .
-      - run: uv run ruff format --check .
-      - run: uv run ty check
-      - run: uv run pytest
-
-      - run: uv build
-
-      # The suite again, against the wheel. It runs from a copy of tests/ outside the
-      # checkout, so `import check_json5` can only find the installed wheel.
       - run: |
-          cp -r tests "$RUNNER_TEMP/"
-          cd "$RUNNER_TEMP"
-          uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/*.whl --with pytest pytest tests
+          printf '{"a": 1, "a": 2}\n' > dup.json
+          uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
+          uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
+          uv run --isolated --no-project --with dist/*.whl jsonvet --version
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: dist
-          path: dist/
-
-  publish:
-    needs: build
+  publish-jsonvet:
+    needs: [wheels, sdist, smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi
@@ -71,7 +124,42 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: dist
-          # No checkout here: dist/ at the root, where the publish action looks.
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  # The old name, which only installs jsonvet. Built apart from its upload, so the job holding
+  # the publishing token runs no build code.
+  build-check-json5:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - run: uv build --out-dir dist compat/check-json5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: check-json5
+          path: dist/
+
+  # Uploaded last, so it never points at a jsonvet wheel that is not on PyPI yet.
+  publish-check-json5:
+    needs: [publish-jsonvet, build-check-json5]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for trusted publishing
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: check-json5
           path: dist/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

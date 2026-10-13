@@ -1,0 +1,6 @@
+# Lint levels live in Cargo.toml's [workspace.lints] table; this file only tunes lints.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = true
+# Product and format names that are not code. ".." keeps clippy's own list.
+doc-valid-idents = ["HuJSON", "JSONPath", "JSONPaths", "NDJSON", "..",]

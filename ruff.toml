@@ -1,0 +1,21 @@
+# Lint and format settings for the repo's Python: the hook placeholder and scripts/.
+line-length = 120
+# The scripts need 3.11.
+target-version = "py311"
+
+[lint]
+extend-select = ["ALL"]
+ignore = [
+  "COM812", # missing-trailing-comma: conflicts with the formatter
+  "CPY001", # missing-copyright-notice: LICENSE covers the project
+  "ISC001", # single-line-implicit-string-concatenation: conflicts with the formatter
+]
+
+[lint.per-file-ignores]
+# Standalone scripts that print their results.
+"scripts/**" = ["INP001", "T201"]
+# The placeholder is not a package.
+"setup.py" = ["INP001"]
+
+[lint.pydocstyle]
+convention = "google"

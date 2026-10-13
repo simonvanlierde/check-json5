@@ -1,0 +1,24 @@
+# cargo-deny: CI runs `cargo deny check` against this file.
+
+# Vulnerabilities and unmaintained crates fail the check; yanked crates only warn.
+[advisories]
+
+[licenses]
+# Permissive licenses only. This crate's own is among them. Add an exception
+# per crate rather than widening the list.
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+# The list is policy, not an inventory: allowed licenses nothing uses yet are fine.
+unused-allowed-license = "allow"
+
+# crates.io only: a git dependency or another registry fails the check.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

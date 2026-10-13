@@ -1,5 +1,5 @@
-# CI's `pytest --cov-fail-under=80` is the coverage gate. Codecov reports, and only fails a
-# pull request when total coverage drops by more than 2 points.
+# CI uploads cargo-llvm-cov's report and sets no minimum. Codecov only fails a pull request
+# when total coverage drops by more than 2 points.
 coverage:
   status:
     project:

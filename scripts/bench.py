@@ -1,54 +1,91 @@
-"""Time the hook on strict-JSON files with and without the stdlib json fast path.
+# /// script
+# requires-python = ">=3.12"
+# ///
+"""Time jsonvet against check-json5 1.4.1 with hyperfine, and print a Markdown table.
 
-Run with `uv run python scripts/bench.py`. Fixtures are generated into a temporary
-directory, so nothing large is committed. Each timing is the best of 10 runs, and a full
-run takes about two minutes: json5 alone needs several seconds per 2 MB parse.
+Usage: uv run scripts/bench.py [--jsonvet PATH] [--runs N]
+
+Needs hyperfine and a release build (`cargo build --release -p jsonvet-cli`). The reference is
+installed into its own virtual environment and run from there, so uvx's start-up is not timed.
+Every case passes in both tools, apart from the duplicate key the `dup` files hold on purpose.
 """
 
+import argparse
 import json
+import subprocess
+import sys
 import tempfile
-import timeit
 from pathlib import Path
-from unittest import mock
 
-from check_json5 import check_json5
-
-SIZES = [1_000, 50_000, 500_000, 2_000_000]  # target bytes per fixture
-REPEAT = 10  # runs per timing; the best one is reported
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def make_json(target_bytes: int) -> str:
-    """Build a deterministic, config-like JSON document of roughly `target_bytes`."""
-
-    def record(i: int) -> dict:
-        return {"id": i, "name": f"item-{i}", "enabled": i % 2 == 0, "weight": i * 0.25, "tags": ["a", "b"]}
-
-    # Every record pretty-prints to about the same size, so one sample sets the count.
-    count = max(1, target_bytes // len(json.dumps([record(10_000)], indent=2)))
-    records = [record(i) for i in range(count)]
-    return json.dumps(records, indent=2)
+def doc(n: int) -> dict:
+    """An object of n rows, each a small array of every JSON type."""
+    return {f"k{i}": [1, 2.5, "text", True, None, {"x": i, "y": [i, "s"]}] for i in range(n)}
 
 
-def best_ms(path: Path, repeat: int) -> float:
-    """Return the fastest of `repeat` runs of the hook on `path`, in milliseconds."""
-    return min(timeit.repeat(lambda: check_json5.main([str(path)]), number=1, repeat=repeat)) * 1000
+def json5_doc(n: int) -> str:
+    """JSON5 that strict JSON rejects: unquoted keys, single quotes, hex, comments, trailing commas."""
+    rows = (f"  k{i}: [1, 0x1F, .5, 'text', true, null, {{x: {i}, y: [{i}, 's',],}},], // row {i}" for i in range(n))
+    return "{\n" + "\n".join(rows) + "\n}\n"
 
 
-def main() -> None:
-    """Print a Markdown table of parse times per file size."""
-    no_fast_path = mock.patch.object(check_json5.json, "loads", side_effect=json.JSONDecodeError("off", "", 0))
-    print("| File size | Before (`json5` only) | After (fast path) | Speedup |")
-    print("| --- | --- | --- | --- |")
-    with tempfile.TemporaryDirectory() as tmp:
-        for size in SIZES:
-            path = Path(tmp) / f"{size}.json"
-            path.write_text(make_json(size), encoding="utf-8")
-            after = best_ms(path, repeat=REPEAT)
-            with no_fast_path:
-                before = best_ms(path, repeat=REPEAT)
-            kb = path.stat().st_size / 1000
-            print(f"| {kb:.0f} KB | {before:.1f} ms | {after:.2f} ms | ~{before / after:.0f}x |")
+def fixtures(out: Path) -> list[tuple[str, list[str]]]:
+    """Write the files and return (case name, file names) pairs."""
+    small = json.dumps({"compilerOptions": {f"opt{i}": True for i in range(30)}, "include": ["src"]}, indent=2)
+    names = []
+    for i in range(1000):
+        (out / f"s{i}.json").write_text(small)
+        names.append(f"s{i}.json")
+    for i in range(100):
+        (out / f"c{i}.jsonc").write_text("// c\n" + small)
+        names.append(f"c{i}.jsonc")
+    big = json.dumps(doc(20000), indent=2)
+    (out / "big.json").write_text(big)
+    (out / "big_dup.json").write_text(big[:-2] + ',\n  "k5": 0\n}')
+    (out / "mid.jsonc").write_text("// c\n" + json.dumps(doc(1000), indent=2))
+    (out / "big.json5").write_text(json5_doc(20000))
+    return [
+        ("1,100 config files", names),
+        ("2.7 MB JSON", ["big.json"]),
+        ("2.7 MB JSON, duplicate key", ["big_dup.json"]),
+        ("120 KB JSONC", ["mid.jsonc"]),
+        (f"{(out / 'big.json5').stat().st_size / 1e6:.1f} MB JSON5", ["big.json5"]),
+    ]
+
+
+def main() -> int:
+    """Install the reference, write the fixtures, time each case and print the table."""
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--jsonvet", type=Path, default=ROOT / "target" / "release" / "jsonvet")
+    parser.add_argument("--runs", type=int, default=10)
+    args = parser.parse_args()
+    jsonvet = args.jsonvet.resolve()
+    with tempfile.TemporaryDirectory() as scratch:
+        tmp = Path(scratch)
+        venv = tmp / "venv"
+        setup = [["venv", "--python", "3.13", venv], ["pip", "install", "--python", venv, "check-json5==1.4.1"]]
+        for step in setup:
+            subprocess.run(["uv", "--quiet", *step], check=True)  # noqa: S603, S607 - fixed commands
+        reference = venv / "bin" / "check-json5"
+        files = tmp / "files"
+        files.mkdir()
+        result = tmp / "result.json"
+        rows = ["| Case | check-json5 1.4.1 | jsonvet 2.0 | Speed-up |", "| --- | ---: | ---: | ---: |"]
+        for name, case in fixtures(files):
+            listed = " ".join(case)
+            # -i: the duplicate-key case exits 1 by design.
+            hyperfine = ["hyperfine", "--style", "none", "--warmup", "2", "--runs", str(args.runs), "-i"]
+            hyperfine += ["--export-json", result, "-n", "reference", f"{reference} {listed}"]
+            hyperfine += ["-n", "jsonvet", f"{jsonvet} {listed}"]
+            subprocess.run(hyperfine, cwd=files, check=True, capture_output=True)  # noqa: S603
+            times = {r["command"]: r["median"] for r in json.loads(result.read_text())["results"]}
+            ref, new = times["reference"], times["jsonvet"]
+            rows.append(f"| {name} | {ref * 1e3:,.0f} ms | {new * 1e3:,.1f} ms | {ref / new:,.0f}x |")
+    print("\n".join(rows))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
