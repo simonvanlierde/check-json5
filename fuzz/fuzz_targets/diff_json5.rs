@@ -12,6 +12,12 @@ fuzz_target!(|text: &str| {
         return;
     }
     if let Err(e) = json5::from_str::<serde::de::IgnoredAny>(text) {
+        // JSON5 integers have no size limit, but json5's serde path needs one to fit 64 bits.
+        if e.to_string()
+            .starts_with("number too large to fit in target type")
+        {
+            return;
+        }
         panic!("jsonvet accepts {text:?} as JSON5, json5 1.3.1 rejects it: {e}");
     }
 });

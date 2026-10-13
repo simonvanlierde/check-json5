@@ -26,3 +26,8 @@ Changelog = "https://github.com/simonvanlierde/jsonvet/blob/main/CHANGELOG.md"
 [tool.maturin]
 bindings = "bin"
 python-source = "python"
+
+# The shim runs on whatever Python pre-commit or pip uses, from 3.9 up.
+[tool.ruff]
+extend = "../../ruff.toml"
+target-version = "py39"
