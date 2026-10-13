@@ -1,0 +1,116 @@
+---
+source: crates/jsonvet/tests/cases.rs
+expression: "snapshot(&[(Json, \"\"), (Json, \"   \"), (Json, r#\"{\"a\": 1}\"#),\n(Json, \"[1, 2,]\"), (Jwcc, \"[1, 2,]\"), (Json, r#\"{\"a\": 1,}\"#), (Json, \"[,]\"),\n(Json5, \"[,]\"), (Json5, \"[1,,]\"), (Json5, \"{,}\"), (Json, \"{a: 1}\"),\n(Json5, \"{a: 1, $b: 2, _c: 3, ünï: 4}\"), (Json, \"['x']\"),\n(Json5, \"['x', \\\"y\\\"]\"), (Json, \"// c\\n1\"), (Jsonc, \"// c\\n1\"),\n(Jsonc, \"/* open\"), (Json, \"[1 2]\"), (Json, r#\"{\"a\" 1}\"#),\n(Json, r#\"{\"a\":1 \"b\":2}\"#), (Json, \"1 2\"), (Json, \"[1]x\"), (Json, \"nul\"),\n(Json, \"nux\"), (Json, \"nullx\"), (Json, \"NaN\"), (Json, \"-Infinity\"),\n(Json5, \"[NaN, +Infinity, -Infinity, +NaN]\"), (Json, \"01\"), (Json, \"1.\"),\n(Json, \".5\"), (Json, \"+1\"), (Json, \"0x1F\"),\n(Json5, \"[0x1F, -0x10, .5, 5., +1, 1e3, 1E-3]\"), (Json5, \"0x\"), (Json5, \"1e\"),\n(Json5, \".\"), (Json, \"-\"), (Json, \"\\\"abc\"), (Json, \"\\\"a\\nb\\\"\"),\n(Json, \"\\\"a\\tb\\\"\"), (Json5, \"\\\"a\\tb\\\"\"), (Json, r#\"\"\\q\"\"#),\n(Json5, r#\"\"\\q\"\"#), (Json5, r#\"\"\\1\"\"#), (Json5, r#\"\"\\9\"\"#),\n(Json5, r#\"\"\\01\"\"#), (Json5, r#\"\"\\0\"\"#), (Json5, r#\"\"\\x4\"\"#),\n(Json, r#\"\"\\u12x4\"\"#), (Json5, \"\\\"a\\\\\\nb\\\"\"), (Json5, \"\\\"\\u{2028}\\\"\"),\n(Json5, \"[1, // c\\u{2028} 2]\"), (Jsonc, \"[1, // c\\u{2028} 2]\"),\n(Json5, \"\\u{A0}[\\u{3000}1\\u{FEFF}]\\u{2029}\"), (Json, \"[\\u{A0}1]\"),])"
+---
+json ""
+       1:1 error[syntax] expected a value, found the end of the file
+json "   "
+       1:4 error[syntax] expected a value, found the end of the file
+json "{\"a\": 1}"
+       ok
+json "[1, 2,]"
+       1:7 error[syntax] trailing comma before `]` is not allowed in json
+jwcc "[1, 2,]"
+       ok
+json "{\"a\": 1,}"
+       1:9 error[syntax] trailing comma before `}` is not allowed in json
+json "[,]"
+       1:2 error[syntax] expected a value, found `,`
+json5 "[,]"
+       1:2 error[syntax] expected a value, found `,`
+json5 "[1,,]"
+       1:4 error[syntax] expected a value, found `,`
+json5 "{,}"
+       1:2 error[syntax] expected a key, found `,`
+json "{a: 1}"
+       1:2 error[syntax] unquoted keys are not allowed in json
+json5 "{a: 1, $b: 2, _c: 3, ünï: 4}"
+       ok
+json "['x']"
+       1:2 error[syntax] single-quoted strings are not allowed in json
+json5 "['x', \"y\"]"
+       ok
+json "// c\n1"
+       1:1 error[syntax] comments are not allowed in json
+jsonc "// c\n1"
+       ok
+jsonc "/* open"
+       1:8 error[syntax] unterminated block comment (from 1:1)
+json "[1 2]"
+       1:4 error[syntax] expected `,` or `]`, found `2`
+json "{\"a\" 1}"
+       1:6 error[syntax] expected `:`, found `1`
+json "{\"a\":1 \"b\":2}"
+       1:8 error[syntax] expected `,` or `}`, found `"`
+json "1 2"
+       1:3 error[syntax] expected the end of the file, found `2`
+json "[1]x"
+       1:4 error[syntax] expected the end of the file, found `x`
+json "nul"
+       1:4 error[syntax] expected `null`, found the end of the file
+json "nux"
+       1:3 error[syntax] expected `null`, found `x`
+json "nullx"
+       1:5 error[syntax] expected the end of the file, found `x`
+json "NaN"
+       1:1 error[syntax] NaN and Infinity are not allowed in json
+json "-Infinity"
+       1:1 error[syntax] NaN and Infinity are not allowed in json
+json5 "[NaN, +Infinity, -Infinity, +NaN]"
+       ok
+json "01"
+       1:2 error[syntax] expected the end of the file, found `1`
+json "1."
+       1:1 error[syntax] this number form is not allowed in json
+json ".5"
+       1:1 error[syntax] this number form is not allowed in json
+json "+1"
+       1:1 error[syntax] this number form is not allowed in json
+json "0x1F"
+       1:1 error[syntax] this number form is not allowed in json
+json5 "[0x1F, -0x10, .5, 5., +1, 1e3, 1E-3]"
+       ok
+json5 "0x"
+       1:3 error[syntax] expected a hex digit, found the end of the file
+json5 "1e"
+       1:3 error[syntax] expected a digit, found the end of the file
+json5 "."
+       1:1 error[syntax] expected a value, found `.`
+json "-"
+       1:2 error[syntax] expected a digit, found the end of the file
+json "\"abc"
+       1:5 error[syntax] unterminated string (from 1:1)
+json "\"a\nb\""
+       1:3 error[syntax] line break inside a string (from 1:1)
+json "\"a\tb\""
+       1:3 error[syntax] control character U+0009 inside a string must be escaped
+json5 "\"a\tb\""
+       ok
+json "\"\\q\""
+       1:2 error[syntax] invalid escape `\q`
+json5 "\"\\q\""
+       ok
+json5 "\"\\1\""
+       1:2 error[syntax] invalid escape `\1`
+json5 "\"\\9\""
+       1:2 error[syntax] invalid escape `\9`
+json5 "\"\\01\""
+       1:2 error[syntax] invalid escape `\0`
+json5 "\"\\0\""
+       ok
+json5 "\"\\x4\""
+       1:2 error[syntax] `\x` needs two hex digits
+json "\"\\u12x4\""
+       1:2 error[syntax] `\u` needs four hex digits
+json5 "\"a\\\nb\""
+       ok
+json5 "\"\u{2028}\""
+       ok
+json5 "[1, // c\u{2028} 2]"
+       ok
+jsonc "[1, // c\u{2028} 2]"
+       2:4 error[syntax] expected a value, found the end of the file
+json5 "\u{a0}[\u{3000}1\u{feff}]\u{2029}"
+       ok
+json "[\u{a0}1]"
+       1:2 error[syntax] expected a value, found U+00A0
