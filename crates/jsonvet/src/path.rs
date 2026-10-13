@@ -12,8 +12,21 @@ pub(crate) enum Segment<'a> {
     Index(usize),
 }
 
+/// The JSONPath of `key` in the container that `segments` lead to, root first.
+pub(crate) fn render<'s, 'a: 's>(
+    segments: impl IntoIterator<Item = &'s Segment<'a>>,
+    key: &[u8],
+) -> String {
+    let mut path = String::new();
+    for segment in segments {
+        push(&mut path, segment);
+    }
+    push_key(&mut path, key);
+    path
+}
+
 /// Append one segment to a path.
-pub(crate) fn push(path: &mut String, segment: &Segment<'_>) {
+fn push(path: &mut String, segment: &Segment<'_>) {
     match segment {
         Segment::Root => path.push('$'),
         Segment::Key(key) => push_key(path, key),

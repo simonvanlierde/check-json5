@@ -34,15 +34,15 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
         pos: 0,
         dialect,
         json5: dialect.json5(),
-        lines: dialect == Dialect::JsonLines,
-        duplicates: config.severity(Rule::DuplicateKey),
-        numbers: config.severity(Rule::InvalidNumber),
-        code_points: config.severity(Rule::InvalidCodePoint),
+        json_lines: dialect == Dialect::JsonLines,
+        duplicate_key: config.severity(Rule::DuplicateKey),
+        invalid_number: config.severity(Rule::InvalidNumber),
+        invalid_code_point: config.severity(Rule::InvalidCodePoint),
         problems: Vec::new(),
         stack: Vec::new(),
     };
     parser.byte_order_mark(config.severity(Rule::ByteOrderMark));
-    let outcome = if parser.lines {
+    let outcome = if parser.json_lines {
         parser.json_lines(config.severity(Rule::MissingFinalNewline))
     } else {
         parser.document()
@@ -72,6 +72,25 @@ struct Fail {
     started: Option<usize>,
 }
 
+impl Fail {
+    fn at(offset: usize, kind: SyntaxKind) -> Fail {
+        Fail {
+            offset,
+            kind,
+            started: None,
+        }
+    }
+
+    /// An error inside a string or comment, which the report also points back to the start of.
+    fn inside(offset: usize, kind: SyntaxKind, started: usize) -> Fail {
+        Fail {
+            offset,
+            kind,
+            started: Some(started),
+        }
+    }
+}
+
 struct Parser<'a> {
     text: &'a str,
     bytes: &'a [u8],
@@ -79,35 +98,41 @@ struct Parser<'a> {
     dialect: Dialect,
     json5: bool,
     /// JSON Lines: a newline ends the document instead of being whitespace.
-    lines: bool,
-    duplicates: Severity,
-    numbers: Severity,
-    code_points: Severity,
+    json_lines: bool,
+    duplicate_key: Severity,
+    invalid_number: Severity,
+    invalid_code_point: Severity,
     problems: Vec<Problem>,
     stack: Vec<Frame<'a>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Container {
+    Object,
+    Array,
+}
+
 /// An open object or array.
 struct Frame<'a> {
-    object: bool,
+    container: Container,
     /// How this container is reached from its parent.
     segment: Segment<'a>,
     /// The keys seen so far with the offset of each, for objects.
-    keys: Vec<(Key<'a>, usize)>,
+    seen_keys: Vec<(Key<'a>, usize)>,
     /// The same keys, indexed once the object grows past `LINEAR_KEYS`.
-    index: Option<HashMap<Key<'a>, usize>>,
+    seen_index: Option<HashMap<Key<'a>, usize>>,
     /// The current member's key, in an object.
-    key: Key<'a>,
+    current_key: Key<'a>,
     /// The current element's position, in an array.
-    element: usize,
+    element_index: usize,
 }
 
 impl<'a> Frame<'a> {
     fn first_offset(&self, key: &[u8]) -> Option<usize> {
-        match &self.index {
+        match &self.seen_index {
             Some(index) => index.get(key).copied(),
             None => self
-                .keys
+                .seen_keys
                 .iter()
                 .find(|(k, _)| **k == *key)
                 .map(|(_, at)| *at),
@@ -115,13 +140,13 @@ impl<'a> Frame<'a> {
     }
 
     fn insert(&mut self, key: Key<'a>, at: usize) {
-        if let Some(index) = &mut self.index {
+        if let Some(index) = &mut self.seen_index {
             index.insert(key, at);
             return;
         }
-        self.keys.push((key, at));
-        if self.keys.len() > LINEAR_KEYS {
-            self.index = Some(self.keys.drain(..).collect());
+        self.seen_keys.push((key, at));
+        if self.seen_keys.len() > LINEAR_KEYS {
+            self.seen_index = Some(self.seen_keys.drain(..).collect());
         }
     }
 }
@@ -159,34 +184,36 @@ impl<'a> Parser<'a> {
     }
 
     fn fail(&self, kind: SyntaxKind) -> Fail {
-        Fail {
-            offset: self.pos,
-            kind,
-            started: None,
-        }
+        Fail::at(self.pos, kind)
     }
 
     /// The error for whatever sits at the current position when `expected` was needed.
     fn unexpected(&self, expected: Expected) -> Fail {
-        if self.pos >= self.bytes.len() {
-            self.fail(SyntaxKind::UnexpectedEnd { expected })
+        self.unexpected_at(self.pos, expected)
+    }
+
+    fn unexpected_at(&self, at: usize, expected: Expected) -> Fail {
+        if at >= self.bytes.len() {
+            Fail::at(at, SyntaxKind::UnexpectedEnd { expected })
         } else {
-            self.fail(SyntaxKind::Unexpected {
-                found: self.char_at(self.pos),
-                expected,
-            })
+            Fail::at(
+                at,
+                SyntaxKind::Unexpected {
+                    found: self.char_at(at),
+                    expected,
+                },
+            )
         }
     }
 
     fn not_allowed(&self, at: usize, feature: Feature) -> Fail {
-        Fail {
-            offset: at,
-            kind: SyntaxKind::NotAllowed {
+        Fail::at(
+            at,
+            SyntaxKind::NotAllowed {
                 feature,
                 dialect: self.dialect,
             },
-            started: None,
-        }
+        )
     }
 
     fn report(&mut self, offset: usize, severity: Severity, detail: Detail) {
@@ -208,8 +235,9 @@ impl<'a> Parser<'a> {
 
     // --- documents -------------------------------------------------------------------------
 
+    /// One document. A document only ends with every container closed, so in JSON Lines each
+    /// line starts with an empty stack.
     fn document(&mut self) -> Result<(), Fail> {
-        self.stack.clear();
         let mut state = State::Value;
         loop {
             self.trivia()?;
@@ -232,26 +260,19 @@ impl<'a> Parser<'a> {
                 State::Colon => return Err(self.unexpected(Expected::Colon)),
                 State::AfterValue => self.after_value()?,
                 State::Done => {
-                    let end = match self.peek() {
-                        None => true,
-                        Some(b'\n') => self.lines,
-                        Some(_) => false,
+                    return match self.peek() {
+                        None => Ok(()),
+                        Some(b'\n') if self.json_lines => Ok(()),
+                        Some(_) if self.json_lines => Err(self.unexpected(Expected::LineEnd)),
+                        Some(_) => Err(self.unexpected(Expected::End)),
                     };
-                    if end {
-                        return Ok(());
-                    }
-                    return Err(self.unexpected(if self.lines {
-                        Expected::LineEnd
-                    } else {
-                        Expected::End
-                    }));
                 }
             };
         }
     }
 
     /// The state after a complete value.
-    fn completed(&self) -> State {
+    fn state_after_value(&self) -> State {
         if self.stack.is_empty() {
             State::Done
         } else {
@@ -260,12 +281,15 @@ impl<'a> Parser<'a> {
     }
 
     fn after_value(&mut self) -> Result<State, Fail> {
-        let object = self.stack.last().is_some_and(|f| f.object);
+        let object = self
+            .stack
+            .last()
+            .is_some_and(|f| f.container == Container::Object);
         match self.peek() {
             Some(b',') => {
                 self.pos += 1;
                 if let Some(frame) = self.stack.last_mut() {
-                    frame.element += 1;
+                    frame.element_index += 1;
                 }
                 Ok(if object {
                     State::ObjectNext
@@ -292,28 +316,29 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1;
         self.stack.pop();
-        Ok(self.completed())
+        Ok(self.state_after_value())
     }
 
-    fn open(&mut self, object: bool) -> State {
+    fn open(&mut self, container: Container) -> State {
         let segment = match self.stack.last() {
             None => Segment::Root,
-            Some(parent) if parent.object => Segment::Key(parent.key.clone()),
-            Some(parent) => Segment::Index(parent.element),
+            Some(parent) => match parent.container {
+                Container::Object => Segment::Key(parent.current_key.clone()),
+                Container::Array => Segment::Index(parent.element_index),
+            },
         };
         self.stack.push(Frame {
-            object,
+            container,
             segment,
-            keys: Vec::new(),
-            index: None,
-            key: Key::Borrowed(&[]),
-            element: 0,
+            seen_keys: Vec::new(),
+            seen_index: None,
+            current_key: Key::Borrowed(&[]),
+            element_index: 0,
         });
         self.pos += 1;
-        if object {
-            State::ObjectFirst
-        } else {
-            State::ArrayFirst
+        match container {
+            Container::Object => State::ObjectFirst,
+            Container::Array => State::ArrayFirst,
         }
     }
 
@@ -322,8 +347,8 @@ impl<'a> Parser<'a> {
             return Err(self.unexpected(Expected::Value));
         };
         match b {
-            b'{' => return Ok(self.open(true)),
-            b'[' => return Ok(self.open(false)),
+            b'{' => return Ok(self.open(Container::Object)),
+            b'[' => return Ok(self.open(Container::Array)),
             b'"' => {
                 self.string(b'"', false)?;
             }
@@ -337,7 +362,7 @@ impl<'a> Parser<'a> {
             b'n' => self.literal("null")?,
             _ => return Err(self.unexpected(Expected::Value)),
         }
-        Ok(self.completed())
+        Ok(self.state_after_value())
     }
 
     fn json_lines(&mut self, final_newline: Severity) -> Result<(), Fail> {
@@ -346,13 +371,7 @@ impl<'a> Parser<'a> {
             let line_start = self.pos;
             self.trivia()?;
             match self.peek() {
-                None | Some(b'\n') => {
-                    return Err(Fail {
-                        offset: line_start,
-                        kind: SyntaxKind::BlankLine,
-                        started: None,
-                    });
-                }
+                None | Some(b'\n') => return Err(Fail::at(line_start, SyntaxKind::BlankLine)),
                 Some(_) => self.document()?,
             }
             if self.peek() == Some(b'\n') {
@@ -368,40 +387,52 @@ impl<'a> Parser<'a> {
 
     fn key(&mut self) -> Result<(), Fail> {
         let start = self.pos;
-        let decode = self.duplicates.is_on();
-        let key = match self.peek() {
-            Some(b'"') => self.string(b'"', decode)?,
-            Some(b'\'') if self.json5 => self.string(b'\'', decode)?,
-            Some(b'\'') => return Err(self.not_allowed(start, Feature::SingleQuotes)),
+        // Without the duplicate check, quoted keys are only scanned: nothing reads their value.
+        let track_keys = self.duplicate_key.is_on();
+        let key = self.read_key(track_keys)?.unwrap_or(Key::Borrowed(&[]));
+        if track_keys {
+            self.check_duplicate(start, &key);
+        }
+        if let Some(frame) = self.stack.last_mut() {
+            frame.current_key = key;
+        }
+        Ok(())
+    }
+
+    /// Read the key at the current position. A quoted key comes back as `None` unless `decode`
+    /// is set; an unquoted one is always decoded.
+    fn read_key(&mut self, decode: bool) -> Result<Option<Key<'a>>, Fail> {
+        let start = self.pos;
+        match self.peek() {
+            Some(b'"') => self.string(b'"', decode),
+            Some(b'\'') if self.json5 => self.string(b'\'', decode),
+            Some(b'\'') => Err(self.not_allowed(start, Feature::SingleQuotes)),
             Some(_) if self.identifier_start(start) => {
                 if !self.json5 {
                     return Err(self.not_allowed(start, Feature::UnquotedKeys));
                 }
-                self.identifier()?
+                self.identifier().map(Some)
             }
-            _ => return Err(self.unexpected(Expected::Key)),
+            _ => Err(self.unexpected(Expected::Key)),
+        }
+    }
+
+    /// Report `key`, found at `start`, if the current object already has it; record it if not.
+    fn check_duplicate(&mut self, start: usize, key: &Key<'a>) {
+        let Some(frame) = self.stack.last_mut() else {
+            return;
         };
-        if !decode {
-            if let Some(frame) = self.stack.last_mut() {
-                frame.key = key;
+        match frame.first_offset(key) {
+            None => frame.insert(key.clone(), start),
+            Some(first) => {
+                let path = path::render(self.stack.iter().map(|f| &f.segment), key);
+                self.report(
+                    start,
+                    self.duplicate_key,
+                    Detail::DuplicateKey { first, path },
+                );
             }
-            return Ok(());
         }
-        let first = self.stack.last().and_then(|f| f.first_offset(&key));
-        if let Some(first) = first {
-            let mut path = String::new();
-            for frame in &self.stack {
-                path::push(&mut path, &frame.segment);
-            }
-            path::push_key(&mut path, &key);
-            self.report(start, self.duplicates, Detail::DuplicateKey { first, path });
-        } else if let Some(frame) = self.stack.last_mut() {
-            frame.insert(key.clone(), start);
-        }
-        if let Some(frame) = self.stack.last_mut() {
-            frame.key = key;
-        }
-        Ok(())
     }
 
     fn identifier_start(&self, at: usize) -> bool {
@@ -412,14 +443,11 @@ impl<'a> Parser<'a> {
     /// A JSON5 identifier key, decoded.
     fn identifier(&mut self) -> Result<Key<'a>, Fail> {
         let start = self.pos;
+        // Only a key with an escape needs its own copy; the rest borrow from the text.
         let mut decoded: Option<String> = None;
-        let mut first = true;
-        loop {
-            let c = self.char_at(self.pos);
-            if self.pos >= self.bytes.len() {
-                break;
-            }
-            let (c, len) = if c == '\\' {
+        while self.pos < self.bytes.len() {
+            let escaped = self.bytes[self.pos] == b'\\';
+            let (c, len) = if escaped {
                 if self.bytes.get(self.pos + 1) != Some(&b'u') {
                     return Err(self.fail(SyntaxKind::InvalidEscape {
                         found: self.char_at(self.pos + 1),
@@ -428,31 +456,29 @@ impl<'a> Parser<'a> {
                 let Some(unit) = self.hex(self.pos + 2, 4) else {
                     return Err(self.fail(SyntaxKind::InvalidUnicodeEscape));
                 };
-                let c = char::from_u32(unit).unwrap_or('\u{FFFD}');
-                let buffer = decoded.get_or_insert_with(|| self.text[start..self.pos].to_owned());
-                buffer.push(c);
-                (c, 6)
+                (char::from_u32(unit).unwrap_or('\u{FFFD}'), 6)
             } else {
-                if let Some(buffer) = &mut decoded {
-                    buffer.push(c);
-                }
+                let c = self.char_at(self.pos);
                 (c, c.len_utf8())
             };
-            let fits = if first {
+            let fits = if self.pos == start {
                 is_identifier_start(c)
             } else {
                 is_identifier_part(c)
             };
             if !fits {
-                if first {
+                if self.pos == start {
                     return Err(self.unexpected(Expected::Key));
-                }
-                if let Some(buffer) = &mut decoded {
-                    buffer.pop();
                 }
                 break;
             }
-            first = false;
+            if let Some(buffer) = &mut decoded {
+                buffer.push(c);
+            } else if escaped {
+                let mut buffer = self.text[start..self.pos].to_owned();
+                buffer.push(c);
+                decoded = Some(buffer);
+            }
             self.pos += len;
         }
         Ok(match decoded {
@@ -463,30 +489,29 @@ impl<'a> Parser<'a> {
 
     // --- strings ---------------------------------------------------------------------------
 
-    /// Scan a string starting at its quote. With `decode`, return its value; otherwise the
-    /// returned value is empty.
-    fn string(&mut self, quote: u8, decode: bool) -> Result<Key<'a>, Fail> {
+    /// Scan a string starting at its quote. With `decode`, return its value; without, `None`.
+    fn string(&mut self, quote: u8, decode: bool) -> Result<Option<Key<'a>>, Fail> {
         let start = self.pos;
         self.pos += 1;
         let mut decoded: Option<Vec<u8>> = None;
         let mut run_start = self.pos;
         loop {
             let Some(b) = self.peek() else {
-                return Err(Fail {
-                    offset: self.pos,
-                    kind: SyntaxKind::UnterminatedString,
-                    started: Some(start),
-                });
+                return Err(Fail::inside(
+                    self.pos,
+                    SyntaxKind::UnterminatedString,
+                    start,
+                ));
             };
             match b {
                 _ if b == quote => {
                     let value = match decoded {
                         Some(mut buffer) => {
                             buffer.extend_from_slice(&self.bytes[run_start..self.pos]);
-                            Cow::Owned(buffer)
+                            Some(Cow::Owned(buffer))
                         }
-                        None if decode => Cow::Borrowed(&self.bytes[start + 1..self.pos]),
-                        None => Key::Borrowed(&[]),
+                        None if decode => Some(Cow::Borrowed(&self.bytes[start + 1..self.pos])),
+                        None => None,
                     };
                     self.pos += 1;
                     return Ok(value);
@@ -504,23 +529,19 @@ impl<'a> Parser<'a> {
                     run_start = self.pos;
                 }
                 b'\n' | b'\r' => {
-                    return Err(Fail {
-                        offset: self.pos,
-                        kind: SyntaxKind::LineBreakInString,
-                        started: Some(start),
-                    });
+                    return Err(Fail::inside(self.pos, SyntaxKind::LineBreakInString, start));
                 }
                 0..0x20 if !self.json5 => {
                     return Err(self.fail(SyntaxKind::ControlCharacter {
                         found: char::from(b),
                     }));
                 }
-                0x80.. if self.code_points.is_on() => {
+                0x80.. if self.invalid_code_point.is_on() => {
                     let c = self.char_at(self.pos);
                     if is_noncharacter(u32::from(c)) {
                         self.report(
                             self.pos,
-                            self.code_points,
+                            self.invalid_code_point,
                             Detail::InvalidCodePoint {
                                 code_point: u32::from(c),
                             },
@@ -538,11 +559,11 @@ impl<'a> Parser<'a> {
     fn escape(&mut self, string_start: usize) -> Result<Option<u32>, Fail> {
         let at = self.pos;
         let Some(b) = self.bytes.get(at + 1).copied() else {
-            return Err(Fail {
-                offset: self.bytes.len(),
-                kind: SyntaxKind::UnterminatedString,
-                started: Some(string_start),
-            });
+            return Err(Fail::inside(
+                self.bytes.len(),
+                SyntaxKind::UnterminatedString,
+                string_start,
+            ));
         };
         self.pos += 2;
         let simple = match b {
@@ -563,30 +584,30 @@ impl<'a> Parser<'a> {
             return self.unicode_escape(at).map(Some);
         }
         if !self.json5 {
-            self.pos = at;
-            return Err(self.fail(SyntaxKind::InvalidEscape {
-                found: self.char_at(at + 1),
-            }));
+            return Err(Fail::at(
+                at,
+                SyntaxKind::InvalidEscape {
+                    found: self.char_at(at + 1),
+                },
+            ));
         }
         match b {
             b'\'' => Ok(Some(u32::from('\''))),
             b'v' => Ok(Some(0xB)),
             // `\0` may not be followed by a digit: JSON5 has no octal escapes.
             b'0' if self.peek().is_some_and(|d| d.is_ascii_digit()) => {
-                self.pos = at;
-                Err(self.fail(SyntaxKind::InvalidEscape { found: '0' }))
+                Err(Fail::at(at, SyntaxKind::InvalidEscape { found: '0' }))
             }
             b'0' => Ok(Some(0)),
-            b'1'..=b'9' => {
-                self.pos = at;
-                Err(self.fail(SyntaxKind::InvalidEscape {
+            b'1'..=b'9' => Err(Fail::at(
+                at,
+                SyntaxKind::InvalidEscape {
                     found: char::from(b),
-                }))
-            }
+                },
+            )),
             b'x' => {
                 let Some(value) = self.hex(self.pos, 2) else {
-                    self.pos = at;
-                    return Err(self.fail(SyntaxKind::InvalidHexEscape));
+                    return Err(Fail::at(at, SyntaxKind::InvalidHexEscape));
                 };
                 self.pos += 2;
                 Ok(Some(value))
@@ -615,8 +636,7 @@ impl<'a> Parser<'a> {
     /// the `u`. Joins a surrogate pair written as two escapes; a lone surrogate comes back as it is.
     fn unicode_escape(&mut self, at: usize) -> Result<u32, Fail> {
         let Some(unit) = self.hex(self.pos, 4) else {
-            self.pos = at;
-            return Err(self.fail(SyntaxKind::InvalidUnicodeEscape));
+            return Err(Fail::at(at, SyntaxKind::InvalidUnicodeEscape));
         };
         self.pos += 4;
         let code_point = if is_high_surrogate(unit)
@@ -632,7 +652,7 @@ impl<'a> Parser<'a> {
         if is_surrogate(code_point) || is_noncharacter(code_point) {
             self.report(
                 at,
-                self.code_points,
+                self.invalid_code_point,
                 Detail::InvalidCodePoint { code_point },
             );
         }
@@ -658,63 +678,62 @@ impl<'a> Parser<'a> {
             _ => {}
         }
         match self.peek() {
-            Some(b'I') => return self.word(start, "Infinity"),
-            Some(b'N') => return self.word(start, "NaN"),
+            Some(b'I') => self.nan_or_infinity(start, "Infinity"),
+            Some(b'N') => self.nan_or_infinity(start, "NaN"),
             Some(b'0') if matches!(self.bytes.get(self.pos + 1), Some(b'x' | b'X')) => {
-                if !self.json5 {
-                    return Err(self.not_allowed(start, Feature::Json5Numbers));
-                }
-                self.pos += 2;
-                let digits = self.pos;
-                while self.peek().is_some_and(|b| b.is_ascii_hexdigit()) {
-                    self.pos += 1;
-                }
-                if self.pos == digits {
-                    return Err(self.unexpected(Expected::HexDigit));
-                }
-                self.check_hex(start, digits);
-                return Ok(());
+                self.hex_number(start)
             }
-            _ => {}
+            _ => self.decimal_number(start),
         }
-        let int_start = self.pos;
-        if self.peek() == Some(b'0') {
-            self.pos += 1;
-        } else {
-            self.digits();
-        }
-        let int_digits = self.pos > int_start;
-        let mut point = false;
-        let mut fraction_digits = false;
-        if self.peek() == Some(b'.') {
-            let next_is_digit = self.bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit);
-            if !self.json5 && !next_is_digit {
-                return Err(if int_digits {
-                    self.not_allowed(start, Feature::Json5Numbers)
-                } else {
-                    self.unexpected(Expected::Value)
-                });
-            }
-            self.pos += 1;
-            point = true;
-            fraction_digits = self.digits();
-        }
-        if !int_digits && !fraction_digits {
-            if point {
-                self.pos = int_start;
-                return Err(self.unexpected(Expected::Value));
-            }
-            return Err(self.unexpected(Expected::Digit));
-        }
-        if !int_digits && !self.json5 {
+    }
+
+    /// The rest of a JSON5 hex number such as `-0x1F`, from its `0x`. `start` is at the sign.
+    fn hex_number(&mut self, start: usize) -> Result<(), Fail> {
+        if !self.json5 {
             return Err(self.not_allowed(start, Feature::Json5Numbers));
+        }
+        self.pos += 2;
+        let hex_start = self.pos;
+        while self.peek().is_some_and(|b| b.is_ascii_hexdigit()) {
+            self.pos += 1;
+        }
+        if self.pos == hex_start {
+            return Err(self.unexpected(Expected::HexDigit));
+        }
+        self.check_hex(start, hex_start);
+        Ok(())
+    }
+
+    /// The rest of a decimal number such as `-1.5e3`, after its sign. `start` is at the sign.
+    fn decimal_number(&mut self, start: usize) -> Result<(), Fail> {
+        let int_start = self.pos;
+        let int_digits = if self.peek() == Some(b'0') {
+            self.pos += 1;
+            true
+        } else {
+            self.skip_digits()
+        };
+        if self.peek() == Some(b'.') {
+            let fraction_digits = self.bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit);
+            if !int_digits && !fraction_digits {
+                // A point with no digit on either side, such as `-.`, is no value at all.
+                return Err(self.unexpected_at(int_start, Expected::Value));
+            }
+            if !self.json5 && int_digits != fraction_digits {
+                // Only JSON5 allows a point with digits on one side alone, as in `.5` and `5.`.
+                return Err(self.not_allowed(start, Feature::Json5Numbers));
+            }
+            self.pos += 1;
+            self.skip_digits();
+        } else if !int_digits {
+            return Err(self.unexpected(Expected::Digit));
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
             self.pos += 1;
             if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.pos += 1;
             }
-            if !self.digits() {
+            if !self.skip_digits() {
                 return Err(self.unexpected(Expected::Digit));
             }
         }
@@ -723,7 +742,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Skip a run of decimal digits; true if there was at least one.
-    fn digits(&mut self) -> bool {
+    fn skip_digits(&mut self) -> bool {
         let start = self.pos;
         while self.peek().is_some_and(|b| b.is_ascii_digit()) {
             self.pos += 1;
@@ -731,8 +750,8 @@ impl<'a> Parser<'a> {
         self.pos > start
     }
 
-    /// `NaN` or `Infinity`, which only JSON5 allows.
-    fn word(&mut self, start: usize, word: &'static str) -> Result<(), Fail> {
+    /// `NaN` or `Infinity`, which only JSON5 allows. `start` is at the sign, if there is one.
+    fn nan_or_infinity(&mut self, start: usize, word: &'static str) -> Result<(), Fail> {
         if !self.json5 {
             return Err(if self.text[self.pos..].starts_with(word) {
                 self.not_allowed(start, Feature::NanAndInfinity)
@@ -754,7 +773,7 @@ impl<'a> Parser<'a> {
     }
 
     fn check_decimal(&mut self, start: usize) {
-        if !self.numbers.is_on() {
+        if !self.invalid_number.is_on() {
             return;
         }
         let text = &self.text[start..self.pos];
@@ -765,23 +784,34 @@ impl<'a> Parser<'a> {
             && (digits.len() > SAFE_DECIMAL_DIGITS
                 || digits.parse::<u64>().is_ok_and(|n| n > MAX_SAFE_INTEGER));
         if overflows || unsafe_integer {
-            self.report(start, self.numbers, Detail::InvalidNumber { overflows });
+            self.report(
+                start,
+                self.invalid_number,
+                Detail::InvalidNumber { overflows },
+            );
         }
     }
 
-    fn check_hex(&mut self, start: usize, digits: usize) {
-        if !self.numbers.is_on() {
+    fn check_hex(&mut self, start: usize, hex_start: usize) {
+        if !self.invalid_number.is_on() {
             return;
         }
-        let digits = self.text[digits..self.pos].trim_start_matches('0');
-        let top = digits.as_bytes().get(..14).map(<[u8]>::to_ascii_lowercase);
-        let overflows = digits.len() > DOUBLE_HEX_DIGITS
-            || (digits.len() == DOUBLE_HEX_DIGITS
+        let significant = self.text[hex_start..self.pos].trim_start_matches('0');
+        let top = significant
+            .as_bytes()
+            .get(..14)
+            .map(<[u8]>::to_ascii_lowercase);
+        let overflows = significant.len() > DOUBLE_HEX_DIGITS
+            || (significant.len() == DOUBLE_HEX_DIGITS
                 && top.is_some_and(|top| top[..13].iter().all(|&b| b == b'f') && top[13] >= b'c'));
-        let unsafe_integer = digits.len() > SAFE_HEX_DIGITS
-            || u64::from_str_radix(digits, 16).is_ok_and(|n| n > MAX_SAFE_INTEGER);
+        let unsafe_integer = significant.len() > SAFE_HEX_DIGITS
+            || u64::from_str_radix(significant, 16).is_ok_and(|n| n > MAX_SAFE_INTEGER);
         if overflows || unsafe_integer {
-            self.report(start, self.numbers, Detail::InvalidNumber { overflows });
+            self.report(
+                start,
+                self.invalid_number,
+                Detail::InvalidNumber { overflows },
+            );
         }
     }
 
@@ -791,7 +821,7 @@ impl<'a> Parser<'a> {
         loop {
             let Some(b) = self.peek() else { return Ok(()) };
             match b {
-                b'\n' if self.lines => return Ok(()),
+                b'\n' if self.json_lines => return Ok(()),
                 b' ' | b'\t' | b'\r' | b'\n' => self.pos += 1,
                 b'/' => match self.bytes.get(self.pos + 1) {
                     Some(b'/' | b'*') if !self.dialect.comments() => {
@@ -841,11 +871,11 @@ impl<'a> Parser<'a> {
             }
             from = at + 1;
         }
-        Err(Fail {
-            offset: self.bytes.len(),
-            kind: SyntaxKind::UnterminatedComment,
-            started: Some(start),
-        })
+        Err(Fail::inside(
+            self.bytes.len(),
+            SyntaxKind::UnterminatedComment,
+            start,
+        ))
     }
 }
 
