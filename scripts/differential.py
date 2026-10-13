@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.12"
 # ///
-"""Compare jsonvet with check-json5 1.4.0, file by file, in the two dialects 1.4 knows.
+"""Compare jsonvet with check-json5 1.4.1, file by file, in the two dialects 1.4 knows.
 
 Usage: uv run scripts/differential.py [--cases N] [--seed S] [--jsonvet PATH]
 
@@ -23,7 +23,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REFERENCE = ["uvx", "--quiet", "--python", "3.13", "--from", "check-json5==1.4.0", "check-json5"]
+REFERENCE = ["uvx", "--quiet", "--python", "3.13", "--from", "check-json5==1.4.1", "check-json5"]
 
 TOKENS = [
     "{", "}", "[", "]", ":", ",", ",", '"a"', '"b"', "'a'", "a", "$k", "1", "-2.5e3", "0x1F", ".5", "5.",
@@ -73,8 +73,9 @@ def run(command: list[str], files: list[Path], cwd: Path) -> dict[str, list[tupl
         out = subprocess.run(
             [*command, *names[start : start + 500]], cwd=cwd, capture_output=True, text=True, check=False
         )
-        if out.returncode not in (0, 1):
-            sys.exit(f"{command[0]} failed with {out.returncode}: {out.stderr}")
+        # A tool that cannot start also exits 1, but prints nothing on stdout.
+        if out.returncode not in (0, 1) or (out.returncode == 1 and not out.stdout and out.stderr):
+            sys.exit(f"{' '.join(command[:6])} failed with {out.returncode}: {out.stderr}")
         for line in out.stdout.splitlines():
             m = LINE.match(line)
             if not m or line.startswith("::"):
@@ -96,10 +97,6 @@ def failed(problems: list[tuple]) -> bool:
 
 def classify(mode: str, text: str, ours: list[tuple], theirs: list[tuple]) -> str:
     """Why the two tools disagree, as an accepted category or `unexplained`."""
-    if mode == "strict" and not theirs and any("NaN and Infinity are not allowed" in p[4] for p in ours):
-        return "accepted: 1.4 bug, strict mode passes NaN or Infinity that touches other text"
-    if failed(ours) == failed(theirs) and "\\u" in text:
-        return "accepted: 1.4 bug, unquoted keys compared without decoding their escapes"
     if "\u2028" in text or "\u2029" in text:
         return "accepted: U+2028/U+2029 (line terminators in jsonvet, and allowed in strings by the spec)"
     if "\r" in text.replace("\r\n", ""):
@@ -137,6 +134,24 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
     return tally
 
 
+def check_reference(cwd: Path) -> None:
+    """Fetch the reference fresh, then make sure it passes a valid file and fails an invalid one,
+    so a broken install can never pass as "no problems"."""
+    (cwd / "probe-ok.json").write_text("{}")
+    (cwd / "probe-bad.json").write_text("[1,]")
+    refresh = [REFERENCE[0], "--refresh-package", "check-json5", *REFERENCE[1:]]
+    ok = subprocess.run(
+        [*refresh, "--strict", "*", "probe-ok.json"], cwd=cwd, capture_output=True, text=True, check=False
+    )
+    bad = subprocess.run(
+        [*REFERENCE, "--strict", "*", "probe-bad.json"], cwd=cwd, capture_output=True, text=True, check=False
+    )
+    if ok.returncode != 0 or bad.returncode != 1 or "probe-bad.json" not in bad.stdout:
+        sys.exit(f"the reference does not work: {ok.stderr or bad.stderr or bad.stdout}")
+    for probe in ("probe-ok.json", "probe-bad.json"):
+        (cwd / probe).unlink()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cases", type=int, default=3000)
@@ -145,6 +160,7 @@ def main() -> int:
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="jsonvet-differential-") as tmp:
         cwd = Path(tmp)
+        check_reference(cwd)
         files = corpus(cwd, args.cases, args.seed)
         totals = compare("json5", files, cwd, args.jsonvet, [])
         totals += compare("strict", files, cwd, args.jsonvet, ["--strict", "*"])

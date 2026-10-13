@@ -33,15 +33,13 @@ of the input. Where that differs from 1.4, the difference is recorded with its r
 
 ### Known differences from 1.4
 
-`scripts/differential.py` compares both tools file by file. On 40,228 comparisons (20,114 files
-in each of JSON5 and strict mode, 2026-10-13) every difference was in one of these categories,
-and two of them are bugs in 1.4:
+`scripts/differential.py` compares jsonvet with check-json5 1.4.1 file by file. Its first run,
+against 1.4.0, found two bugs in 1.4.0, fixed in 1.4.1: strict mode passed `NaN` or `Infinity`
+running on into other text (`[NaN-2.5e3`), and unquoted JSON5 keys were compared with their
+`\u` escapes undecoded. Against 1.4.1, all 40,228 comparisons (20,114 files in each of
+JSON5 and strict mode, 2026-10-13) agree. These differences are deliberate, and the corpus
+can still meet them:
 
-- **1.4 passes invalid strict JSON** when `NaN` or `Infinity` touches other text, such as
-  `[NaN-2.5e3`: its strict check finds the constant, then looks for it as a separate token,
-  finds none and reports nothing. jsonvet reports the constant.
-- **1.4 compares unquoted JSON5 keys without decoding escapes**, so `\u0061` and `'a'` are not
-  the same key to it, and it prints the raw escape in the path. jsonvet reports `$.a`.
 - Lines end at lone CR, U+2028 and U+2029 in jsonvet, so positions after one of them differ.
 - Raw U+2028 and U+2029 inside strings pass in jsonvet, as the JSON5 spec allows; 1.4's JSON5
   path rejected them.
@@ -170,7 +168,7 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   it must pass or fail.
 - **Corpus:** cases from 1.4's tests, edge cases found while surveying other parsers, and every
   fuzz finding, with expected output kept as insta snapshots.
-- **Differential:** `scripts/differential.py` replays the corpus through `check-json5==1.4.0`
+- **Differential:** `scripts/differential.py` replays the corpus through `check-json5==1.4.1`
   (Python 3.13) and jsonvet, in the two dialects 1.4 knows, and compares verdicts, positions,
   paths and exit codes.
 - **Fuzzing:** cargo-fuzz targets for raw bytes (no panics, offsets on character boundaries),
