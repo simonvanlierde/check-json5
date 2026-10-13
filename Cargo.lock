@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "jsonvet"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "insta",
  "memchr",
@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "jsonvet-cli"
-version = "2.0.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "jsonvet",
  "lexopt",

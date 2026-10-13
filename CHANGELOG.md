@@ -8,6 +8,8 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-13
+
 check-json5 is now **jsonvet**, rewritten in Rust. It gives the same pass or fail as 1.4.1 for
 every file in JSON5 and strict mode. I ran both on 20,114 files in each mode, 40,228 runs, and
 they agree on every one.
@@ -154,7 +156,8 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 - Renamed from `pre-commit-check-json5` to `check-json5`.
 
-[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.1...v2.0.0
 [1.4.1]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.2.1...v1.3.0
