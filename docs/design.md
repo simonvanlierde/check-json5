@@ -31,6 +31,23 @@ A syntax error is placed at the first character that cannot continue the documen
 of the input. Where that differs from 1.4, the difference is recorded with its reason in
 `tests/differential/accepted.md`. Any other difference is a bug.
 
+### Known differences from 1.4
+
+`scripts/differential.py` compares both tools file by file. On 40,228 comparisons (20,114 files
+in each of JSON5 and strict mode, 2026-10-13) every difference was in one of these categories,
+and two of them are bugs in 1.4:
+
+- **1.4 passes invalid strict JSON** when `NaN` or `Infinity` touches other text, such as
+  `[NaN-2.5e3`: its strict check finds the constant, then looks for it as a separate token,
+  finds none and reports nothing. jsonvet reports the constant.
+- **1.4 compares unquoted JSON5 keys without decoding escapes**, so `\u0061` and `'a'` are not
+  the same key to it, and it prints the raw escape in the path. jsonvet reports `$.a`.
+- Lines end at lone CR, U+2028 and U+2029 in jsonvet, so positions after one of them differ.
+- Raw U+2028 and U+2029 inside strings pass in jsonvet, as the JSON5 spec allows; 1.4's JSON5
+  path rejected them.
+- Nesting depth is unlimited in jsonvet; 1.4 failed files nested about 60 levels deep in JSON5.
+- Syntax-error wording, and some syntax-error positions, follow the rule above.
+
 ## Dialects
 
 One parser covers six dialects. Each step in the chain only adds syntax:
