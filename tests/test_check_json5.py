@@ -395,3 +395,11 @@ def test_recursion_error_fails_only_that_file(
     f = write(tmp_path, "[]")
     assert main([f]) == 1
     assert f"{f}: nested too deeply to check" in capsys.readouterr().out
+
+
+def test_file_name_starting_with_a_dash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("-dash.json").write_text("[1]")
+    Path("-bad.json").write_text("{a:}")
+    assert main(["-dash.json"]) == 0
+    assert main(["--strict", "*.json", "-dash.json", "-bad.json"]) == 1

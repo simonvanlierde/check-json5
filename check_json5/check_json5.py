@@ -329,8 +329,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             help="files matching GLOB must be strict JSON; repeat it, `!GLOB` exempts (last match wins)",
         )
         parser.add_argument("filenames", nargs="*", help="the files to check")
-        ns = parser.parse_args(args)
-        args, strict_patterns = ns.filenames, ns.strict
+        # pre-commit puts file names after the options with no `--`, so a file named `-x.json`
+        # comes back as unknown instead of ending the run with a usage error.
+        ns, unknown = parser.parse_known_args(args)
+        args, strict_patterns = [*ns.filenames, *unknown], ns.strict
 
     # Python caps int literals at 4300 digits (3.10.7+), which fails valid JSON with a long number.
     if hasattr(sys, "set_int_max_str_digits"):
