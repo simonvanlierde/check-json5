@@ -132,7 +132,8 @@ files and on repositories with many JSONC files.
 
 The project uses [uv](https://github.com/astral-sh/uv) for dependency management, `pytest` for
 tests, `ruff` and `ty` for lint and types, `pre-commit` for local checks, and GitHub Actions for
-CI with coverage reported to Codecov. These are the commands CI runs:
+CI with coverage reported to Codecov. CI runs the lint, format, type and test commands below. The
+last two install and run the hooks in your own checkout:
 
 ```bash
 uv sync                                               # install dependencies
