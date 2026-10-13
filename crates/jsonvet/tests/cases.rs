@@ -115,6 +115,15 @@ fn duplicate_keys() {
         ),
         (Json5, "{a: 1, 'a': 2, \"b c\": {d: 1, d: 2}, \\u0061: 3}"),
         (Json5, "{\"ünicode\": 1, \"ünicode\": 2}"),
+        // Lone surrogates stay distinct keys, as in Python; U+FFFD is not one of them.
+        (
+            Json,
+            r#"{"\ud800": 1, "\udbff": 2, "\ufffd": 3, "a\udc00": 4}"#
+        ),
+        (
+            Json,
+            r#"{"\ud800": 1, "\uD800": 2, "\ud83d\ude00": 3, "😀": 4}"#
+        ),
         (IJson, r#"{"a": 1, "a": 2}"#),
         (Json, r#"[{"a": 1, "a": 2}, {"\x": 0}]"#),
     ]));

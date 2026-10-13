@@ -48,6 +48,11 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
     parser.problems
 }
 
+/// A decoded key as WTF-8: UTF-8, except that a lone surrogate escape such as `\\uD800` is kept
+/// as its own three bytes (`ED A0 80`). Valid UTF-8 never holds those bytes, so two keys that
+/// differ only in their lone surrogates stay different, as they are in Python.
+pub(crate) type Key<'a> = Cow<'a, [u8]>;
+
 /// A syntax error on its way out of the parser.
 struct Fail {
     offset: usize,
@@ -76,24 +81,28 @@ struct Frame<'a> {
     /// How this container is reached from its parent.
     segment: Segment<'a>,
     /// The keys seen so far with the offset of each, for objects.
-    keys: Vec<(Cow<'a, str>, usize)>,
+    keys: Vec<(Key<'a>, usize)>,
     /// The same keys, indexed once the object grows past `LINEAR_KEYS`.
-    index: Option<HashMap<Cow<'a, str>, usize>>,
+    index: Option<HashMap<Key<'a>, usize>>,
     /// The current member's key, in an object.
-    key: Cow<'a, str>,
+    key: Key<'a>,
     /// The current element's position, in an array.
     element: usize,
 }
 
 impl<'a> Frame<'a> {
-    fn first_offset(&self, key: &str) -> Option<usize> {
+    fn first_offset(&self, key: &[u8]) -> Option<usize> {
         match &self.index {
             Some(index) => index.get(key).copied(),
-            None => self.keys.iter().find(|(k, _)| k == key).map(|(_, at)| *at),
+            None => self
+                .keys
+                .iter()
+                .find(|(k, _)| **k == *key)
+                .map(|(_, at)| *at),
         }
     }
 
-    fn insert(&mut self, key: Cow<'a, str>, at: usize) {
+    fn insert(&mut self, key: Key<'a>, at: usize) {
         if let Some(index) = &mut self.index {
             index.insert(key, at);
             return;
@@ -285,7 +294,7 @@ impl<'a> Parser<'a> {
             segment,
             keys: Vec::new(),
             index: None,
-            key: Cow::Borrowed(""),
+            key: Key::Borrowed(&[]),
             element: 0,
         });
         self.pos += 1;
@@ -389,7 +398,7 @@ impl<'a> Parser<'a> {
     }
 
     /// A JSON5 identifier key, decoded.
-    fn identifier(&mut self) -> Result<Cow<'a, str>, Fail> {
+    fn identifier(&mut self) -> Result<Key<'a>, Fail> {
         let start = self.pos;
         let mut decoded: Option<String> = None;
         let mut first = true;
@@ -435,8 +444,8 @@ impl<'a> Parser<'a> {
             self.pos += len;
         }
         Ok(match decoded {
-            Some(buffer) => Cow::Owned(buffer),
-            None => Cow::Borrowed(&self.text[start..self.pos]),
+            Some(buffer) => Cow::Owned(buffer.into_bytes()),
+            None => Cow::Borrowed(&self.bytes[start..self.pos]),
         })
     }
 
@@ -444,10 +453,10 @@ impl<'a> Parser<'a> {
 
     /// Scan a string starting at its quote. With `decode`, return its value; otherwise the
     /// returned value is empty.
-    fn string(&mut self, quote: u8, decode: bool) -> Result<Cow<'a, str>, Fail> {
+    fn string(&mut self, quote: u8, decode: bool) -> Result<Key<'a>, Fail> {
         let start = self.pos;
         self.pos += 1;
-        let mut decoded: Option<String> = None;
+        let mut decoded: Option<Vec<u8>> = None;
         let mut run_start = self.pos;
         loop {
             let Some(b) = self.peek() else {
@@ -461,24 +470,24 @@ impl<'a> Parser<'a> {
                 _ if b == quote => {
                     let value = match decoded {
                         Some(mut buffer) => {
-                            buffer.push_str(&self.text[run_start..self.pos]);
+                            buffer.extend_from_slice(&self.bytes[run_start..self.pos]);
                             Cow::Owned(buffer)
                         }
-                        None if decode => Cow::Borrowed(&self.text[start + 1..self.pos]),
-                        None => Cow::Borrowed(""),
+                        None if decode => Cow::Borrowed(&self.bytes[start + 1..self.pos]),
+                        None => Key::Borrowed(&[]),
                     };
                     self.pos += 1;
                     return Ok(value);
                 }
                 b'\\' => {
                     let buffer = decode.then(|| {
-                        let buffer = decoded.get_or_insert_with(String::new);
-                        buffer.push_str(&self.text[run_start..self.pos]);
+                        let buffer = decoded.get_or_insert_with(Vec::new);
+                        buffer.extend_from_slice(&self.bytes[run_start..self.pos]);
                         buffer
                     });
-                    let c = self.escape(start)?;
-                    if let (Some(buffer), Some(c)) = (buffer, c) {
-                        buffer.push(c);
+                    let code_point = self.escape(start)?;
+                    if let (Some(buffer), Some(code_point)) = (buffer, code_point) {
+                        push_wtf8(buffer, code_point);
                     }
                     run_start = self.pos;
                 }
@@ -512,9 +521,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Read the escape at the current backslash and return the character it stands for, or
-    /// `None` for a line continuation.
-    fn escape(&mut self, string_start: usize) -> Result<Option<char>, Fail> {
+    /// Read the escape at the current backslash and return the code point it stands for (a lone
+    /// surrogate included), or `None` for a line continuation.
+    fn escape(&mut self, string_start: usize) -> Result<Option<u32>, Fail> {
         let at = self.pos;
         let Some(b) = self.bytes.get(at + 1).copied() else {
             return Err(Fail {
@@ -535,8 +544,8 @@ impl<'a> Parser<'a> {
             b't' => Some('\t'),
             _ => None,
         };
-        if simple.is_some() {
-            return Ok(simple);
+        if let Some(c) = simple {
+            return Ok(Some(u32::from(c)));
         }
         if b == b'u' {
             return self.unicode_escape(at).map(Some);
@@ -548,14 +557,14 @@ impl<'a> Parser<'a> {
             }));
         }
         match b {
-            b'\'' => Ok(Some('\'')),
-            b'v' => Ok(Some('\u{b}')),
+            b'\'' => Ok(Some(u32::from('\''))),
+            b'v' => Ok(Some(0xB)),
             // `\0` may not be followed by a digit: JSON5 has no octal escapes.
             b'0' if self.peek().is_some_and(|d| d.is_ascii_digit()) => {
                 self.pos = at;
                 Err(self.fail(SyntaxKind::InvalidEscape { found: '0' }))
             }
-            b'0' => Ok(Some('\0')),
+            b'0' => Ok(Some(0)),
             b'1'..=b'9' => {
                 self.pos = at;
                 Err(self.fail(SyntaxKind::InvalidEscape {
@@ -568,7 +577,7 @@ impl<'a> Parser<'a> {
                     return Err(self.fail(SyntaxKind::InvalidHexEscape));
                 };
                 self.pos += 2;
-                Ok(char::from_u32(value))
+                Ok(Some(value))
             }
             // Line continuations: the backslash and the line break vanish.
             b'\n' => Ok(None),
@@ -584,15 +593,15 @@ impl<'a> Parser<'a> {
                 Ok(if c == '\u{2028}' || c == '\u{2029}' {
                     None
                 } else {
-                    Some(c)
+                    Some(u32::from(c))
                 })
             }
         }
     }
 
     /// The `\uXXXX` escape whose backslash is at `at`, with the current position just after
-    /// the `u`. Joins a surrogate pair written as two escapes.
-    fn unicode_escape(&mut self, at: usize) -> Result<char, Fail> {
+    /// the `u`. Joins a surrogate pair written as two escapes; a lone surrogate comes back as it is.
+    fn unicode_escape(&mut self, at: usize) -> Result<u32, Fail> {
         let Some(unit) = self.hex(self.pos, 4) else {
             self.pos = at;
             return Err(self.fail(SyntaxKind::InvalidUnicodeEscape));
@@ -615,7 +624,7 @@ impl<'a> Parser<'a> {
                 Detail::InvalidCodePoint { code_point },
             );
         }
-        Ok(char::from_u32(code_point).unwrap_or('\u{FFFD}'))
+        Ok(code_point)
     }
 
     /// The value of `digits` hex digits at `at`, if they are all there.
@@ -884,4 +893,16 @@ fn is_identifier_part(c: char) -> bool {
             unicode_general_category::get_general_category(c),
             NonspacingMark | SpacingMark | DecimalNumber | ConnectorPunctuation
         )
+}
+
+/// Append a code point as WTF-8 (see [`Key`]): UTF-8, or three bytes for a lone surrogate.
+fn push_wtf8(buffer: &mut Vec<u8>, code_point: u32) {
+    match char::from_u32(code_point) {
+        Some(c) => buffer.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+        None => buffer.extend_from_slice(&[
+            0xED,
+            0x80 | ((code_point >> 6) & 0x3F) as u8,
+            0x80 | (code_point & 0x3F) as u8,
+        ]),
+    }
 }

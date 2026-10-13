@@ -8,7 +8,7 @@ use std::fmt::Write;
 #[derive(Clone, Debug)]
 pub(crate) enum Segment<'a> {
     Root,
-    Key(Cow<'a, str>),
+    Key(Cow<'a, [u8]>),
     Index(usize),
 }
 
@@ -23,30 +23,60 @@ pub(crate) fn push(path: &mut String, segment: &Segment<'_>) {
     }
 }
 
-pub(crate) fn push_key(path: &mut String, key: &str) {
-    if is_identifier(key) {
+/// Append a key, given as the parser's WTF-8 (see `parse::Key`).
+pub(crate) fn push_key(path: &mut String, key: &[u8]) {
+    let chars = decode(key);
+    if is_identifier(&chars) {
         path.push('.');
-        path.push_str(key);
+        path.extend(chars.iter().flatten());
     } else {
         path.push('[');
-        quote(path, key);
+        quote(path, &chars);
         path.push(']');
     }
 }
 
-/// Python's `[A-Za-z_$][\w$]*`, where `\w` takes any Unicode letter or digit.
-fn is_identifier(key: &str) -> bool {
-    let mut chars = key.chars();
+/// A key's characters, with each lone surrogate as `Err(unit)`.
+fn decode(mut key: &[u8]) -> Vec<Result<char, u32>> {
+    let mut chars = Vec::new();
+    loop {
+        let valid = match std::str::from_utf8(key) {
+            Ok(text) => text,
+            Err(e) => std::str::from_utf8(&key[..e.valid_up_to()]).unwrap_or_default(),
+        };
+        chars.extend(valid.chars().map(Ok));
+        // Anything after the valid part is a lone surrogate, which the parser wrote as
+        // `ED`, then 6 bits, then 6 bits.
+        let Some(&[_, high, low]) = key.get(valid.len()..valid.len() + 3) else {
+            return chars;
+        };
+        chars.push(Err(0xD000
+            | (u32::from(high & 0x3F) << 6)
+            | u32::from(low & 0x3F)));
+        key = &key[valid.len() + 3..];
+    }
+}
+
+/// Python's `[A-Za-z_$][\w$]*`, where `\w` takes any Unicode letter or digit, and no surrogate.
+fn is_identifier(chars: &[Result<char, u32>]) -> bool {
+    let mut chars = chars.iter();
     chars
         .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        .is_some_and(|c| matches!(c, Ok(c) if c.is_ascii_alphabetic() || *c == '_' || *c == '$'))
+        && chars.all(|c| matches!(c, Ok(c) if c.is_alphanumeric() || *c == '_' || *c == '$'))
 }
 
 /// Quote a key as `json.dumps` does with its defaults: non-ASCII as lowercase `\uXXXX` escapes.
-fn quote(out: &mut String, key: &str) {
+fn quote(out: &mut String, chars: &[Result<char, u32>]) {
     out.push('"');
-    for c in key.chars() {
+    for c in chars {
+        let c = match c {
+            Ok(c) => *c,
+            Err(unit) => {
+                let _ = write!(out, "\\u{unit:04x}");
+                continue;
+            }
+        };
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
@@ -73,7 +103,7 @@ mod tests {
 
     fn rendered(key: &str) -> String {
         let mut path = "$".to_owned();
-        push_key(&mut path, key);
+        push_key(&mut path, key.as_bytes());
         path
     }
 
@@ -88,5 +118,8 @@ mod tests {
         assert_eq!(rendered("q\"\\\n"), "$[\"q\\\"\\\\\\n\"]");
         assert_eq!(rendered("😀"), "$[\"\\ud83d\\ude00\"]");
         assert_eq!(rendered(""), "$[\"\"]");
+        let mut path = "$".to_owned();
+        push_key(&mut path, b"a\xED\xA0\x80b");
+        assert_eq!(path, "$[\"a\\ud800b\"]");
     }
 }
