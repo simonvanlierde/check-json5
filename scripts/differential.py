@@ -106,13 +106,16 @@ def duplicates(problems: list[tuple]) -> list[tuple]:
 
 def classify(text: str, ours: list[tuple], theirs: list[tuple]) -> str:
     """Why the two tools disagree, as an accepted category or `unexplained`."""
+    flipped = failed(ours) != failed(theirs)
     if "\u2028" in text or "\u2029" in text:
-        return "accepted: U+2028/U+2029 (line terminators in jsonvet, and allowed in strings by the spec)"
-    if "\r" in text.replace("\r\n", ""):
+        # Both are allowed in strings, and end a `//` comment, in jsonvet only. So jsonvet may
+        # pass a file 1.4 fails, and may fail one only where a `//` comment ends early.
+        if not flipped or not failed(ours) or "//" in text:
+            return "accepted: U+2028/U+2029 (line terminators in jsonvet, and allowed in strings)"
+    elif "\r" in text.replace("\r\n", "") and not flipped:
+        # A lone CR ends a line in jsonvet, which moves positions but never changes a verdict.
         return "accepted: lone CR ends a line in jsonvet"
-    if failed(ours) != failed(theirs):
-        return "unexplained: verdict"
-    return "unexplained: duplicate reports"
+    return "unexplained: verdict" if flipped else "unexplained: duplicate reports"
 
 
 def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[str]) -> Counter:
