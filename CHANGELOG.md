@@ -8,6 +8,10 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-13
+
+Upgrade: set `rev: v1.4.0`. Nothing else is needed.
+
 ### Added
 
 - The hook also runs on Tailscale's `.hujson` and `.jwcc`, VS Code's `.code-workspace` and
@@ -98,7 +102,8 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 - Renamed from `pre-commit-check-json5` to `check-json5`.
 
-[Unreleased]: https://github.com/simonvanlierde/check-json5/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/check-json5/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/simonvanlierde/check-json5/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/simonvanlierde/check-json5/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/simonvanlierde/check-json5/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/simonvanlierde/check-json5/compare/v1.1.0...v1.2.0
