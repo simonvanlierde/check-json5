@@ -38,6 +38,7 @@ fn snapshot(cases: &[(Dialect, &str)]) -> String {
 fn syntax_in_every_dialect() {
     use Dialect::{Json, Json5, Jsonc, Jwcc};
     insta::assert_snapshot!(snapshot(&[
+        // Empty documents, containers and trailing commas.
         (Json, ""),
         (Json, "   "),
         (Json, r#"{"a": 1}"#),
@@ -48,6 +49,7 @@ fn syntax_in_every_dialect() {
         (Json5, "[,]"),
         (Json5, "[1,,]"),
         (Json5, "{,}"),
+        // Unquoted keys and single quotes.
         (Json, "{a: 1}"),
         (Json5, "{a: 1, $b: 2, _c: 3, ünï: 4}"),
         // Identifier characters go by general category, as in ECMAScript 5.1, not by Unicode's
@@ -59,9 +61,11 @@ fn syntax_in_every_dialect() {
         (Json5, "{\u{E33}: 1, \u{2E2F}: 2}"),
         (Json, "['x']"),
         (Json5, "['x', \"y\"]"),
+        // Comments.
         (Json, "// c\n1"),
         (Jsonc, "// c\n1"),
         (Jsonc, "/* open"),
+        // Missing separators, trailing text and literals.
         (Json, "[1 2]"),
         (Json, r#"{"a" 1}"#),
         (Json, r#"{"a":1 "b":2}"#),
@@ -70,6 +74,7 @@ fn syntax_in_every_dialect() {
         (Json, "nul"),
         (Json, "nux"),
         (Json, "nullx"),
+        // Numbers.
         (Json, "NaN"),
         (Json, "-Infinity"),
         (Json5, "[NaN, +Infinity, -Infinity, +NaN]"),
@@ -83,6 +88,7 @@ fn syntax_in_every_dialect() {
         (Json5, "1e"),
         (Json5, "."),
         (Json, "-"),
+        // Strings and escapes.
         (Json, "\"abc"),
         (Json, "\"a\nb\""),
         (Json, "\"a\tb\""),
@@ -96,6 +102,7 @@ fn syntax_in_every_dialect() {
         (Json5, r#""\x4""#),
         (Json, r#""\u12x4""#),
         (Json5, "\"a\\\nb\""),
+        // JSON5's extra line terminators and whitespace.
         (Json5, "\"\u{2028}\""),
         (Json5, "[1, // c\u{2028} 2]"),
         (Jsonc, "[1, // c\u{2028} 2]"),

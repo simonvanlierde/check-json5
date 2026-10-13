@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use jsonvet::Rule;
 use lexopt::prelude::*;
 
-use crate::settings::{DialectRule, Settings, parse_severity};
+use crate::settings::{DialectPattern, Settings, parse_severity};
 
 pub(crate) const HELP: &str = "\
 Check JSON, I-JSON, JSONC, JWCC (HuJSON), JSON5 and JSON Lines files for syntax errors,
@@ -69,12 +69,12 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
         match arg {
             Long("dialect") => settings
                 .dialects
-                .push(DialectRule::parse(&value(&mut parser)?)?),
+                .push(DialectPattern::parse(&value(&mut parser)?)?),
             Long("strict") => {
                 let glob = value(&mut parser)?;
                 settings.dialects.push(match glob.strip_prefix('!') {
-                    Some(glob) => DialectRule::parse(&format!("auto:{glob}"))?,
-                    None => DialectRule::parse(&format!("json:{glob}"))?,
+                    Some(glob) => DialectPattern::parse(&format!("auto:{glob}"))?,
+                    None => DialectPattern::parse(&format!("json:{glob}"))?,
                 });
             }
             Long(severity @ ("error" | "warn" | "ignore")) => {
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn options_parse() {
+    fn rule_limit_and_config_flags_parse_and_bad_values_fail() {
         let args = check(&[
             "--warn=duplicate-key",
             "--max-warnings",

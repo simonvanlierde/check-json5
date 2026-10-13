@@ -12,20 +12,20 @@ use crate::glob;
 
 /// A dialect for files matching a pattern, or for every file when the pattern is `None`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DialectRule {
+pub(crate) struct DialectPattern {
     pub(crate) files: Option<String>,
     /// `None` means `auto`: the default for the file's extension.
     pub(crate) dialect: Option<Dialect>,
 }
 
-impl DialectRule {
+impl DialectPattern {
     /// Parse `DIALECT` or `DIALECT:GLOB`, where `DIALECT` may be `auto`.
     pub(crate) fn parse(value: &str) -> Result<Self, String> {
         let (name, files) = match value.split_once(':') {
             Some((name, files)) => (name, Some(files.to_owned())),
             None => (value, None),
         };
-        Ok(DialectRule {
+        Ok(DialectPattern {
             files,
             dialect: parse_dialect(name)?,
         })
@@ -55,13 +55,13 @@ pub(crate) fn parse_severity(name: &str) -> Result<Severity, String> {
 /// Dialect patterns and rule severities, merged from every source in order.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Settings {
-    pub(crate) dialects: Vec<DialectRule>,
+    pub(crate) dialects: Vec<DialectPattern>,
     pub(crate) rules: Vec<(Rule, Severity)>,
 }
 
 impl Settings {
     /// Add `later` after `self`, so `later` wins where both say something.
-    pub(crate) fn then(mut self, later: Settings) -> Settings {
+    pub(crate) fn overridden_by(mut self, later: Settings) -> Settings {
         self.dialects.extend(later.dialects);
         self.rules.extend(later.rules);
         self
@@ -92,12 +92,12 @@ struct FileSettings {
     #[serde(default)]
     rules: BTreeMap<String, String>,
     #[serde(default)]
-    dialects: Vec<FileDialect>,
+    dialects: Vec<FileDialectEntry>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileDialect {
+struct FileDialectEntry {
     files: String,
     dialect: String,
 }
@@ -146,27 +146,27 @@ fn has_jsonvet_table(text: &str) -> bool {
 
 /// Read a config file.
 pub(crate) fn load(path: &Path) -> Result<Settings, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let at = |e: toml::de::Error| format!("{}: {}", path.display(), e.message());
+    let in_file = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = fs::read_to_string(path).map_err(|e| in_file(&e))?;
+    let at = |e: toml::de::Error| in_file(&e.message());
     let file = if path.file_name().is_some_and(|n| n == "pyproject.toml") {
         toml::from_str::<PyProject>(&text)
             .map_err(at)?
             .tool
             .and_then(|t| t.jsonvet)
-            .ok_or_else(|| format!("{}: no [tool.jsonvet] table", path.display()))?
+            .ok_or_else(|| in_file(&"no [tool.jsonvet] table"))?
     } else {
         toml::from_str::<FileSettings>(&text).map_err(at)?
     };
     let mut settings = Settings::default();
     for (id, severity) in &file.rules {
-        let rule: Rule = id.parse().map_err(|e| format!("{}: {e}", path.display()))?;
-        let severity = parse_severity(severity).map_err(|e| format!("{}: {e}", path.display()))?;
+        let rule: Rule = id.parse().map_err(|e| in_file(&e))?;
+        let severity = parse_severity(severity).map_err(|e| in_file(&e))?;
         settings.rules.push((rule, severity));
     }
     for entry in file.dialects {
-        let dialect =
-            parse_dialect(&entry.dialect).map_err(|e| format!("{}: {e}", path.display()))?;
-        settings.dialects.push(DialectRule {
+        let dialect = parse_dialect(&entry.dialect).map_err(|e| in_file(&e))?;
+        settings.dialects.push(DialectPattern {
             files: Some(entry.files),
             dialect,
         });

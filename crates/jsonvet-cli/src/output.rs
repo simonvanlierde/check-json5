@@ -102,7 +102,7 @@ mod tests {
     use super::{escape, one_line};
 
     #[test]
-    fn escaping() {
+    fn messages_stay_on_one_line_and_annotation_fields_are_percent_encoded() {
         assert_eq!(one_line("a\n::warning::x"), "a\\n::warning::x");
         assert_eq!(escape("50% a\r\nb", false), "50%25 a%0D%0Ab");
         assert_eq!(escape("a:b,c", true), "a%3Ab%2Cc");

@@ -58,7 +58,7 @@ fn run_with(
             }
         }
     };
-    let settings = from_file.then(args.settings);
+    let settings = from_file.overridden_by(args.settings);
 
     let mut printer = Printer { out, annotate };
     let (mut failed, mut warnings) = (false, 0usize);
