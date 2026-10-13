@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from check_json5.check_json5 import _escape, check, is_strict, main
+from check_json5.check_json5 import _check_json, _check_json5, _escape, _strip_jsonc, check, is_strict, main
 
 
 @pytest.fixture(autouse=True)
@@ -44,9 +44,10 @@ def test_strict_json_fast_path_passes(tmp_path: Path) -> None:
     assert main([write(tmp_path, '{"a": 1, "b": 2}')]) == 0
 
 
-def test_strict_json_run_skips_slow_imports(tmp_path: Path) -> None:
+@pytest.mark.parametrize("content", ['{"a": 1}', '// c\n{"a": [1, 2,], /* c */}'], ids=["json", "jsonc"])
+def test_json_and_jsonc_runs_skip_slow_imports(tmp_path: Path, content: str) -> None:
     # A fresh interpreter: this one has them loaded already. Each costs a few ms per hook run.
-    f = write(tmp_path, '{"a": 1}')
+    f = write(tmp_path, content)
     code = (
         "import json, sys; before = set(sys.modules); from check_json5.check_json5 import main; "
         f"main([{f!r}]); print(json.dumps(sorted(set(sys.modules) - before)))"
@@ -206,3 +207,44 @@ def test_github_annotations(
 def test_message_escaping_for_annotations() -> None:
     assert _escape("50% a\nb") == "50%25 a%0Ab"
     assert _escape("a:b,c", prop=True) == "a%3Ab%2Cc"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"a": 1, // c\n "b": [1, 2,], /* c\n c */}', '{"a": 1,     \n "b": [1, 2 ]      \n     }'),
+        # Only a comma after a value goes.
+        ("[,]", "[,]"),
+        ("[1,,]", "[1,,]"),
+        ("{,}", "{,}"),
+        # Strings keep what looks like a comment or a trailing comma.
+        ('{"u": "http://x", "s": "a,]"}', '{"u": "http://x", "s": "a,]"}'),
+        ("['//', 1,]", "['//', 1 ]"),
+        # An unclosed comment stays, so the JSON parse fails.
+        ('{"a": 1} /* open', '{"a": 1} /* open'),
+    ],
+)
+def test_strip_jsonc(text: str, expected: str) -> None:
+    assert _strip_jsonc(text) == expected
+
+
+def test_jsonc_duplicate_keys_carry_their_position() -> None:
+    assert check('// c\n{"a": 1,\n "a": 2,}') == [(3, 2, "duplicate key $.a")]
+
+
+def test_jsonc_shortcut_never_changes_a_verdict() -> None:
+    # Random token soup, mostly invalid: the shortcut must agree with the strict-JSON-then-json5
+    # path everywhere. Raw U+2028/U+2029 in strings are left out: JSON and the JSON5 spec allow
+    # them, the json5 package rejects them, and the shortcut sides with the spec.
+    import random  # noqa: PLC0415
+
+    def without_shortcut(text: str) -> list:
+        problems = _check_json(text, strict=False)
+        return _check_json5(text) if problems is None else problems
+
+    pieces = ["{", "}", "[", "]", ":", ",", ",", '"a"', '"b"', "'a'", "a", "1", "-1.5", "0x1F", "NaN", "true", "null",
+              "// c\n", "//", "/* c */", "/*", "*/", "\n", "\r", " ", '"//"', '",]"', "\\", '"a\\\n"', '"']  # fmt: skip
+    rng = random.Random(5)  # noqa: S311 - a fixed seed for a repeatable test, not security
+    for _ in range(5000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 20)))
+        assert bool(check(text)) == bool(without_shortcut(text)), text

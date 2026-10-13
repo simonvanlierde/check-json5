@@ -50,27 +50,51 @@ def _reject_constant(name: str) -> float:
     raise NonStandardConstantError(name)
 
 
+# The patterns stay strings, compiled by `re` on first use and cached there, so a run over
+# strict JSON never pays to compile them at import.
+#
 # Only ever run over text a parser has looked at, so it can be loose: it skips what it
 # does not recognise. Strings come before comments so a "//" inside one stays a string.
-_TOKEN = re.compile(
-    r"""(?P<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')
-      | (?P<skip>\s+|//[^\n]*|/\*.*?\*/)
+_LEXER = r"""(?xs)(?P<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')
+      | (?P<skip>\s+|//[^\n\r\u2028\u2029]*|/\*.*?\*/)
       | (?P<punct>[{}\[\]:,])
-      | (?P<bare>[^\s{}\[\]:,"'/]+)""",
-    re.VERBOSE | re.DOTALL,
-)
-_IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
-_JSON5_ERROR = re.compile(r"<string>:(\d+) (.*) at column (\d+)", re.DOTALL)
+      | (?P<bare>[^\s{}\[\]:,"'/]+)"""
+_IDENTIFIER = r"[A-Za-z_$][\w$]*"
+_JSON5_ERROR = r"(?s)<string>:(\d+) (.*) at column (\d+)"
+# Strings are matched first and kept, so a "//" or "," inside one is left alone. A line
+# comment ends at any JSON5 line terminator: \n, \r, U+2028 or U+2029.
+_JSONC_COMMENT = r"""(?s)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|//[^\n\r\u2028\u2029]*|/\*.*?\*/"""
+_JSONC_COMMA = r'(?s)("(?:[^"\\]|\\.)*")|,(?=\s*[}\]])'
+_NOT_NEWLINE = r"[^\n\r\u2028\u2029]"
+
+
+def _strip_jsonc(text: str) -> str:
+    """Turn comments into spaces and drop trailing commas, so JSONC parses as JSON.
+
+    Only a comma that follows a value is dropped: `[,]` and `[1,,]` stay invalid. An
+    unclosed comment is left as it is, so the result fails to parse and json5 decides.
+    """
+    text = re.sub(_JSONC_COMMENT, lambda m: m[0] if m[1] else re.sub(_NOT_NEWLINE, " ", m[0]), text)
+
+    def comma(m: re.Match[str]) -> str:
+        if m[1]:
+            return m[0]
+        i = m.start() - 1
+        while i >= 0 and text[i].isspace():  # bounded by the whitespace before this comma
+            i -= 1
+        return "," if i < 0 or text[i] in ",[{" else " "
+
+    return re.sub(_JSONC_COMMA, comma, text)
 
 
 def _tokens(text: str) -> Iterator[tuple[str, str, int]]:
-    for m in _TOKEN.finditer(text):
+    for m in re.finditer(_LEXER, text):
         if m.lastgroup != "skip":
             yield m.lastgroup or "", m.group(), m.start()
 
 
 def _member(path: str, key: str) -> str:
-    return f"{path}.{key}" if _IDENTIFIER.fullmatch(key) else f"{path}[{json.dumps(key)}]"
+    return f"{path}.{key}" if re.fullmatch(_IDENTIFIER, key) else f"{path}[{json.dumps(key)}]"
 
 
 def _duplicates(text: str, decode: Callable[[str], Any]) -> list[tuple[int, str]]:
@@ -132,7 +156,25 @@ def check(text: str, *, strict: bool = False) -> list[Problem]:
 
     """
     problems = _check_json(text, strict=strict)
+    if problems is None:
+        problems = _check_jsonc(text)
     return _check_json5(text) if problems is None else problems
+
+
+def _check_jsonc(text: str) -> list[Problem] | None:
+    """Problems as JSON with comments and trailing commas, or None when it uses more of JSON5.
+
+    Most JSON5 files use nothing else, and this keeps them on the C parser: the pure-Python
+    json5 parser takes about 2 ms for a 1 KB file and 0.5 s for 135 KB.
+    """
+    try:
+        json.loads(_strip_jsonc(text), object_pairs_hook=raise_duplicate_keys)
+    except DuplicateKeyError as exc:
+        # It parsed as JSON, so every key is a double-quoted JSON string.
+        return _duplicate_problems(text, json.loads, exc)
+    except json.JSONDecodeError:
+        return None
+    return []
 
 
 def _check_json(text: str, *, strict: bool) -> list[Problem] | None:
@@ -176,7 +218,7 @@ def _check_json5(text: str) -> list[Problem]:
     except ValueError as exc:
         if duplicate:
             return _duplicate_problems(text, json5.loads, duplicate[0])
-        m = _JSON5_ERROR.fullmatch(str(exc))
+        m = re.fullmatch(_JSON5_ERROR, str(exc))
         return [(int(m[1]), int(m[3]), m[2])] if m else [(None, None, str(exc))]
     return []
 

@@ -25,9 +25,9 @@ JSON.
 - On GitHub Actions, each failure is also an annotation on the line of the pull request diff.
 - `--strict GLOB` holds chosen files to strict JSON (no comments, no `NaN`), for files that a
   JSON parser reads at runtime, such as `package.json`.
-- Fast path: strict JSON is parsed with the C-speed stdlib `json` parser, falling back to the
-  pure-Python `json5` parser only when a file actually uses JSON5 features (~500× faster on large
-  strict-JSON files; see [Performance](#performance)).
+- Fast paths: strict JSON, and JSON with only comments and trailing commas, are parsed with the
+  C-speed stdlib `json` parser. Only files that use more of JSON5 (single quotes, unquoted keys,
+  hex numbers) fall back to the pure-Python `json5` parser. See [Performance](#performance).
 - Accepts `NaN` and `Infinity` (both parsers allow them) unless `--strict` covers the file.
 
 ## Links
@@ -79,8 +79,8 @@ really JSON5, so the standard `check-json` hook, which rejects comments outright
 invalid. This hook accepts them.
 
 Strict-JSON files are parsed with the fast built-in [`json`](https://docs.python.org/3/library/json.html)
-library; only files that use JSON5 features fall back to the pure-Python
-[`json5`](https://pypi.org/project/json5/) library.
+library, and so are files that add only comments and trailing commas. Only files that use more
+of JSON5 fall back to the pure-Python [`json5`](https://pypi.org/project/json5/) library.
 
 ## Performance
 
@@ -108,9 +108,20 @@ To time whole hook runs instead, run `bash scripts/bench.sh` (needs
 on 50 KB, 500 KB and 2 MB files and prints one table; `--quick` times the 50 KB file once. Each
 run includes about 20 ms of Python startup, so its speed-ups are smaller than the ones above.
 
-Files that use JSON5 syntax still go through the `json5` parser and are unchanged. For tiny config
-files the absolute saving is negligible next to Python's own startup cost; the win matters on large
-JSON files.
+A file with comments or trailing commas but nothing else from JSON5, the usual shape of a
+`tsconfig.json` or `.vscode/settings.json`, has its comments turned into spaces and its trailing
+commas dropped, and then goes through the same C parser. Whole hook runs, median of 40 on
+2026-10-13 (Intel i9-14900KF, Linux, Python 3.13, one pinned core, load average 4 to 5):
+
+| Files                        | Before (`json5`) | After |
+| ---------------------------- | ---------------- | ----- |
+| one 0.7 KB JSONC file        | 19 ms            | 13 ms |
+| a hundred 0.7 KB JSONC files | 209 ms           | 19 ms |
+| one 135 KB JSONC file        | 529 ms           | 22 ms |
+
+About 13 ms of each run is Python starting up. Files that need the `json5` parser are unchanged.
+For tiny strict-JSON files the saving is negligible next to that startup cost; the win matters on
+large files and on many JSONC files.
 
 ## Development
 

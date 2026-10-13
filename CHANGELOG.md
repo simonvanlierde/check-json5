@@ -8,6 +8,17 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+### Changed
+
+- JSON with only comments and trailing commas, such as `tsconfig.json`, is checked with the
+  C-speed `json` parser instead of `json5`: 11× faster over a hundred small files, 24× on one
+  135 KB file. Files that use more of JSON5 still go through `json5`.
+
+### Fixed
+
+- A JSON5 file with comments and an unescaped U+2028 or U+2029 inside a string now passes, as
+  the JSON5 spec allows. The `json5` package rejected it; strict JSON files already passed.
+
 ## [1.3.0] - 2026-10-13
 
 Upgrade: set `rev: v1.3.0`. Nothing else is needed for the hook. Only a script that parses the
