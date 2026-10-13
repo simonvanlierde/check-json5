@@ -215,6 +215,7 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 
 - the [json5-tests](https://github.com/json5/json5-tests) suite, all 114 cases;
 - a reviewed snapshot of edge cases in every dialect;
+- a [conformance matrix](docs/conformance.md) against 16 other parsers in four languages;
 - property tests: no input makes it panic, every position lies on a character boundary and
   matches a naive recount;
 - fuzzing with cargo-fuzz, against serde_json and the json5 crate as references;

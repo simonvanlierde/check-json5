@@ -1,0 +1,219 @@
+{
+  "date": "2026-10-13",
+  "seconds": 22,
+  "images": {
+    "node": "node:22-slim",
+    "python": "python:3.13-slim",
+    "go": "golang:1.26",
+    "rust": "rust:1"
+  },
+  "runtimes": {
+    "node": "v22.23.3",
+    "python": "3.13.16",
+    "go": "go1.26.9",
+    "rust": "1.99.0",
+    "jsonvet": "2.0.0 (cb59f11)"
+  },
+  "parsers": {
+    "js-json5": {
+      "language": "node",
+      "package": "json5",
+      "version": "2.2.3",
+      "uses": [
+        "json5"
+      ]
+    },
+    "js-jsonc-parser": {
+      "language": "node",
+      "package": "jsonc-parser",
+      "version": "3.3.1",
+      "uses": [
+        "jsonc"
+      ]
+    },
+    "js-strip-json-comments": {
+      "language": "node",
+      "package": "strip-json-comments",
+      "version": "5.0.3",
+      "uses": [
+        "jsonc"
+      ]
+    },
+    "js-json-parse": {
+      "language": "node",
+      "package": "",
+      "version": "built in (node v22.23.3)",
+      "uses": [
+        "json"
+      ]
+    },
+    "py-json": {
+      "language": "python",
+      "package": "",
+      "version": "built in (python 3.13.16)",
+      "uses": [
+        "json"
+      ]
+    },
+    "py-json5": {
+      "language": "python",
+      "package": "json5",
+      "version": "0.17.3",
+      "uses": [
+        "json5"
+      ]
+    },
+    "py-pyjson5": {
+      "language": "python",
+      "package": "pyjson5",
+      "version": "2.0.1",
+      "uses": [
+        "json5"
+      ]
+    },
+    "py-jsonlines": {
+      "language": "python",
+      "package": "jsonlines",
+      "version": "4.0.0",
+      "uses": [
+        "jsonl"
+      ]
+    },
+    "py-json-dupes": {
+      "language": "python",
+      "package": "",
+      "version": "built in (python 3.13.16)",
+      "uses": [
+        "dupes"
+      ]
+    },
+    "py-json5-dupes": {
+      "language": "python",
+      "package": "json5",
+      "version": "0.17.3",
+      "uses": [
+        "dupes"
+      ]
+    },
+    "go-hujson": {
+      "language": "go",
+      "package": "github.com/tailscale/hujson",
+      "version": "v0.0.0-20260727124030-b80ff77dac4f",
+      "uses": [
+        "jwcc"
+      ]
+    },
+    "go-json5": {
+      "language": "go",
+      "package": "github.com/titanous/json5",
+      "version": "v1.0.0",
+      "uses": [
+        "json5"
+      ]
+    },
+    "go-tidwall-jsonc": {
+      "language": "go",
+      "package": "github.com/tidwall/jsonc",
+      "version": "v0.3.3",
+      "uses": [
+        "jsonc"
+      ]
+    },
+    "go-json-stream": {
+      "language": "go",
+      "package": "",
+      "version": "built in (go go1.26.9)",
+      "uses": [
+        "jsonl"
+      ]
+    },
+    "rs-serde-json": {
+      "language": "rust",
+      "package": "serde_json",
+      "version": "1.0.154",
+      "uses": [
+        "json"
+      ]
+    },
+    "rs-serde-json-stream": {
+      "language": "rust",
+      "package": "serde_json",
+      "version": "1.0.154",
+      "uses": [
+        "jsonl"
+      ]
+    },
+    "rs-json5": {
+      "language": "rust",
+      "package": "json5",
+      "version": "1.3.1",
+      "uses": [
+        "json5"
+      ]
+    },
+    "rs-serde-json5": {
+      "language": "rust",
+      "package": "serde_json5",
+      "version": "0.2.1",
+      "uses": [
+        "json5"
+      ]
+    },
+    "rs-jsonc-parser": {
+      "language": "rust",
+      "package": "jsonc-parser",
+      "version": "0.34.0",
+      "uses": [
+        "jsonc"
+      ]
+    },
+    "jsonvet-json": {
+      "language": "jsonvet",
+      "package": "jsonvet",
+      "version": "2.0.0 (cb59f11)",
+      "uses": [
+        "json"
+      ]
+    },
+    "jsonvet-json5": {
+      "language": "jsonvet",
+      "package": "jsonvet",
+      "version": "2.0.0 (cb59f11)",
+      "uses": [
+        "json5"
+      ]
+    },
+    "jsonvet-jsonc": {
+      "language": "jsonvet",
+      "package": "jsonvet",
+      "version": "2.0.0 (cb59f11)",
+      "uses": [
+        "jsonc"
+      ]
+    },
+    "jsonvet-jwcc": {
+      "language": "jsonvet",
+      "package": "jsonvet",
+      "version": "2.0.0 (cb59f11)",
+      "uses": [
+        "jwcc"
+      ]
+    },
+    "jsonvet-jsonl": {
+      "language": "jsonvet",
+      "package": "jsonvet",
+      "version": "2.0.0 (cb59f11)",
+      "uses": [
+        "jsonl"
+      ]
+    },
+    "jsonvet-dupes": {
+      "language": "jsonvet",
+      "package": "jsonvet",
+      "version": "2.0.0 (cb59f11)",
+      "uses": [
+        "dupes"
+      ]
+    }
+  }
+}
