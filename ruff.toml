@@ -14,6 +14,8 @@ ignore = [
 [lint.per-file-ignores]
 # Standalone scripts that print their results.
 "scripts/**" = ["INP001", "T201"]
+# The conformance harness scripts are standalone too.
+"conformance/**" = ["INP001", "T201"]
 # The placeholder is not a package.
 "setup.py" = ["INP001"]
 

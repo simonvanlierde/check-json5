@@ -1,0 +1,10 @@
+{
+  "name": "jsonvet-conformance-node",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "json5": "2.2.3",
+    "jsonc-parser": "3.3.1",
+    "strip-json-comments": "5.0.3"
+  }
+}
