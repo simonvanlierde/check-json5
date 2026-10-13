@@ -3,9 +3,6 @@ line-length = 120
 # The scripts need 3.11.
 target-version = "py311"
 
-[format]
-docstring-code-format = true
-
 [lint]
 extend-select = ["ALL"]
 ignore = [

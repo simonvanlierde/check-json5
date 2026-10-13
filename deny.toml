@@ -18,13 +18,6 @@ allow = [
 # The list is policy, not an inventory: allowed licenses nothing uses yet are fine.
 unused-allowed-license = "allow"
 
-# Crates with `publish = false`, this one included, are not license-checked.
-[licenses.private]
-ignore = true
-
-[bans]
-multiple-versions = "warn"
-
 # crates.io only: a git dependency or another registry fails the check.
 [sources]
 unknown-registry = "deny"
