@@ -132,8 +132,7 @@ runs in all, they agree on every one. What changes, and why, is listed in the
 - the hook also checks `.jsonl` and `.ndjson` files;
 - lines end at every JSON5 line terminator (LF, CR, CRLF, U+2028, U+2029), so positions after a
   lone CR or U+2028 differ;
-- the importable Python module is gone; `python -m jsonvet` and `python -m check_json5` still
-  run the command.
+- the importable Python module is gone; `python -m jsonvet` still runs the command.
 
 ## Speed
 

@@ -40,8 +40,9 @@ jobs:
       - run: cargo deny check
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # The repo's Python: the python -m shim, the hook placeholder and scripts/.
-      - run: uvx ruff check --no-fix .
-      - run: uvx ruff format --check .
+      # The same ruff as .pre-commit-config.yaml.
+      - run: uvx ruff@0.16.10 check --no-fix .
+      - run: uvx ruff@0.16.10 format --check .
       # The crates, the placeholder's wheel pin and the check-json5 package name one release.
       - run: uv run scripts/check-versions.py
 
@@ -139,4 +140,5 @@ jobs:
       - run: |-
           printf '{"a": 1, "a": 2}\n' > dup.json
           uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
+          uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
           uv run --isolated --no-project --with dist/*.whl python -m jsonvet --version

@@ -21,8 +21,7 @@ These change on purpose, and the changelog marks them **Breaking**:
 - the wording of syntax errors (jsonvet has its own messages, not the json5 package's or
   Python's);
 - the output line, which gains a severity and a rule id;
-- the importable Python module (`python -m jsonvet` and `python -m check_json5` still run the
-  binary);
+- the importable Python module (`python -m jsonvet` still runs the binary);
 - lines now end at every JSON5 line terminator, so positions differ from 1.4 in files that use a
   lone CR, U+2028 or U+2029;
 - the hook also checks `.jsonl` and `.ndjson` files.
@@ -123,7 +122,7 @@ crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, outp
                        PyPI wheels by maturin, with the python -m shim in python/jsonvet/.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
 setup.py               placeholder that pre-commit installs: pins the jsonvet wheel
-fuzz/  benches/  tests/  scripts/
+fuzz/  tests/  scripts/
 ```
 
 ### The library interface
@@ -151,8 +150,8 @@ file are its output.
 
 Behind that interface:
 
-- a single-pass byte scanner with a table for each byte's class, memchr and 8-bytes-at-a-time
-  loops inside strings and comments, and a UTF-8 decode only for bytes from 0x80 up;
+- a single-pass byte scanner, with memchr to skip through comments, and a UTF-8 decode only for
+  bytes from 0x80 up;
 - an explicit stack of frames instead of recursion, so there is no depth limit. The frames also
   hold each object's keys for duplicate detection and give the JSONPath of any problem;
 - keys compared by their decoded value, borrowed from the input unless they contain an escape;

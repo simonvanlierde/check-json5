@@ -107,6 +107,7 @@ jobs:
       - run: |
           printf '{"a": 1, "a": 2}\n' > dup.json
           uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
+          uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
           uv run --isolated --no-project --with dist/*.whl python -m jsonvet --version
 
   publish-jsonvet:
