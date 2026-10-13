@@ -9,7 +9,8 @@ version for a new option or output, the patch version for a fix.
 ## [Unreleased]
 
 check-json5 is now **jsonvet**, rewritten in Rust. It gives the same pass or fail as 1.4.1 for
-every file in JSON5 and strict mode: on 40,228 comparisons of the two, they agree on every one.
+every file in JSON5 and strict mode. I ran both on 20,114 files in each mode, 40,228 runs, and
+they agree on every one.
 
 Upgrade: set `rev:` to the new tag. The repository moved to `simonvanlierde/jsonvet`, and the old
 URL still works. The `check-json5` hook id, the `check-json5` command and `--strict` keep working

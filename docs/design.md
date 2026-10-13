@@ -18,8 +18,8 @@ jsonvet 2.0 replaces check-json5 1.4 in place. These stay the same:
 
 These change on purpose, and the changelog marks them **Breaking**:
 
-- the wording of syntax errors (jsonvet has one message set of its own, instead of the json5
-  package's and Python's);
+- the wording of syntax errors (jsonvet has its own messages, not the json5 package's or
+  Python's);
 - the output line, which gains a severity and a rule id;
 - the importable Python module (`python -m jsonvet` and `python -m check_json5` still run the
   binary);
@@ -27,9 +27,9 @@ These change on purpose, and the changelog marks them **Breaking**:
   lone CR, U+2028 or U+2029;
 - the hook also checks `.jsonl` and `.ndjson` files.
 
-A syntax error is placed at the first character that cannot continue the document, or at the end
-of the input. Where that differs from 1.4, the difference is recorded with its reason in
-`tests/differential/accepted.md`. Any other difference is a bug.
+A syntax error points at the first character that cannot continue the document, or at the end of
+the input. Where that differs from 1.4, the difference is listed with its reason below. Any
+other difference is a bug.
 
 ### Known differences from 1.4
 
@@ -53,8 +53,8 @@ can still meet them:
 ## Dialects
 
 One parser covers six dialects. Each step in the chain only adds syntax:
-JSON ⊂ JSONC ⊂ JWCC ⊂ JSON5. I-JSON is JSON with stricter content rules, and JSON Lines is a
-framing of JSON values.
+JSON ⊂ JSONC ⊂ JWCC ⊂ JSON5. I-JSON is JSON with stricter content rules, and JSON Lines is one JSON
+value per line.
 
 | Dialect | Adds to JSON | Default for |
 | --- | --- | --- |
@@ -118,7 +118,7 @@ A glob without `/` matches the file name at any depth, and one with `/` matches 
 ## Architecture
 
 ```text
-crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-ident.
+crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-general-category.
 crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output. Built into the
                        PyPI wheels by maturin, with the python -m shim in python/jsonvet/.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
@@ -172,7 +172,7 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   it must pass or fail.
 - **Corpus:** cases from 1.4's tests, edge cases found while surveying other parsers, and every
   fuzz finding, with expected output kept as insta snapshots.
-- **Differential:** `scripts/differential.py` replays the corpus through `check-json5==1.4.1`
+- **Differential:** `scripts/differential.py` runs the corpus through `check-json5==1.4.1`
   (Python 3.13) and jsonvet, in the two dialects 1.4 knows, and compares verdicts, positions,
   paths and exit codes.
 - **Fuzzing:** cargo-fuzz targets for raw bytes (no panics, offsets on character boundaries),

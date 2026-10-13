@@ -1,5 +1,5 @@
-//! The parser: one pass over the bytes, an explicit stack of open containers, and every
-//! dialect rule applied where the syntax it governs appears.
+//! The parser: one pass over the bytes, a stack of open containers instead of recursion, and
+//! each dialect rule applied where the syntax it governs appears.
 
 use std::borrow::Cow;
 use std::collections::HashMap;

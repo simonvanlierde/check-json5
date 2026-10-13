@@ -7,9 +7,9 @@ Usage: uv run scripts/differential.py [--cases N] [--seed S] [--jsonvet PATH]
 
 It writes a corpus of random JSON-ish files plus the json5-tests suite to a temporary
 directory, runs both tools over it in JSON5 mode and with --strict, and compares the verdict
-for every file and, where both find no syntax error, the duplicate-key reports. Every difference
-is put in a category; the ones the design accepts are listed in docs/design.md. The exit status
-is 1 when a difference falls in no accepted category.
+for every file and, where both find no syntax error, the duplicate-key reports. It sorts every
+difference into a category. The design accepts some of them, and docs/design.md lists those. The
+exit status is 1 when a difference falls in no accepted category.
 """
 
 import argparse
