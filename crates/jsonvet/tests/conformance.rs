@@ -33,7 +33,7 @@ fn suite() -> Vec<PathBuf> {
     files
 }
 
-/// Cases the suite labels wrongly, with the reason.
+/// Cases the suite labels wrongly, with the reason. Reported as json5/json5-tests#4.
 const MISLABELED: &[(&str, &str)] = &[(
     "comments/irregular-block-comment.json",
     "contains a block comment, so it is JSON5 but not JSON; the suite names it .json",
