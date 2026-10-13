@@ -79,7 +79,8 @@ Warnings don't fail a run unless there are more than `--max-warnings N`.
 ```
 
 A glob without `/` matches the file name at any depth, and one with `/` matches the whole path.
-`*` also matches `/`.
+`*` also matches `/`. Paths are matched as given on the command line, so relative to the working
+directory, even for globs from a config file; pre-commit runs from the repository root.
 
 Settings can also live in `jsonvet.toml`, or in a `[tool.jsonvet]` table in `pyproject.toml`.
 jsonvet looks in the working directory and its parents up to the repository root, and the command
