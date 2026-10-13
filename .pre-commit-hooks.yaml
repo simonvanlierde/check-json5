@@ -3,6 +3,6 @@
   description: checks json files for syntax parsable as json5 (with comments).
   entry: check-json5
   language: python
-  files: \.(json|jsonc|json5|geojson|jsonld|hujson)$
+  files: (\.(json|jsonc|json5|geojson|jsonld|hujson|jwcc|code-workspace|code-snippets|webmanifest)|(^|/)\.babelrc)$
   types: [text]
   minimum_pre_commit_version: "2.0.0"
