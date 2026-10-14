@@ -106,6 +106,11 @@ fn syntax_in_every_dialect() {
         (Json5, "\"\u{2028}\""),
         (Json5, "[1, // c\u{2028} 2]"),
         (Jsonc, "[1, // c\u{2028} 2]"),
+        (Jsonc, "[1, // c\r2]"),
+        (Jwcc, "[1, // c\r2]"),
+        (Jwcc, "[1, // c\r\n2]"),
+        (Jwcc, "[1] // c\r"),
+        (Jwcc, "[1, // c\u{2028} 2]"),
         (Json5, "\u{A0}[\u{3000}1\u{FEFF}]\u{2029}"),
         (Json, "[\u{A0}1]"),
     ]));

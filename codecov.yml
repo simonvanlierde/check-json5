@@ -1,5 +1,6 @@
-# CI uploads cargo-llvm-cov's report and sets no minimum. Codecov only fails a pull request
-# when total coverage drops by more than 2 points.
+# Codecov reports coverage; CI's tests are the gate. It fails a pull request only when
+# total coverage drops by more than 2 points, and the new lines' share is shown, not
+# enforced.
 coverage:
   status:
     project:
