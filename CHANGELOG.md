@@ -8,8 +8,16 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
+- `--format sarif` prints one SARIF 2.1.0 document instead of text lines, for GitHub code
+  scanning. A duplicate key also points at its first copy, and a file that cannot be read is a
+  result under the rule `unreadable`. Exit codes and `--max-warnings` work as before.
+- A GitHub Action: `uses: simonvanlierde/jsonvet@v2` checks the repository's tracked JSON files,
+  or the `files` you give it, and can write a SARIF file for code scanning with `sarif:`. It
+  installs jsonvet from PyPI and runs on Linux, macOS and Windows runners.
+
+### Fixed
 - In JWCC (HuJSON) files, a `//` comment ends only at a line feed, as the JWCC text says. A lone
   carriage return no longer ends it, so `[1, // c` + CR + `2]` fails as it should.
 

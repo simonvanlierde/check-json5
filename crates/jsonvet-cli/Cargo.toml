@@ -23,6 +23,8 @@ toml = { version = "1.1.8", default-features = false, features = ["parse", "serd
 
 [dev-dependencies]
 insta = "1.49.0"
+# Only to parse the SARIF output in tests; the output itself is written by hand.
+serde_json = "1.0.154"
 
 [lints]
 workspace = true
