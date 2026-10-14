@@ -17,7 +17,13 @@ version for a new option or output, the patch version for a fix.
   or the `files` you give it, and can write a SARIF file for code scanning with `sarif:`. It
   installs jsonvet from PyPI and runs on Linux, macOS and Windows runners.
 
+### Changed
+
+- Unquoted JSON5 keys follow Unicode 17, up from 16, so they may use the letters it added, such
+  as the 4,298 ideographs of CJK Extension J.
+
 ### Fixed
+
 - In JWCC (HuJSON) files, a `//` comment ends only at a line feed, as the JWCC text says. A lone
   carriage return no longer ends it, so `[1, // c` + CR + `2]` fails as it should.
 

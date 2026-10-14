@@ -16,10 +16,11 @@ fn has_surrogate_escape(text: &str) -> bool {
 }
 
 /// Whether the text has a character, literal or escaped, that jsonvet's Unicode tables call a
-/// letter, mark, digit or connector and json5's older tables do not know, such as U+05C8 (Unicode
-/// 17). json5 then rejects it anywhere in a key, even after a first letter.
+/// letter, mark, digit or connector and json5's tables do not, as when one crate moves to a newer
+/// Unicode version first. json5 then rejects it anywhere in a key, even after a first letter.
 fn has_newer_identifier_char(text: &str) -> bool {
-    use unicode_general_category::GeneralCategory::{
+    use unicode_properties::UnicodeGeneralCategory;
+    use unicode_properties::GeneralCategory::{
         ConnectorPunctuation, DecimalNumber, LetterNumber, LowercaseLetter, ModifierLetter,
         NonspacingMark, OtherLetter, SpacingMark, TitlecaseLetter, UppercaseLetter,
     };
@@ -32,7 +33,7 @@ fn has_newer_identifier_char(text: &str) -> bool {
         .filter(|c| {
             !c.is_ascii()
                 && matches!(
-                    unicode_general_category::get_general_category(*c),
+                    c.general_category(),
                     UppercaseLetter
                         | LowercaseLetter
                         | TitlecaseLetter
@@ -48,25 +49,12 @@ fn has_newer_identifier_char(text: &str) -> bool {
         .any(|c| json5::from_str::<serde::de::IgnoredAny>(&format!("{{a{c}: 1}}")).is_err())
 }
 
-/// Whether the text has a character, literal or escaped, that jsonvet's Unicode 16 tables leave
-/// unassigned, such as U+3308C, which json5's Unicode 17 tables call a letter (CJK Extension J).
-fn has_unassigned_char(text: &str) -> bool {
-    let escaped = text.match_indices("\\u").filter_map(|(at, _)| {
-        let hex = text.get(at + 2..at + 6)?;
-        char::from_u32(u32::from_str_radix(hex, 16).ok()?)
-    });
-    text.chars().chain(escaped).any(|c| {
-        unicode_general_category::get_general_category(c)
-            == unicode_general_category::GeneralCategory::Unassigned
-    })
-}
-
 fuzz_target!(|text: &str| {
     let config = Config::new(Dialect::Json5).rule(Rule::DuplicateKey, Severity::Off);
     let report = check(text, &config);
     match json5::from_str::<serde::de::IgnoredAny>(text) {
         Ok(_) => assert!(
-            report.passed() || has_unassigned_char(text),
+            report.passed(),
             "json5 accepts {text:?}, jsonvet reports {:?}",
             report.problems()
         ),

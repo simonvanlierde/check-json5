@@ -121,7 +121,7 @@ A glob without `/` matches the file name at any depth, and one with `/` matches 
 ## Architecture
 
 ```text
-crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-general-category.
+crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-properties.
 crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output. Built into the
                        PyPI wheels by maturin.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else

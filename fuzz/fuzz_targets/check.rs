@@ -1,13 +1,19 @@
 //! Any text, every dialect: no panic, every offset inside the text and on a character boundary,
-//! and every location computable.
+//! and every location computable. One more JSON5 run reaches what the defaults never do: the
+//! number check, which is off by default, and the depth limit, which 4 KB inputs cannot hit.
 #![no_main]
 
-use jsonvet::{Config, Dialect, check};
+use jsonvet::{Config, Dialect, Rule, Severity, check};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|text: &str| {
-    for dialect in Dialect::ALL {
-        let report = check(text, &Config::new(dialect));
+    let strict = Config::new(Dialect::Json5)
+        .rule(Rule::InvalidNumber, Severity::Error)
+        .max_depth(8);
+    let configs = Dialect::ALL.map(Config::new);
+    for config in configs.iter().chain([&strict]) {
+        let dialect = config.dialect();
+        let report = check(text, config);
         for problem in report.problems() {
             for offset in std::iter::once(problem.offset()).chain(problem.related_offset()) {
                 assert!(
