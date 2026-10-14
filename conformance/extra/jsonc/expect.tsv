@@ -1,0 +1,9 @@
+# file	expected (valid, invalid or either)	why, citing the spec (see conformance/README.md)
+block-comment-unclosed.jsonc	invalid	Syntax, multi-line comments: a block comment ends with */
+nested-block-comment.jsonc	invalid	Syntax, multi-line comments: they cannot nest, so the first */ ends the comment
+hash-comment.jsonc	invalid	Appendix B: comments that start with # are not supported
+line-comment-at-end.jsonc	valid	Syntax, single-line comments: a line comment may run to the end of the file
+lone-cr-ends-comment.jsonc	valid	Conventions: a lone CR is a line ending, so it ends a line comment
+trailing-comma-array.jsonc	either	Syntax, trailing commas: parsers MAY support them
+comment-only.jsonc	invalid	Comments sit where JSON allows whitespace; JSON needs a value
+json5-syntax.jsonc	invalid	Beyond JSON, JSONC adds only comments (and optional trailing commas): no unquoted keys, single quotes or hex

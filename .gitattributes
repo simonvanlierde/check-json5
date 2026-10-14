@@ -1,2 +1,4 @@
 # Line endings in the corpus are test data; git must not convert them.
 tests/corpus/** -text
+# So are the extra conformance inputs.
+conformance/extra/** -text

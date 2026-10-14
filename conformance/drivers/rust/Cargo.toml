@@ -1,0 +1,15 @@
+# Conformance driver for the Rust parsers; see conformance/README.md.
+[package]
+name = "conformance-driver"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Its own workspace, so cargo does not treat it as part of jsonvet's.
+[workspace]
+
+[dependencies]
+json5 = "=1.3.2"
+jsonc-parser = "=0.34.0"
+serde_json = "=1.0.154"
+serde_json5 = "=0.2.1"

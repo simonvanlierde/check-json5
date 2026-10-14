@@ -215,11 +215,28 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 
 - the [json5-tests](https://github.com/json5/json5-tests) suite, all 114 cases;
 - a reviewed snapshot of edge cases in every dialect;
+- a [conformance matrix](docs/conformance.md) against 16 other parsers in four languages;
 - property tests: no input makes it panic, every position lies on a character boundary and
   matches a naive recount;
 - fuzzing with cargo-fuzz, against serde_json and the json5 crate as references;
 - the file-by-file comparison with check-json5 1.4.1 above, in CI;
 - CI on Linux, macOS and Windows, plus the oldest supported Rust (1.88).
+
+### Other parsers on the same files
+
+<!-- conformance:start -->
+
+| dialect | files | share of files where each parser gives the expected verdict |
+|---|---|---|
+| JSON5 | 166 | `js-json5` 100%, `jsonvet-json5` 100%, `rs-json5` 100%, `py-json5` 99%, `py-pyjson5` 99%, `rs-serde-json5` 94%, `go-json5` 91% |
+| JSONC | 9 | `js-jsonc-parser` 100%, `jsonvet-jsonc` 100%, `go-tidwall-jsonc` 89%, `js-strip-json-comments` 89%, `rs-jsonc-parser` 78% |
+| JWCC (HuJSON) | 10 | `jsonvet-jwcc` 100%, `go-hujson` 90% |
+| JSON Lines | 11 | `jsonvet-jsonl` 100%, `py-jsonlines` 82%, `go-json-stream` 64%, `rs-serde-json-stream` 64% |
+| Strict JSON (baseline) | 129 | `js-json-parse` 100%, `jsonvet-json` 100%, `rs-serde-json` 98%, `py-json` 96% |
+
+Run on 2026-10-14. The full grid, and where each expected verdict comes from: [docs/conformance.md](docs/conformance.md).
+
+<!-- conformance:end -->
 
 ## Development
 
