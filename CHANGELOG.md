@@ -8,6 +8,10 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-14
+
+Upgrade: set `rev: v2.1.0`. Nothing else is needed.
+
 ### Added
 
 - `--format sarif` prints one SARIF 2.1.0 document instead of text lines, for GitHub code
@@ -175,7 +179,8 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 - Renamed from `pre-commit-check-json5` to `check-json5`.
 
-[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/simonvanlierde/jsonvet/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.1...v2.0.0
 [1.4.1]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.3.0...v1.4.0
