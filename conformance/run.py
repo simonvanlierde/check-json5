@@ -46,14 +46,14 @@ class Lang:
 
 LANGS = {
     "node": Lang(
-        image="node:22-slim",
+        image="node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392",
         setup="cp /src/driver.mjs /src/package.json /src/package-lock.json /work/ && cd /work"
         " && npm ci --no-audit --no-fund --ignore-scripts --loglevel=error && node --version",
         lock="cd /src && npm install --package-lock-only --no-audit --no-fund --ignore-scripts",
         run="node /work/driver.mjs",
     ),
     "python": Lang(
-        image="python:3.13-slim",
+        image="python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f",
         setup="pip install --quiet --no-cache-dir --disable-pip-version-check --only-binary=:all:"
         " --upgrade --target /work/site -r /src/requirements.txt"
         " && cp /src/driver.py /work/ && python -c 'import platform; print(platform.python_version())'",
@@ -62,14 +62,15 @@ LANGS = {
         env=("PYTHONPATH=/work/site",),
     ),
     "go": Lang(
-        image="golang:1.26",  # the reference hujson needs Go 1.26
+        # The reference hujson needs Go 1.26.
+        image="golang:1.26@sha256:d7722066f0b60ceccb6c0643cbed1f5f9e15506ac237146c95333504d7805d89",
         setup="cd /src && go build -trimpath -o /work/driver . && go env GOVERSION",
         lock="cd /src && go mod tidy",
         run="/work/driver",
         env=("GOPATH=/work/go", "GOCACHE=/work/gocache", "GOTOOLCHAIN=local", "GOFLAGS=-mod=readonly"),
     ),
     "rust": Lang(
-        image="rust:1",
+        image="rust:1@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90",
         setup="cargo build --quiet --release --locked --manifest-path /src/Cargo.toml"
         " && rustc --version | cut -d' ' -f2",
         lock="cargo generate-lockfile --manifest-path /src/Cargo.toml",
@@ -235,6 +236,27 @@ def package_versions() -> dict[str, dict[str, str]]:
     return {"node": node, "python": python, "go": go, "rust": rust}
 
 
+def check() -> int:
+    """Compare the pinned packages and images with results/versions.json; 1 if any differ."""
+    recorded = json.loads((RESULTS / "versions.json").read_text())
+    packages = package_versions()
+    stale = [
+        f"{name}: pinned {packages[lang].get(package)}, results from {recorded['parsers'][name]['version']}"
+        for name, (lang, package, _) in PARSERS.items()
+        if lang in LANGS and package and packages[lang].get(package) != recorded["parsers"][name]["version"]
+    ]
+    stale += [
+        f"{lang} image: pinned {spec.image}, results from {recorded['images'].get(lang)}"
+        for lang, spec in LANGS.items()
+        if recorded["images"].get(lang) != spec.image
+    ]
+    for line in stale:
+        print(line)
+    if stale:
+        print("re-run the matrix: uv run conformance/run.py && uv run conformance/report.py")
+    return 1 if stale else 0
+
+
 def jsonvet_version(jsonvet: Path) -> str:
     """The jsonvet version and the commit it was built from."""
     version = subprocess.run([jsonvet, "--version"], capture_output=True, text=True, check=True)  # noqa: S603
@@ -273,7 +295,10 @@ def main() -> None:
     parser.add_argument("--work", type=Path, default=HERE / ".work", help="build and cache directory")
     parser.add_argument("--jsonvet", type=Path, default=ROOT / "target/release/jsonvet")
     parser.add_argument("--lock", action="store_true", help="refresh the lock files, then stop")
+    parser.add_argument("--check", action="store_true", help="fail if the pins differ from the last run")
     args = parser.parse_args()
+    if args.check:
+        sys.exit(check())
     work = args.work.resolve()
     if args.lock:
         for lang in LANGS:

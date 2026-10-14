@@ -182,11 +182,10 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   (Python 3.13) and jsonvet, in the two dialects 1.4 knows, and compares verdicts, positions,
   paths and exit codes.
 - **Fuzzing:** cargo-fuzz targets for raw bytes (no panics, offsets on character boundaries),
-  against serde_json (anything it accepts, jsonvet accepts as JSON) and against the json5 crate
-  (anything jsonvet accepts as JSON5, json5 accepts). The last skips inputs that hit json5's own
-  limits rather than the grammar's, each found by fuzzing: integers past 64 bits, lone surrogate
-  escapes, U+2028 and U+2029 in strings, and identifier characters from Unicode releases newer
-  than json5's tables.
+  and against serde_json and the json5 crate, both ways. The json5 target skips inputs that hit
+  json5's own limits rather than the grammar's, each found by fuzzing: integers past 64 bits,
+  lone surrogate escapes, U+2028 and U+2029 in strings, and identifier characters from a Unicode
+  release one side has and the other lacks.
 - **Properties:** proptest, for example that a location matches a naive recount.
 
 ## Release bar for 2.0.0
@@ -205,6 +204,29 @@ A release publishes to PyPI and crates.io from `release.yml`, with trusted publi
 The `check-json5` package uploads after the `jsonvet` wheels, and `jsonvet-cli` after the
 `jsonvet` crate. crates.io only allows trusted publishing for a crate that already exists, so 2.0.0
 went up by hand.
+
+## Dependencies and pins
+
+Every version in the repository falls in one of four groups. `.github/renovate.json5` encodes
+them.
+
+- **Bumped monthly**, in one Renovate pull request after a release is 7 days old, with majors
+  in their own: the workspace crates (ranges in `Cargo.toml`, versions in `Cargo.lock`, which
+  is also refreshed for indirect dependencies), the fuzz crate's dependencies, GitHub Actions
+  (pinned by commit, version in a comment), pre-commit hook revisions, and the CI tools: ruff,
+  pre-commit and prek through `uvx`, the cargo tools through `install-action`, uv, and the
+  maturin that builds the wheels. The fuzz crate pins json5 exactly, because it is the reference
+  the `diff_json5` target compares with; a bump changes `fuzz/`, which runs the fuzz workflow.
+- **Bumped quarterly, with a re-run:** the conformance matrix's parsers, pinned exactly with
+  their lock files, and its images, pinned by tag and digest. CI's `conformance/run.py --check`
+  fails until `results/versions.json` matches the pins, so the pull request cannot merge until
+  someone re-runs the matrix. The lock files are never refreshed on their own.
+- **Fixed on purpose:** `check-json5==1.4.1` on Python 3.13 in `scripts/`, the reference the
+  contract is checked against; `rust-version = "1.88"` and the MSRV job, raised by hand when a
+  dependency or a language feature needs it; and jsonvet's own version in `setup.py` and
+  `compat/`, which the release sets.
+- **Floating on purpose:** Rust stable for lint and tests and nightly for fuzzing, so new lints
+  and compiler changes show up at once, and the hosted runner images.
 
 ## Not in 2.0
 

@@ -1,0 +1,81 @@
+// Which versions Renovate bumps and which stay fixed: docs/design.md, "Dependencies and pins".
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Pins Actions and Docker images by digest, with the version in a comment or tag.
+  extends: ["config:best-practices", ":semanticCommits", "schedule:monthly"],
+  // Cargo.lock already fixes what the tests ran with; exact pins in Cargo.toml would add nothing.
+  ignorePresets: [":pinDevDependencies"],
+  // A compromised release is usually caught and yanked within a week.
+  minimumReleaseAge: "7 days",
+  internalChecksFilter: "strict",
+  // The hook placeholder and the check-json5 package pin jsonvet's own version; the release sets it.
+  ignorePaths: ["compat/**", "setup.py", "tests/**"],
+  "pre-commit": { enabled: true },
+  customManagers: [
+    {
+      // Python tools run with uvx in CI: ruff, and the pre-commit and prek the hook is tested with.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ["(?<depName>ruff|pre-commit|prek)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      datasourceTemplate: "pypi",
+    },
+    {
+      // Cargo tools installed by taiki-e/install-action.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ["(?<depName>cargo-(?:deny|fuzz|llvm-cov|nextest))@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      datasourceTemplate: "crate",
+    },
+    {
+      // The images the conformance drivers run in.
+      customType: "regex",
+      managerFilePatterns: ["/^conformance/run\\.py$/"],
+      matchStrings: ['image="(?<depName>[a-z]+):(?<currentValue>[^@"]+)@(?<currentDigest>sha256:[0-9a-f]+)"'],
+      datasourceTemplate: "docker",
+    },
+  ],
+  lockFileMaintenance: { enabled: true },
+  packageRules: [
+    {
+      // One pull request a month for everything outside the matrix; majors stay separate.
+      matchUpdateTypes: ["minor", "patch", "digest", "pin", "pinDigest", "lockFileMaintenance"],
+      groupName: "dependencies",
+    },
+    {
+      // The matrix's parsers and images: pinned exactly, bumped once a quarter, never merged
+      // without a re-run. CI's `run.py --check` fails until results/versions.json matches.
+      matchFileNames: ["conformance/**"],
+      groupName: "conformance parsers",
+      schedule: ["* 0-3 1 1,4,7,10 *"],
+      rangeStrategy: "pin",
+      automerge: false,
+      prBodyNotes: [
+        "Re-run the matrix before merging: `uv run conformance/run.py && uv run conformance/report.py`, then commit the results.",
+      ],
+    },
+    {
+      // Their lock files hold what the results were produced with; refresh them only with a run.
+      matchFileNames: ["conformance/**"],
+      matchUpdateTypes: ["lockFileMaintenance"],
+      enabled: false,
+    },
+    {
+      // The Rust toolchains in CI: stable and nightly float by design, and 1.88 is the minimum
+      // supported Rust, a policy that changes with rust-version in Cargo.toml, not with releases.
+      matchManagers: ["github-actions"],
+      matchDepNames: ["rust"],
+      enabled: false,
+    },
+    {
+      // The Go driver's minimum Go; the image tag decides which Go builds it.
+      matchManagers: ["gomod"],
+      matchDepNames: ["go"],
+      enabled: false,
+    },
+    {
+      // The contract reference for the differential tests: jsonvet must match this exact release.
+      matchPackageNames: ["check-json5"],
+      enabled: false,
+    },
+  ],
+}
