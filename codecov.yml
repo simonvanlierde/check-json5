@@ -1,15 +1,15 @@
-# CI uploads cargo-llvm-cov's report and sets no minimum. Codecov only fails a pull request
-# when total coverage drops by more than 2 points.
+# CI uploads cargo-llvm-cov's report. Codecov fails a pull request only when total coverage
+# falls below 85%. Patch coverage is reported against the same bar but never fails.
 coverage:
   status:
     project:
       default:
-        target: auto
-        threshold: 2%
+        target: 85%
     patch:
       default:
+        target: 85%
         informational: true
 
-# Comment only when the project check fails: coverage_drop honours its 2-point threshold.
+# Comment only when total coverage went down. Any drop counts, however small.
 comment:
   require_changes: "coverage_drop"
