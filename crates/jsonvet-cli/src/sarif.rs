@@ -163,6 +163,7 @@ mod tests {
             string("a\"b\\c\n\u{1}\u{7f}\u{e9}"),
             "\"a\\\"b\\\\c\\u000a\\u0001\u{7f}\u{e9}\""
         );
+        assert_eq!(string("a b"), "\"a b\"");
     }
 
     #[test]
@@ -173,6 +174,11 @@ mod tests {
         );
         assert_eq!(uri(OsStr::new("c:x.json")), ("c%3Ax.json".to_owned(), true));
         #[cfg(unix)]
+        assert_eq!(
+            uri(OsStr::new("a\\b.json")),
+            ("a%5Cb.json".to_owned(), true)
+        );
+        #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
             assert_eq!(
@@ -182,8 +188,8 @@ mod tests {
         }
         #[cfg(unix)]
         assert_eq!(
-            uri(OsStr::new("/abs/x.json")),
-            ("file:///abs/x.json".to_owned(), false)
+            uri(OsStr::new("/abs/a b:c.json")),
+            ("file:///abs/a%20b:c.json".to_owned(), false)
         );
         #[cfg(windows)]
         assert_eq!(

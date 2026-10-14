@@ -62,6 +62,10 @@ fn syntax_in_every_dialect() {
         // U+3308C is a CJK Extension J letter, new in Unicode 17.
         (Json5, "{\u{3308C}: 1}"),
         (Json, "['x']"),
+        (Json, "{'a': 1}"),
+        (Json, "{1: 2}"),
+        (Json5, "{abc"),
+        (Json5, r"{a\x61: 1}"),
         (Json5, "['x', \"y\"]"),
         // Comments.
         (Json, "// c\n1"),
@@ -76,6 +80,8 @@ fn syntax_in_every_dialect() {
         (Json, "nul"),
         (Json, "nux"),
         (Json, "nullx"),
+        (Json, "[1}"),
+        (Json, r#"{"a": 1]"#),
         // Numbers.
         (Json, "NaN"),
         (Json, "-Infinity"),
@@ -92,6 +98,7 @@ fn syntax_in_every_dialect() {
         (Json, "-"),
         // Strings and escapes.
         (Json, "\"abc"),
+        (Json, r#""\" \\ \/ \b \f \n \r \t \u0041""#),
         (Json, "\"a\nb\""),
         (Json, "\"a\tb\""),
         (Json5, "\"a\tb\""),
@@ -104,6 +111,7 @@ fn syntax_in_every_dialect() {
         (Json5, r#""\x4""#),
         (Json, r#""\u12x4""#),
         (Json5, "\"a\\\nb\""),
+        (Json5, "\"a\\\r\nb\""),
         // JSON5's extra line terminators and whitespace.
         (Json5, "\"\u{2028}\""),
         (Json5, "[1, // c\u{2028} 2]"),
@@ -115,6 +123,8 @@ fn syntax_in_every_dialect() {
         (Jwcc, "[1, // c\u{2028} 2]"),
         (Json5, "\u{A0}[\u{3000}1\u{FEFF}]\u{2029}"),
         (Json, "[\u{A0}1]"),
+        (Json5, "[\u{B}1\u{C}]"),
+        (Json, "[\u{B}1]"),
     ]));
 }
 
@@ -138,6 +148,23 @@ fn duplicate_keys() {
             Json,
             r#"{"\ud800": 1, "\uD800": 2, "\ud83d\ude00": 3, "😀": 4}"#
         ),
+        (Json, r#"{"\ud800": 1, "\ud801": 2}"#),
+        (
+            Json,
+            r#"{"\u0041\udc00": 1, "A\udc00": 2, "\ud800\u0041": 3, "\ud800A": 4}"#
+        ),
+        (Json, r#"{"\u00e9": 1, "é": 2, "\u4e2d": 3, "中": 4}"#),
+        (Json, r#"{"\n": 1, "n": 2, "\/": 3, "/": 4}"#),
+        (
+            Json5,
+            r#"{"\v": 1, "v": 2, "\0": 3, "0": 4, "\'": 5, "'": 6}"#
+        ),
+        (Json5, r#"{"\é": 1, "é": 2, "\q": 3, "q": 4}"#),
+        (Json5, r#"{"\x41b": 1, "Ab": 2}"#),
+        (
+            Json5,
+            "{\"a\\\nb\": 1, \"a\\\r\nb\": 2, \"a\\\u{2028}b\": 3, \"ab\": 4}"
+        ),
         (IJson, r#"{"a": 1, "a": 2}"#),
         (Json, r#"[{"a": 1, "a": 2}, {"\x": 0}]"#),
     ]));
@@ -153,6 +180,7 @@ fn i_json_and_json_lines() {
         ),
         (Json, "[9007199254740992, 1e400]"),
         (IJson, r#"["\ud800", "\ud83d\ude00", "\ufdd0", "﷐"]"#),
+        (IJson, r#"["\uffff", "\ud83f\udfff", "\u00e8", "\ufffd"]"#),
         (IJson, "\u{FEFF}{}"),
         (Json, "\u{FEFF}{}"),
         (JsonLines, ""),
@@ -201,6 +229,55 @@ fn hex_numbers_overflow_exactly_where_a_double_does() {
     assert_eq!(message(format!("1{}", "0".repeat(256))), overflow);
     assert_eq!(message(format!("00{}", "F".repeat(14))), unsafe_integer);
     assert_eq!(message("1FFFFFFFFFFFFF".to_owned()), None);
+}
+
+#[test]
+fn names_and_file_names() {
+    use std::path::Path;
+    let for_path = |name: &str| Dialect::for_path(Path::new(name)).map(Dialect::name);
+    for (name, dialect) in [
+        ("a.json", Some("json5")),
+        ("dir/.babelrc", Some("json5")),
+        ("a.babelrc", None),
+        ("x.webmanifest", Some("json5")),
+        ("a.code-workspace", Some("jsonc")),
+        ("a.hujson", Some("jwcc")),
+        ("a.ndjson", Some("jsonl")),
+        ("a.txt", None),
+        ("json", None),
+    ] {
+        assert_eq!(for_path(name), dialect, "{name}");
+    }
+    for (alias, dialect) in [
+        ("ndjson", Dialect::JsonLines),
+        ("json-lines", Dialect::JsonLines),
+        ("hujson", Dialect::Jwcc),
+        ("ijson", Dialect::IJson),
+        ("jwcc", Dialect::Jwcc),
+    ] {
+        assert_eq!(alias.parse(), Ok(dialect), "{alias}");
+    }
+    let unknown = "yaml".parse::<Dialect>().expect_err("not a dialect");
+    assert!(
+        unknown
+            .to_string()
+            .starts_with("unknown dialect `yaml`; expected one of json,")
+    );
+    let unknown = "tabs".parse::<jsonvet::Rule>().expect_err("not a rule");
+    assert!(
+        unknown
+            .to_string()
+            .starts_with("unknown rule `tabs`; expected one of syntax,")
+    );
+}
+
+#[test]
+fn warnings_alone_pass() {
+    let config = Config::new(Dialect::Json);
+    let report = check("\u{FEFF}{}", &config);
+    assert_eq!(report.problems().len(), 1);
+    assert!(report.passed());
+    assert!(!check("{", &config).passed());
 }
 
 #[test]
