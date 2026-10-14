@@ -1,5 +1,5 @@
-//! Whatever jsonvet accepts as JSON5, the json5 crate (1.3.1) must accept too. Not the other way
-//! round: json5 1.3.1 accepts some invalid input, such as `"\9"` and an unclosed `/*`.
+//! jsonvet and the json5 crate (1.3.2) agree on what is JSON5, both ways, apart from json5's own
+//! limits.
 #![no_main]
 
 use jsonvet::{Config, Dialect, Rule, Severity, check};
@@ -48,24 +48,39 @@ fn has_newer_identifier_char(text: &str) -> bool {
         .any(|c| json5::from_str::<serde::de::IgnoredAny>(&format!("{{a{c}: 1}}")).is_err())
 }
 
+/// Whether the text has a character, literal or escaped, that jsonvet's Unicode 16 tables leave
+/// unassigned, such as U+3308C, which json5's Unicode 17 tables call a letter (CJK Extension J).
+fn has_unassigned_char(text: &str) -> bool {
+    let escaped = text.match_indices("\\u").filter_map(|(at, _)| {
+        let hex = text.get(at + 2..at + 6)?;
+        char::from_u32(u32::from_str_radix(hex, 16).ok()?)
+    });
+    text.chars().chain(escaped).any(|c| {
+        unicode_general_category::get_general_category(c)
+            == unicode_general_category::GeneralCategory::Unassigned
+    })
+}
+
 fuzz_target!(|text: &str| {
     let config = Config::new(Dialect::Json5).rule(Rule::DuplicateKey, Severity::Off);
-    // The json5 crate counts U+2028 and U+2029 in strings as errors, which the spec allows.
-    if text.contains(['\u{2028}', '\u{2029}'])
-        || has_surrogate_escape(text)
-        || has_newer_identifier_char(text)
-        || !check(text, &config).passed()
-    {
-        return;
-    }
-    if let Err(e) = json5::from_str::<serde::de::IgnoredAny>(text) {
-        // JSON5 numbers have no size limit, but json5's serde path needs integers to fit 64 bits.
-        let message = e.to_string();
-        if message.contains("to fit in target type")
-            || message.starts_with("overflow parsing number")
-        {
-            return;
+    let report = check(text, &config);
+    match json5::from_str::<serde::de::IgnoredAny>(text) {
+        Ok(_) => assert!(
+            report.passed() || has_unassigned_char(text),
+            "json5 accepts {text:?}, jsonvet reports {:?}",
+            report.problems()
+        ),
+        Err(e) if report.passed() => {
+            // json5 counts U+2028 and U+2029 in strings as errors, which the spec allows. JSON5
+            // numbers have no size limit, but json5's serde path needs integers to fit 64 bits.
+            let message = e.to_string();
+            let limit = text.contains(['\u{2028}', '\u{2029}'])
+                || has_surrogate_escape(text)
+                || has_newer_identifier_char(text)
+                || message.contains("to fit in target type")
+                || message.starts_with("overflow parsing number");
+            assert!(limit, "jsonvet accepts {text:?} as JSON5, json5 rejects it: {e}");
         }
-        panic!("jsonvet accepts {text:?} as JSON5, json5 1.3.1 rejects it: {e}");
+        Err(_) => {}
     }
 });
