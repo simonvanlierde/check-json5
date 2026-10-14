@@ -45,6 +45,8 @@ jobs:
       - run: uvx ruff@0.16.10 format --check .
       # The crates, the placeholder's wheel pin and the check-json5 package name one release.
       - run: uv run scripts/check-versions.py
+      # The conformance page is rendered from conformance/results/; the parser runs stay local.
+      - run: uv run conformance/report.py && git diff --exit-code docs/conformance.md
 
   coverage:
     runs-on: ubuntu-latest

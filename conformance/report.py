@@ -122,9 +122,8 @@ SPEC = {
 # its row still has a disagreement, so a fixed parser drops it from the page.
 C5 = "tests/corpus/json5/"
 NOTES = {
-    f"{C5}unclosed-comment.json": "The Rust `json5` crate and Go `titanous/json5` accept a block comment"
-    " that never closes at the end of the file (also the next two rows and json5-tests"
-    " unterminated-block-comment.txt).",
+    f"{C5}unclosed-comment.json": "Go `titanous/json5` accepts a block comment that never closes at the end"
+    " of the file (also unclosed-comment-own-star-slash.json and json5-tests unterminated-block-comment.txt).",
     f"{C5}escape-nine.json": "The Rust `json5` crate accepts the escape `\\9`, which the grammar does not have.",
     f"{C5}escape-letter.json": "Go `titanous/json5` rejects `\\a`, which §5.1 says is a plain `a`.",
     f"{C5}hex-and-friends.json": "Go `titanous/json5` rejects `-NaN`, and Rust `serde_json5` rejects"

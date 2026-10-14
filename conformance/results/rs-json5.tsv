@@ -37,7 +37,7 @@ tests/corpus/json5/duplicates-nested-escaped-in-arrays.json	accept
 tests/corpus/json5/empty.json	reject
 tests/corpus/json5/error-position.json	reject
 tests/corpus/json5/escape-letter.json	accept
-tests/corpus/json5/escape-nine.json	accept
+tests/corpus/json5/escape-nine.json	reject
 tests/corpus/json5/escaped-key-equals-quoted.json	accept
 tests/corpus/json5/escaped-key-part.json	accept
 tests/corpus/json5/escaped-newline-in-string.json	accept
@@ -65,11 +65,11 @@ tests/corpus/json5/raw-newline-in-string.json	reject
 tests/corpus/json5/raw-u2028-in-string.json	accept
 tests/corpus/json5/single-quoted-slashes.json	accept
 tests/corpus/json5/top-level-scalar.json	accept
-tests/corpus/json5/unclosed-comment-own-star-slash.json	accept
-tests/corpus/json5/unclosed-comment.json	accept
+tests/corpus/json5/unclosed-comment-own-star-slash.json	reject
+tests/corpus/json5/unclosed-comment.json	reject
 tests/corpus/json5/unclosed-escape-double.json	reject
 tests/corpus/json5/unclosed-escape-single.json	reject
-tests/corpus/json5/unclosed-openers.json	accept
+tests/corpus/json5/unclosed-openers.json	reject
 tests/corpus/json5/valid-comment-trailing-comma.json	accept
 tests/corpus/json5/whitespace-only.json	reject
 tests/corpus/jsonc/comments.json	accept
@@ -101,7 +101,7 @@ tests/json5-tests/comments/inline-comment-preceding-top-level-value.json5	accept
 tests/json5-tests/comments/irregular-block-comment.json	accept
 tests/json5-tests/comments/top-level-block-comment.txt	reject
 tests/json5-tests/comments/top-level-inline-comment.txt	reject
-tests/json5-tests/comments/unterminated-block-comment.txt	accept
+tests/json5-tests/comments/unterminated-block-comment.txt	reject
 tests/json5-tests/misc/empty.txt	reject
 tests/json5-tests/misc/npm-package.json	accept
 tests/json5-tests/misc/npm-package.json5	accept
@@ -197,7 +197,7 @@ tests/json5-tests/strings/single-quoted-string.json5	accept
 tests/json5-tests/strings/unescaped-multi-line-string.txt	reject
 tests/json5-tests/todo/unicode-escaped-unquoted-key.json5	accept
 tests/json5-tests/todo/unicode-unquoted-key.json5	accept
-conformance/extra/jsonc/block-comment-unclosed.jsonc	accept
+conformance/extra/jsonc/block-comment-unclosed.jsonc	reject
 conformance/extra/jsonc/comment-only.jsonc	reject
 conformance/extra/jsonc/hash-comment.jsonc	reject
 conformance/extra/jsonc/json5-syntax.jsonc	accept

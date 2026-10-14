@@ -130,7 +130,8 @@ def docker(lang: str, work: Path, name: str, *, src_rw: bool = False, run: bool 
     args += ["-v", f"{HERE / 'drivers' / lang}:/src:{'rw' if src_rw else 'ro'}"]
     args += ["-v", f"{work / lang}:/work:{'ro' if run else 'rw'}"]
     if run:
-        args += ["-i", "--network", "none", "-w", "/in"]
+        args += ["-i", "--network", "none", "-w", "/in", "--memory", "2g", "--pids-limit", "256"]
+        args += ["--cap-drop", "ALL", "--security-opt", "no-new-privileges"]
         args += ["-v", f"{ROOT / 'tests'}:/in/tests:ro", "-v", f"{HERE / 'extra'}:/in/conformance/extra:ro"]
     return [*args, spec.image]
 
@@ -247,6 +248,24 @@ def jsonvet_version(jsonvet: Path) -> str:
     return f"{version.stdout.split()[-1]} ({commit.stdout.strip()})"
 
 
+def parser_versions(chosen: list[str], old: dict, runtimes: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Each parser's package and version; a parser not re-run keeps the entry it was run with."""
+    packages = package_versions()
+    parsers = {}
+    for name, (lang, package, uses) in PARSERS.items():
+        if name not in chosen and name in old:
+            parsers[name] = old[name]
+            continue
+        if package is None:
+            version = f"built in ({lang} {runtimes.get(lang, '?')})"
+        elif lang == "jsonvet":
+            version = runtimes["jsonvet"]
+        else:
+            version = packages[lang].get(package, "?")
+        parsers[name] = {"language": lang, "package": package or "", "version": version, "uses": uses}
+    return parsers
+
+
 def main() -> None:
     """Set up the drivers, run the parsers and write the results."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -271,7 +290,8 @@ def main() -> None:
         if lang in LANGS:
             print(f"setting up {lang}", flush=True)
             runtimes[lang] = setup(lang, work)
-    runtimes["jsonvet"] = jsonvet_version(args.jsonvet)
+    if any(PARSERS[p][0] == "jsonvet" for p in chosen):
+        runtimes["jsonvet"] = jsonvet_version(args.jsonvet)
 
     RESULTS.mkdir(exist_ok=True)
     for name in chosen:
@@ -282,16 +302,7 @@ def main() -> None:
             verdicts = run_container(name, work, files)
         (RESULTS / f"{name}.tsv").write_text("".join(f"{path}\t{verdicts[path]}\n" for path in files))
 
-    packages = package_versions()
-    parsers = {}
-    for name, (lang, package, uses) in PARSERS.items():
-        if package is None:
-            version = f"built in ({lang} {runtimes.get(lang, '?')})"
-        elif lang == "jsonvet":
-            version = runtimes["jsonvet"]
-        else:
-            version = packages[lang].get(package, "?")
-        parsers[name] = {"language": lang, "package": package or "", "version": version, "uses": uses}
+    parsers = parser_versions(chosen, old.get("parsers", {}), runtimes)
     seconds = round(time.monotonic() - started)
     summary = {
         "date": datetime.datetime.now(datetime.UTC).date().isoformat(),

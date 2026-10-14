@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-13",
+  "date": "2026-10-14",
   "seconds": 22,
   "images": {
     "node": "node:22-slim",
@@ -146,7 +146,7 @@
     "rs-json5": {
       "language": "rust",
       "package": "json5",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "uses": [
         "json5"
       ]

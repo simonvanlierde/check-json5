@@ -32,9 +32,10 @@ if (!parse) {
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 function verdict(path) {
+  const bytes = readFileSync(path); // an unreadable file is a crash, as in the other drivers
   let text;
   try {
-    text = decoder.decode(readFileSync(path));
+    text = decoder.decode(bytes);
   } catch {
     return "reject"; // not UTF-8, so the parser never sees it
   }

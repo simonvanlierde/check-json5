@@ -4,7 +4,7 @@
 
 How 25 parser runs treat the same files in JSON5, JSONC, JWCC (HuJSON), JSON
 Lines and strict JSON. Each dialect's table lists the parsers that claim that dialect.
-Run on 2026-10-13; a full run took 22 s. How it works and how to
+Run on 2026-10-14; a full run took 22 s. How it works and how to
 rerun it: [conformance/README.md](../conformance/README.md).
 
 Cells: ✓ the parser agrees with the expected verdict, ✗ it disagrees, 💥 it crashed or
@@ -27,11 +27,11 @@ Spec: <https://spec.json5.org/>. 171 files, 166 scored.
 | `py-json5` | 165 (99%) | 1 | 2 |
 | `py-pyjson5` | 165 (99%) | 1 | 0 |
 | `go-json5` | 151 (91%) | 15 | 0 |
-| `rs-json5` | 161 (97%) | 5 | 0 |
+| `rs-json5` | 166 (100%) | 0 | 0 |
 | `rs-serde-json5` | 156 (94%) | 10 | 2 |
 | `jsonvet-json5` | 166 (100%) | 0 | 0 |
 
-Files where at least one parser disagrees (28):
+Files where at least one parser disagrees (26):
 
 | file | expected | `js-json5` | `py-json5` | `py-pyjson5` | `go-json5` | `rs-json5` | `rs-serde-json5` | `jsonvet-json5` |
 |---|---|---|---|---|---|---|---|---|
@@ -54,17 +54,15 @@ Files where at least one parser disagrees (28):
 | [json5-tests/todo/unicode-escaped-unquoted-key.json5](../tests/json5-tests/todo/unicode-escaped-unquoted-key.json5) | valid | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 | [json5-tests/todo/unicode-unquoted-key.json5](../tests/json5-tests/todo/unicode-unquoted-key.json5) | valid | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 | [corpus/json5/combining-mark-starts-key-escaped.json](../tests/corpus/json5/combining-mark-starts-key-escaped.json) | invalid † | ✓ | ✗ | ✗ | ✓ | ✓ | ✗ | ✓ |
-| [corpus/json5/escape-nine.json](../tests/corpus/json5/escape-nine.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
 | [corpus/json5/line-comment-ends-at-u2028.json](../tests/corpus/json5/line-comment-ends-at-u2028.json) | invalid † | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 | [corpus/json5/punctuation-u00b7-in-key.json](../tests/corpus/json5/punctuation-u00b7-in-key.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
-| [corpus/json5/unclosed-comment-own-star-slash.json](../tests/corpus/json5/unclosed-comment-own-star-slash.json) | invalid † | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
-| [corpus/json5/unclosed-comment.json](../tests/corpus/json5/unclosed-comment.json) | invalid † | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
-| [corpus/json5/unclosed-openers.json](../tests/corpus/json5/unclosed-openers.json) | invalid | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
-| [json5-tests/comments/unterminated-block-comment.txt](../tests/json5-tests/comments/unterminated-block-comment.txt) | invalid | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
+| [corpus/json5/unclosed-comment-own-star-slash.json](../tests/corpus/json5/unclosed-comment-own-star-slash.json) | invalid † | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| [corpus/json5/unclosed-comment.json](../tests/corpus/json5/unclosed-comment.json) | invalid † | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| [json5-tests/comments/unterminated-block-comment.txt](../tests/json5-tests/comments/unterminated-block-comment.txt) | invalid | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 | [corpus/json5/depth-10000.json](../tests/corpus/json5/depth-10000.json) | either † | A | 💥 | R | A | A | 💥 | A |
 | [corpus/json5/depth-10001.json](../tests/corpus/json5/depth-10001.json) | either † | A | 💥 | R | A | A | 💥 | R |
 
-<details><summary>Files where every parser agrees (143)</summary>
+<details><summary>Files where every parser agrees (145)</summary>
 
 | file | expected | `js-json5` | `py-json5` | `py-pyjson5` | `go-json5` | `rs-json5` | `rs-serde-json5` | `jsonvet-json5` |
 |---|---|---|---|---|---|---|---|---|
@@ -169,6 +167,7 @@ Files where at least one parser disagrees (28):
 | [corpus/json5/duplicate-then-bad-escape.json](../tests/corpus/json5/duplicate-then-bad-escape.json) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/empty.json](../tests/corpus/json5/empty.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/error-position.json](../tests/corpus/json5/error-position.json) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [corpus/json5/escape-nine.json](../tests/corpus/json5/escape-nine.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/key-with-dash.json](../tests/corpus/json5/key-with-dash.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/lone-comma-array.json](../tests/corpus/json5/lone-comma-array.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/lone-comma-object.json](../tests/corpus/json5/lone-comma-object.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -177,6 +176,7 @@ Files where at least one parser disagrees (28):
 | [corpus/json5/raw-newline-in-string.json](../tests/corpus/json5/raw-newline-in-string.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/unclosed-escape-double.json](../tests/corpus/json5/unclosed-escape-double.json) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/unclosed-escape-single.json](../tests/corpus/json5/unclosed-escape-single.json) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [corpus/json5/unclosed-openers.json](../tests/corpus/json5/unclosed-openers.json) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [corpus/json5/whitespace-only.json](../tests/corpus/json5/whitespace-only.json) | invalid † | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [json5-tests/arrays/leading-comma-array.js](../tests/json5-tests/arrays/leading-comma-array.js) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [json5-tests/arrays/lone-trailing-comma-array.js](../tests/json5-tests/arrays/lone-trailing-comma-array.js) | invalid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -256,10 +256,9 @@ Notable disagreements:
 - [corpus/json5/negative-hex.json](../tests/corpus/json5/negative-hex.json): Rust `serde_json5` rejects a sign on a hex number, `-0x10` and `+0x1F` alike.
 - [corpus/json5/raw-u2028-in-string.json](../tests/corpus/json5/raw-u2028-in-string.json): Rust `serde_json5` rejects a raw U+2028 in a string. §5.2 allows it but the grammar in §9.1 does not, so the spec shares the blame.
 - [corpus/json5/combining-mark-starts-key-escaped.json](../tests/corpus/json5/combining-mark-starts-key-escaped.json): Python `json5`, `pyjson5` and Rust `serde_json5` accept an escaped combining mark at the start of a key; ECMAScript 5.1 §7.6 does not allow one there.
-- [corpus/json5/escape-nine.json](../tests/corpus/json5/escape-nine.json): The Rust `json5` crate accepts the escape `\9`, which the grammar does not have.
 - [corpus/json5/line-comment-ends-at-u2028.json](../tests/corpus/json5/line-comment-ends-at-u2028.json): Go `titanous/json5` does not end a line comment at U+2028, so the stray `x` after it disappears into the comment.
 - [corpus/json5/punctuation-u00b7-in-key.json](../tests/corpus/json5/punctuation-u00b7-in-key.json): Rust `serde_json5` accepts a middle dot (U+00B7) in a key. ECMAScript 2015 allows it; ECMAScript 5.1, which JSON5 cites, does not.
-- [corpus/json5/unclosed-comment.json](../tests/corpus/json5/unclosed-comment.json): The Rust `json5` crate and Go `titanous/json5` accept a block comment that never closes at the end of the file (also the next two rows and json5-tests unterminated-block-comment.txt).
+- [corpus/json5/unclosed-comment.json](../tests/corpus/json5/unclosed-comment.json): Go `titanous/json5` accepts a block comment that never closes at the end of the file (also unclosed-comment-own-star-slash.json and json5-tests unterminated-block-comment.txt).
 - [corpus/json5/depth-10000.json](../tests/corpus/json5/depth-10000.json): Python `json5` raises RecursionError and Rust `serde_json5` overflows its stack, which aborts the process. `pyjson5` rejects the file at its own nesting limit, which §10 allows.
 
 ## JSONC
@@ -640,7 +639,7 @@ allowed. A dash means the parser rejects the file's syntax, so the test says not
 | `go-json-stream` | go | - | built in (go go1.26.9) |
 | `rs-serde-json` | rust | serde_json | 1.0.154 |
 | `rs-serde-json-stream` | rust | serde_json | 1.0.154 |
-| `rs-json5` | rust | json5 | 1.3.1 |
+| `rs-json5` | rust | json5 | 1.3.2 |
 | `rs-serde-json5` | rust | serde_json5 | 0.2.1 |
 | `rs-jsonc-parser` | rust | jsonc-parser | 0.34.0 |
 | `jsonvet-json` | jsonvet | jsonvet | 2.0.0 (cb59f11) |

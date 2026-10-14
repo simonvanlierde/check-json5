@@ -43,6 +43,10 @@ default options, and prints `<path>\t<verdict>`:
 - **crash**: any other exception, a panic, or the process died (a stack overflow, say).
 - **timeout**: no answer within 10 seconds. The runner then kills the container.
 
+A limit the library enforces, such as a nesting depth or Python's 4,300-digit cap on integers, is a
+reject when it raises the parser's own error type and a crash otherwise. That is why `py-json`
+crashes and `py-json5` rejects on `integer-5000-digits.json`.
+
 After a crash or a timeout the runner starts a fresh container at the next file. Libraries that take
 bytes get the raw file. For libraries that take text, the driver decodes the file as strict UTF-8
 first and counts a file that is not UTF-8 as a reject. A leading byte order mark stays in the text.
