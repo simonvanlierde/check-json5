@@ -27,8 +27,8 @@ inputs:
   version:
     description: >-
       The jsonvet version to install from PyPI, or `latest`. By default, the version of the
-      action's tag: `v2` installs the newest 2.x, `v2.1.0` installs 2.1.0, and any other ref the
-      newest release.
+      action's tag: `v2` installs the newest 2.x, `v2.1.0` installs 2.1.0, and a commit SHA the
+      version in that commit.
     required: false
     default: ""
 
@@ -55,7 +55,9 @@ runs:
           # A full version pins it; a major or minor tag takes the newest release under it.
           if [[ ${#dots} -eq 2 ]]; then spec="==$version"; else spec="==$version.*"; fi
         else
-          spec=""
+          # A commit SHA or a branch: the version in that commit, which is the last release.
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_ACTION_PATH/Cargo.toml" | head -n 1)
+          spec="==$version"
         fi
 
         venv="$RUNNER_TEMP/jsonvet-venv"
@@ -65,7 +67,7 @@ runs:
         "$python" -m venv "$venv" || exit 2
         bin="$venv/bin"
         [[ -d "$bin" ]] || bin="$venv/Scripts"
-        "$bin/python" -m pip install -q --disable-pip-version-check "jsonvet$spec" || exit 2
+        "$bin/python" -m pip install -q --disable-pip-version-check --only-binary jsonvet "jsonvet$spec" || exit 2
         "$bin/jsonvet" --version
 
         # Word splitting is the point here: both inputs are space-separated lists.

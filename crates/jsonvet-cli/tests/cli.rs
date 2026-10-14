@@ -259,9 +259,25 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
     let run0 = &sarif["runs"][0];
     assert_eq!(run0["tool"]["driver"]["name"], "jsonvet");
     assert_eq!(run0["tool"]["driver"]["version"], env!("CARGO_PKG_VERSION"));
+    let rules = run0["tool"]["driver"]["rules"].as_array().expect("rules");
+    let ids: Vec<&str> = rules.iter().filter_map(|r| r["id"].as_str()).collect();
     assert_eq!(
-        run0["tool"]["driver"]["rules"].as_array().map(Vec::len),
-        Some(7)
+        ids,
+        [
+            "syntax",
+            "duplicate-key",
+            "invalid-number",
+            "invalid-code-point",
+            "byte-order-mark",
+            "missing-final-newline",
+            "unreadable"
+        ]
+    );
+    // `Rule` is non-exhaustive, so a new rule without a description would compile.
+    assert!(
+        rules
+            .iter()
+            .all(|r| !r["shortDescription"]["text"].as_str().unwrap_or("").is_empty())
     );
     assert_eq!(run0["columnKind"], "unicodeCodePoints");
     let results = run0["results"].as_array().expect("results");

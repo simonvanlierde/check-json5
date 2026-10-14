@@ -55,7 +55,7 @@ optional:
 
 Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
 installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
-to a commit SHA, it installs the newest release unless you set `version`.
+to a commit SHA, it installs the version in that commit, so the pin covers jsonvet too.
 
 ## Dialects
 
