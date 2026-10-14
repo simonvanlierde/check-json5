@@ -12,7 +12,7 @@
     "python": "3.13.16",
     "go": "go1.26.9",
     "rust": "1.99.0",
-    "jsonvet": "2.0.0 (cb59f11)"
+    "jsonvet": "2.0.0 (ff876f1)"
   },
   "parsers": {
     "js-json5": {
@@ -170,7 +170,7 @@
     "jsonvet-json": {
       "language": "jsonvet",
       "package": "jsonvet",
-      "version": "2.0.0 (cb59f11)",
+      "version": "2.0.0 (ff876f1)",
       "uses": [
         "json"
       ]
@@ -178,7 +178,7 @@
     "jsonvet-json5": {
       "language": "jsonvet",
       "package": "jsonvet",
-      "version": "2.0.0 (cb59f11)",
+      "version": "2.0.0 (ff876f1)",
       "uses": [
         "json5"
       ]
@@ -186,7 +186,7 @@
     "jsonvet-jsonc": {
       "language": "jsonvet",
       "package": "jsonvet",
-      "version": "2.0.0 (cb59f11)",
+      "version": "2.0.0 (ff876f1)",
       "uses": [
         "jsonc"
       ]
@@ -194,7 +194,7 @@
     "jsonvet-jwcc": {
       "language": "jsonvet",
       "package": "jsonvet",
-      "version": "2.0.0 (cb59f11)",
+      "version": "2.0.0 (ff876f1)",
       "uses": [
         "jwcc"
       ]
@@ -202,7 +202,7 @@
     "jsonvet-jsonl": {
       "language": "jsonvet",
       "package": "jsonvet",
-      "version": "2.0.0 (cb59f11)",
+      "version": "2.0.0 (ff876f1)",
       "uses": [
         "jsonl"
       ]
@@ -210,7 +210,7 @@
     "jsonvet-dupes": {
       "language": "jsonvet",
       "package": "jsonvet",
-      "version": "2.0.0 (cb59f11)",
+      "version": "2.0.0 (ff876f1)",
       "uses": [
         "dupes"
       ]

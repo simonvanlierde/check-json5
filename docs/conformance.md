@@ -322,21 +322,21 @@ Spec: <https://nigeltao.github.io/blog/2021/json-with-commas-comments.html>. 11 
 | parser | agrees | disagrees | crash or timeout |
 |---|---|---|---|
 | `go-hujson` | 9 (90%) | 1 | 0 |
-| `jsonvet-jwcc` | 9 (90%) | 1 | 0 |
+| `jsonvet-jwcc` | 10 (100%) | 0 | 0 |
 
-Files where at least one parser disagrees (2):
+Files where at least one parser disagrees (1):
 
 | file | expected | `go-hujson` | `jsonvet-jwcc` |
 |---|---|---|---|
 | [extra/jwcc/line-comment-at-end.json](../conformance/extra/jwcc/line-comment-at-end.json) | valid † | ✗ | ✓ |
-| [extra/jwcc/cr-does-not-end-comment.json](../conformance/extra/jwcc/cr-does-not-end-comment.json) | invalid † | ✓ | ✗ |
 
-<details><summary>Files where every parser agrees (9)</summary>
+<details><summary>Files where every parser agrees (10)</summary>
 
 | file | expected | `go-hujson` | `jsonvet-jwcc` |
 |---|---|---|---|
 | [extra/jwcc/trailing-comma-array.json](../conformance/extra/jwcc/trailing-comma-array.json) | valid † | ✓ | ✓ |
 | [corpus/jwcc/trailing-comma-and-comment.json](../tests/corpus/jwcc/trailing-comma-and-comment.json) | valid † | ✓ | ✓ |
+| [extra/jwcc/cr-does-not-end-comment.json](../conformance/extra/jwcc/cr-does-not-end-comment.json) | invalid † | ✓ | ✓ |
 | [extra/jwcc/hash-comment.json](../conformance/extra/jwcc/hash-comment.json) | invalid † | ✓ | ✓ |
 | [extra/jwcc/hex-number.json](../conformance/extra/jwcc/hex-number.json) | invalid † | ✓ | ✓ |
 | [extra/jwcc/lone-comma-object.json](../conformance/extra/jwcc/lone-comma-object.json) | invalid † | ✓ | ✓ |
@@ -363,8 +363,7 @@ Spec notes (†):
 
 Notable disagreements:
 
-- [extra/jwcc/line-comment-at-end.json](../conformance/extra/jwcc/line-comment-at-end.json): `hujson`, the reference implementation, rejects a line comment that ends the file without a newline. The spec allows that since its 2021-07-20 update.
-- [extra/jwcc/cr-does-not-end-comment.json](../conformance/extra/jwcc/cr-does-not-end-comment.json): jsonvet ends a line comment at a lone CR in JWCC, as it does in JSONC and JSON5. The JWCC text says only `\n` ends one, so this is a jsonvet disagreement.
+- [extra/jwcc/line-comment-at-end.json](../conformance/extra/jwcc/line-comment-at-end.json): `hujson`, the reference implementation, rejects a line comment that ends the file without a newline. The spec allows that since its 2021-07-20 update (reported as tailscale/hujson#56).
 
 ## JSON Lines
 
@@ -642,11 +641,11 @@ allowed. A dash means the parser rejects the file's syntax, so the test says not
 | `rs-json5` | rust | json5 | 1.3.2 |
 | `rs-serde-json5` | rust | serde_json5 | 0.2.1 |
 | `rs-jsonc-parser` | rust | jsonc-parser | 0.34.0 |
-| `jsonvet-json` | jsonvet | jsonvet | 2.0.0 (cb59f11) |
-| `jsonvet-json5` | jsonvet | jsonvet | 2.0.0 (cb59f11) |
-| `jsonvet-jsonc` | jsonvet | jsonvet | 2.0.0 (cb59f11) |
-| `jsonvet-jwcc` | jsonvet | jsonvet | 2.0.0 (cb59f11) |
-| `jsonvet-jsonl` | jsonvet | jsonvet | 2.0.0 (cb59f11) |
-| `jsonvet-dupes` | jsonvet | jsonvet | 2.0.0 (cb59f11) |
+| `jsonvet-json` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
+| `jsonvet-json5` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
+| `jsonvet-jsonc` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
+| `jsonvet-jwcc` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
+| `jsonvet-jsonl` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
+| `jsonvet-dupes` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
 
-Images: `node:22-slim`, `python:3.13-slim`, `golang:1.26`, `rust:1`. Runtimes: node v22.23.3; python 3.13.16; go go1.26.9; rust 1.99.0; jsonvet 2.0.0 (cb59f11).
+Images: `node:22-slim`, `python:3.13-slim`, `golang:1.26`, `rust:1`. Runtimes: node v22.23.3; python 3.13.16; go go1.26.9; rust 1.99.0; jsonvet 2.0.0 (ff876f1).

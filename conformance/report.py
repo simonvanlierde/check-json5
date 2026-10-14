@@ -151,9 +151,8 @@ NOTES = {
     "conformance/extra/jsonc/json5-syntax.jsonc": "The Rust `jsonc-parser` accepts unquoted keys, single quotes"
     " and hex by default; it is lenient by design.",
     "conformance/extra/jwcc/line-comment-at-end.json": "`hujson`, the reference implementation, rejects a line"
-    " comment that ends the file without a newline. The spec allows that since its 2021-07-20 update.",
-    "conformance/extra/jwcc/cr-does-not-end-comment.json": "jsonvet ends a line comment at a lone CR in JWCC,"
-    " as it does in JSONC and JSON5. The JWCC text says only `\\n` ends one, so this is a jsonvet disagreement.",
+    " comment that ends the file without a newline. The spec allows that since its 2021-07-20 update"
+    " (reported as tailscale/hujson#56).",
     "conformance/extra/jsonl/scalars.jsonl": "Python `jsonlines` rejects a `null` line unless you pass"
     " `allow_none=True`; the spec permits any JSON value.",
     "conformance/extra/jsonl/bom.jsonl": "Python `jsonlines` accepts a leading byte order mark, which the spec"
