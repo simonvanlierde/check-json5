@@ -1,5 +1,5 @@
-//! Whatever jsonvet accepts as JSON5, the json5 crate (1.3.1) must accept too. Not the other way
-//! round: json5 1.3.1 accepts some invalid input, such as `"\9"` and an unclosed `/*`.
+//! jsonvet and the json5 crate (1.3.2) agree on what is JSON5, both ways, apart from json5's own
+//! limits.
 #![no_main]
 
 use jsonvet::{Config, Dialect, Rule, Severity, check};
@@ -16,10 +16,11 @@ fn has_surrogate_escape(text: &str) -> bool {
 }
 
 /// Whether the text has a character, literal or escaped, that jsonvet's Unicode tables call a
-/// letter, mark, digit or connector and json5's older tables do not know, such as U+05C8 (Unicode
-/// 17). json5 then rejects it anywhere in a key, even after a first letter.
+/// letter, mark, digit or connector and json5's tables do not, as when one crate moves to a newer
+/// Unicode version first. json5 then rejects it anywhere in a key, even after a first letter.
 fn has_newer_identifier_char(text: &str) -> bool {
-    use unicode_general_category::GeneralCategory::{
+    use unicode_properties::UnicodeGeneralCategory;
+    use unicode_properties::GeneralCategory::{
         ConnectorPunctuation, DecimalNumber, LetterNumber, LowercaseLetter, ModifierLetter,
         NonspacingMark, OtherLetter, SpacingMark, TitlecaseLetter, UppercaseLetter,
     };
@@ -32,7 +33,7 @@ fn has_newer_identifier_char(text: &str) -> bool {
         .filter(|c| {
             !c.is_ascii()
                 && matches!(
-                    unicode_general_category::get_general_category(*c),
+                    c.general_category(),
                     UppercaseLetter
                         | LowercaseLetter
                         | TitlecaseLetter
@@ -50,22 +51,24 @@ fn has_newer_identifier_char(text: &str) -> bool {
 
 fuzz_target!(|text: &str| {
     let config = Config::new(Dialect::Json5).rule(Rule::DuplicateKey, Severity::Off);
-    // The json5 crate counts U+2028 and U+2029 in strings as errors, which the spec allows.
-    if text.contains(['\u{2028}', '\u{2029}'])
-        || has_surrogate_escape(text)
-        || has_newer_identifier_char(text)
-        || !check(text, &config).passed()
-    {
-        return;
-    }
-    if let Err(e) = json5::from_str::<serde::de::IgnoredAny>(text) {
-        // JSON5 numbers have no size limit, but json5's serde path needs integers to fit 64 bits.
-        let message = e.to_string();
-        if message.contains("to fit in target type")
-            || message.starts_with("overflow parsing number")
-        {
-            return;
+    let report = check(text, &config);
+    match json5::from_str::<serde::de::IgnoredAny>(text) {
+        Ok(_) => assert!(
+            report.passed(),
+            "json5 accepts {text:?}, jsonvet reports {:?}",
+            report.problems()
+        ),
+        Err(e) if report.passed() => {
+            // json5 counts U+2028 and U+2029 in strings as errors, which the spec allows. JSON5
+            // numbers have no size limit, but json5's serde path needs integers to fit 64 bits.
+            let message = e.to_string();
+            let limit = text.contains(['\u{2028}', '\u{2029}'])
+                || has_surrogate_escape(text)
+                || has_newer_identifier_char(text)
+                || message.contains("to fit in target type")
+                || message.starts_with("overflow parsing number");
+            assert!(limit, "jsonvet accepts {text:?} as JSON5, json5 rejects it: {e}");
         }
-        panic!("jsonvet accepts {text:?} as JSON5, json5 1.3.1 rejects it: {e}");
+        Err(_) => {}
     }
 });

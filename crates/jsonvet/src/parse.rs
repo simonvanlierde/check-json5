@@ -934,15 +934,16 @@ pub(crate) fn is_surrogate(code_point: u32) -> bool {
 /// ECMAScript 5.1's `IdentifierStart` (section 7.6), which JSON5 identifiers follow: `$`, `_` or a
 /// letter by general category. Not Unicode's `ID_Start`, which adds and drops a few characters.
 fn is_identifier_start(c: char) -> bool {
-    use unicode_general_category::GeneralCategory::{
+    use unicode_properties::GeneralCategory::{
         LetterNumber, LowercaseLetter, ModifierLetter, OtherLetter, TitlecaseLetter,
         UppercaseLetter,
     };
+    use unicode_properties::UnicodeGeneralCategory;
     if c.is_ascii() {
         return c.is_ascii_alphabetic() || c == '$' || c == '_';
     }
     matches!(
-        unicode_general_category::get_general_category(c),
+        c.general_category(),
         UppercaseLetter
             | LowercaseLetter
             | TitlecaseLetter
@@ -955,16 +956,17 @@ fn is_identifier_start(c: char) -> bool {
 /// ECMAScript 5.1's `IdentifierPart`: a start character, a combining mark, a decimal digit, a
 /// connector punctuation, ZWNJ or ZWJ.
 fn is_identifier_part(c: char) -> bool {
-    use unicode_general_category::GeneralCategory::{
+    use unicode_properties::GeneralCategory::{
         ConnectorPunctuation, DecimalNumber, NonspacingMark, SpacingMark,
     };
+    use unicode_properties::UnicodeGeneralCategory;
     if c.is_ascii() {
         return c.is_ascii_alphanumeric() || c == '$' || c == '_';
     }
     is_identifier_start(c)
         || matches!(c, '\u{200C}' | '\u{200D}')
         || matches!(
-            unicode_general_category::get_general_category(c),
+            c.general_category(),
             NonspacingMark | SpacingMark | DecimalNumber | ConnectorPunctuation
         )
 }

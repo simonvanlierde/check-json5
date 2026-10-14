@@ -59,6 +59,8 @@ fn syntax_in_every_dialect() {
         (Json5, "{a\u{1885}: 1}"),
         (Json5, "{a\u{B7}: 1}"),
         (Json5, "{\u{E33}: 1, \u{2E2F}: 2}"),
+        // U+3308C is a CJK Extension J letter, new in Unicode 17.
+        (Json5, "{\u{3308C}: 1}"),
         (Json, "['x']"),
         (Json5, "['x', \"y\"]"),
         // Comments.
