@@ -96,7 +96,6 @@ fn check_file(
         Err(e) => Err(format!("cannot read: {e}")),
     };
     let name = file.to_string_lossy();
-    let file = name.as_ref();
     let text = match text {
         Ok(text) => text,
         Err(message) => {
@@ -107,7 +106,7 @@ fn check_file(
             });
         }
     };
-    let report = jsonvet::check(&text, &settings.config_for(file));
+    let report = jsonvet::check(&text, &settings.config_for(&name));
     let mut counts = Counts::default();
     for problem in report.problems() {
         printer.problem(file, &report, problem)?;

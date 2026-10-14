@@ -1,6 +1,7 @@
 //! SARIF 2.1.0 output, for GitHub code scanning and other tools that read static analysis
 //! results. The JSON is written by hand: the CLI keeps its dependencies few.
 
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -13,7 +14,7 @@ pub(crate) const UNREADABLE: &str = "unreadable";
 /// One result, as a JSON object. `related` is a second position with its message, such as a
 /// duplicate key's first copy.
 pub(crate) fn result(
-    file: &str,
+    file: &OsStr,
     rule: &str,
     severity: Severity,
     message: &str,
@@ -84,7 +85,7 @@ fn description(rule: Rule) -> &'static str {
 }
 
 /// The `physicalLocation` member of a location object.
-fn physical(file: &str, at: Location) -> String {
+fn physical(file: &OsStr, at: Location) -> String {
     let (uri, base) = uri(file);
     let base = if base {
         r#","uriBaseId":"%SRCROOT%""#
@@ -102,23 +103,25 @@ fn physical(file: &str, at: Location) -> String {
 /// The file name as a URI reference, and whether it is relative to the source root. Bytes
 /// outside a URI's unreserved set are percent-encoded, so a space or `#` in a name stays part
 /// of the path.
-fn uri(file: &str) -> (String, bool) {
+fn uri(file: &OsStr) -> (String, bool) {
     let absolute = Path::new(file).is_absolute();
-    let path = if cfg!(windows) {
-        file.replace('\\', "/")
-    } else {
-        file.to_owned()
-    };
+    // The name's own bytes, so a name that is not UTF-8 still points at its file.
+    let path = file.as_encoded_bytes();
     let mut uri = String::new();
     if absolute {
         // A Windows path starts with its drive letter, which needs a `/` before it.
-        uri.push_str(if path.starts_with('/') {
+        uri.push_str(if path.first() == Some(&b'/') {
             "file://"
         } else {
             "file:///"
         });
     }
-    for byte in path.bytes() {
+    for &byte in path {
+        let byte = if cfg!(windows) && byte == b'\\' {
+            b'/'
+        } else {
+            byte
+        };
         // `:` stays literal only in an absolute path's drive letter: in the first segment of a
         // relative one it would read as a URI scheme.
         if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) || (absolute && byte == b':') {
@@ -150,6 +153,8 @@ pub(crate) fn string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
+
     use super::{string, uri};
 
     #[test]
@@ -162,13 +167,27 @@ mod tests {
 
     #[test]
     fn relative_paths_stay_relative_and_odd_bytes_are_encoded() {
-        assert_eq!(uri("a/b c#1.json"), ("a/b%20c%231.json".to_owned(), true));
-        assert_eq!(uri("c:x.json"), ("c%3Ax.json".to_owned(), true));
+        assert_eq!(
+            uri(OsStr::new("a/b c#1.json")),
+            ("a/b%20c%231.json".to_owned(), true)
+        );
+        assert_eq!(uri(OsStr::new("c:x.json")), ("c%3Ax.json".to_owned(), true));
         #[cfg(unix)]
-        assert_eq!(uri("/abs/x.json"), ("file:///abs/x.json".to_owned(), false));
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(
+                uri(OsStr::from_bytes(b"\xe9.json")),
+                ("%E9.json".to_owned(), true)
+            );
+        }
+        #[cfg(unix)]
+        assert_eq!(
+            uri(OsStr::new("/abs/x.json")),
+            ("file:///abs/x.json".to_owned(), false)
+        );
         #[cfg(windows)]
         assert_eq!(
-            uri(r"C:\x\y.json"),
+            uri(OsStr::new(r"C:\x\y.json")),
             ("file:///C:/x/y.json".to_owned(), false)
         );
     }

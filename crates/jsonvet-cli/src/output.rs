@@ -1,6 +1,7 @@
 //! How problems are printed: `file:line:col: severity[rule] message`, plus a GitHub Actions
 //! annotation for each when running there, or one SARIF document for the whole run.
 
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
@@ -56,7 +57,7 @@ impl<W: Write> Printer<W> {
     /// A problem in a file's contents.
     pub(crate) fn problem(
         &mut self,
-        file: &str,
+        file: &OsStr,
         report: &Report<'_>,
         problem: &Problem,
     ) -> io::Result<()> {
@@ -92,6 +93,7 @@ impl<W: Write> Printer<W> {
             ));
             return Ok(());
         }
+        let file = &file.to_string_lossy();
         writeln!(
             self.out,
             "{}:{}:{}: {severity}[{rule}] {}",
@@ -115,7 +117,7 @@ impl<W: Write> Printer<W> {
     }
 
     /// A file that could not be checked at all.
-    pub(crate) fn unreadable(&mut self, file: &str, message: &str) -> io::Result<()> {
+    pub(crate) fn unreadable(&mut self, file: &OsStr, message: &str) -> io::Result<()> {
         if let Some(results) = &mut self.sarif {
             // GitHub code scanning needs a line in every result.
             let start = Location { line: 1, column: 1 };
@@ -129,6 +131,7 @@ impl<W: Write> Printer<W> {
             ));
             return Ok(());
         }
+        let file = &file.to_string_lossy();
         writeln!(self.out, "{}: error: {}", one_line(file), one_line(message))?;
         if self.annotate {
             writeln!(
