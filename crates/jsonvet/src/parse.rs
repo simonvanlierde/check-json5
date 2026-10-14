@@ -852,6 +852,12 @@ impl<'a> Parser<'a> {
     /// Skip to the line terminator that ends a `//` comment, leaving it in place.
     fn line_comment(&mut self) {
         let mut from = self.pos + 2;
+        // JWCC ends a line comment only at `\n`: its text says `\r` bytes are irrelevant.
+        if self.dialect == Dialect::Jwcc {
+            self.pos =
+                memchr::memchr(b'\n', &self.bytes[from..]).map_or(self.bytes.len(), |n| from + n);
+            return;
+        }
         while let Some(found) = memchr::memchr3(b'\n', b'\r', 0xE2, &self.bytes[from..]) {
             let at = from + found;
             let separator =
