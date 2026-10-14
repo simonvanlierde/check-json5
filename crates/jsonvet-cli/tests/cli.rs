@@ -274,11 +274,12 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
         ]
     );
     // `Rule` is non-exhaustive, so a new rule without a description would compile.
-    assert!(
-        rules
-            .iter()
-            .all(|r| !r["shortDescription"]["text"].as_str().unwrap_or("").is_empty())
-    );
+    assert!(rules.iter().all(|r| {
+        !r["shortDescription"]["text"]
+            .as_str()
+            .unwrap_or("")
+            .is_empty()
+    }));
     assert_eq!(run0["columnKind"], "unicodeCodePoints");
     let results = run0["results"].as_array().expect("results");
     assert_eq!(results.len(), 2);
