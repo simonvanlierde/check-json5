@@ -31,7 +31,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-deny
+          tool: cargo-deny@0.20.2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo doc --workspace --no-deps
@@ -39,6 +39,8 @@ jobs:
           RUSTDOCFLAGS: -D warnings
       - run: cargo deny check
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.0"
       # The repo's Python: the hook placeholder and scripts/.
       # The same ruff as .pre-commit-config.yaml.
       - run: uvx ruff@0.16.10 check --no-fix .
@@ -47,6 +49,8 @@ jobs:
       - run: uv run scripts/check-versions.py
       # The conformance page is rendered from conformance/results/; the parser runs stay local.
       - run: uv run conformance/report.py && git diff --exit-code docs/conformance.md README.md
+      # A parser or image bump must come with a matrix re-run, so the results say what ran.
+      - run: uv run conformance/run.py --check
 
   coverage:
     runs-on: ubuntu-latest
@@ -63,7 +67,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-llvm-cov,cargo-nextest
+          tool: cargo-llvm-cov@0.9.1,cargo-nextest@0.9.148
       - run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
@@ -88,7 +92,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - run: cargo nextest run --workspace
       # nextest skips doctests.
       - run: cargo test --workspace --doc
@@ -122,6 +126,8 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.0"
       - run: cargo build --release --locked -p jsonvet-cli
       - run: uv run scripts/differential.py --cases 5000
 
@@ -142,10 +148,13 @@ jobs:
           persist-credentials: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
+          maturin-version: v1.15.0
           working-directory: crates/jsonvet-cli
           args: --release --locked --out ../../dist
           manylinux: auto
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.0"
       - name: Install the hook and run it
         shell: bash
         env:

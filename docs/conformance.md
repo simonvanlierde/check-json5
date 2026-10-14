@@ -648,4 +648,4 @@ allowed. A dash means the parser rejects the file's syntax, so the test says not
 | `jsonvet-jsonl` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
 | `jsonvet-dupes` | jsonvet | jsonvet | 2.0.0 (ff876f1) |
 
-Images: `node:22-slim`, `python:3.13-slim`, `golang:1.26`, `rust:1`. Runtimes: node v22.23.3; python 3.13.16; go go1.26.9; rust 1.99.0; jsonvet 2.0.0 (ff876f1).
+Images: `node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392`, `python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f`, `golang:1.26@sha256:d7722066f0b60ceccb6c0643cbed1f5f9e15506ac237146c95333504d7805d89`, `rust:1@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90`. Runtimes: node v22.23.3; python 3.13.16; go go1.26.9; rust 1.99.0; jsonvet 2.0.0 (ff876f1).
