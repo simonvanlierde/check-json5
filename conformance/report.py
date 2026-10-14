@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HERE = ROOT / "conformance"
 RESULTS = HERE / "results"
 OUT = ROOT / "docs/conformance.md"
+README = ROOT / "README.md"
 SNAPSHOT = ROOT / "crates/jsonvet-cli/tests/snapshots/corpus__corpus.snap"
 CORPUS = "tests/corpus/"
 SUITE = "tests/json5-tests/"
@@ -236,9 +237,10 @@ def grid(columns: list[str], rows: list[tuple[str, str, str]], verdicts: dict) -
 
 
 def dialect_section(
-    title: str, dialect: str, link: str, folders: list[str], data: tuple[dict, dict, dict, dict]
+    table: tuple[str, str, str, list[str]], data: tuple[dict, dict, dict, dict], scores: dict
 ) -> list[str]:
-    """One dialect's heading, summary, grid and notes."""
+    """One dialect's heading, summary, grid and notes; adds each parser's agreement to scores."""
+    title, dialect, link, folders = table
     verdicts, parsers, snap, extra = data
     columns = [p for p, info in parsers.items() if dialect in info["uses"]]
     files = [p for p in next(iter(verdicts.values())) if any(p.startswith(f) for f in folders)]
@@ -253,6 +255,7 @@ def dialect_section(
         crashes = sum(verdicts[c][p] in {"crash", "timeout"} for p, _, _ in rows)
         pct = 100 * marks[MARK[True]] / len(scored)
         out.append(f"| `{c}` | {marks[MARK[True]]} ({pct:.0f}%) | {marks[MARK[False]]} | {crashes} |")
+        scores.setdefault((title, len(scored)), []).append((c, pct))
     out.append("")
 
     def clean(row: tuple[str, str, str]) -> bool:
@@ -309,7 +312,7 @@ def duplicates_section(verdicts: dict, snap: dict) -> list[str]:
 
 
 def main() -> None:
-    """Write docs/conformance.md."""
+    """Write docs/conformance.md and the summary table in README.md."""
     summary = json.loads((RESULTS / "versions.json").read_text())
     parsers = summary["parsers"]
     verdicts = {
@@ -337,8 +340,9 @@ def main() -> None:
         "shows ✗ like any other parser.",
         "",
     ]
-    for title, dialect, link, folders in TABLES:
-        out += dialect_section(title, dialect, link, folders, data)
+    scores: dict[tuple[str, int], list[tuple[str, float]]] = {}
+    for table in TABLES:
+        out += dialect_section(table, data, scores)
     out += duplicates_section(verdicts, data[2])
     out += ["## Versions", "", "| parser | language | package | version |", "|---|---|---|---|"]
     for name, info in parsers.items():
@@ -346,7 +350,27 @@ def main() -> None:
     images = ", ".join(f"`{image}`" for image in summary["images"].values())
     out += ["", f"Images: {images}. Runtimes: " + "; ".join(f"{k} {v}" for k, v in summary["runtimes"].items()) + "."]
     OUT.write_text("\n".join(out) + "\n")
-    print(f"wrote {OUT.relative_to(ROOT)}")
+    write_readme_summary(scores, summary["date"])
+    print(f"wrote {OUT.relative_to(ROOT)} and the summary in README.md")
+
+
+def write_readme_summary(scores: dict, date: str) -> None:
+    """Replace the table between README.md's conformance markers with each parser's agreement."""
+    start, end = "<!-- conformance:start -->", "<!-- conformance:end -->"
+    lines = [
+        start,
+        "",
+        "| dialect | files | share of files where each parser gives the expected verdict |",
+        "|---|---|---|",
+    ]
+    for (title, files), row in scores.items():
+        ranked = sorted(row, key=lambda r: (-r[1], r[0]))
+        lines.append(f"| {title} | {files} | " + ", ".join(f"`{c}` {pct:.0f}%" for c, pct in ranked) + " |")
+    grid = "[docs/conformance.md](docs/conformance.md)"
+    lines += ["", f"Run on {date}. The full grid, and where each expected verdict comes from: {grid}.", "", end]
+    text = README.read_text()
+    before, rest = text.split(start, 1)
+    README.write_text(before + "\n".join(lines) + rest.split(end, 1)[1])
 
 
 if __name__ == "__main__":
