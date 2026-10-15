@@ -904,3 +904,28 @@ fn a_schema_file_with_more_than_one_value_is_a_usage_error() {
         )
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_deep_file_is_checked_against_a_recursive_schema_on_a_small_main_stack() {
+    // Windows gives the main thread 1 MB; validating and dropping 10,000 levels takes more.
+    let text = format!("{}0{}", "[".repeat(9_999), "]".repeat(9_999));
+    let dir = workdir(&[
+        (
+            "schema.json",
+            r##"{"items": {"$ref": "#"}, "type": "array"}"##,
+        ),
+        ("deep.json", &text),
+    ]);
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg("ulimit -s 1024 && exec \"$0\" --schema schema.json deep.json")
+        .arg(env!("CARGO_BIN_EXE_jsonvet"))
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .expect("run jsonvet");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(1), "{stdout}");
+    assert!(stdout.starts_with("deep.json:1:10000: error[schema] 0 is not of type \"array\""));
+}

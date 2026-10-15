@@ -19,8 +19,25 @@ use output::Printer;
 use schema::Schema;
 use settings::Settings;
 
+/// The stack the command runs on. `--schema` builds, validates and drops a value 10,000 levels
+/// deep recursively, which takes up to about 32 MB in a debug build and overflows Windows'
+/// 1 MB main thread. Only the pages used are committed, so the margin costs nothing.
+const STACK: usize = 256 << 20;
+
 /// Run the command with the process's arguments and environment, and return its exit code.
 pub fn run() -> ExitCode {
+    match std::thread::Builder::new()
+        .stack_size(STACK)
+        .spawn(run_here)
+    {
+        Ok(thread) => thread
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        Err(_) => run_here(),
+    }
+}
+
+fn run_here() -> ExitCode {
     let annotate = std::env::var_os("GITHUB_ACTIONS").is_some_and(|v| v == "true");
     let stdout = io::stdout().lock();
     match run_with(
