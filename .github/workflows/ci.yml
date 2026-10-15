@@ -15,6 +15,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The Rust that builds the release wheels; keep it equal to RELEASE_RUST in release.yml.
+  RELEASE_RUST: "1.99.0"
 
 jobs:
   lint:
@@ -123,7 +125,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # The same image as release.yml's x86_64 manylinux row.
+          - os: ubuntu-latest
+            container: quay.io/pypa/manylinux2014_x86_64:latest@sha256:f6a6f153c9cf45470507ebbc27013e5db14ce21331b62fd2c540561f25e5f0a5
+          - os: macos-latest
+          - os: windows-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -136,6 +143,8 @@ jobs:
           working-directory: crates/jsonvet-cli
           args: --release --locked --out ../../dist
           manylinux: auto
+          container: ${{ matrix.container || '' }}
+          rust-toolchain: ${{ env.RELEASE_RUST }}
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.13.0"
@@ -189,3 +198,4 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/dist
         with:
           files: ok.json
+
