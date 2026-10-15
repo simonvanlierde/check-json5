@@ -78,12 +78,11 @@ Every problem belongs to a rule. Each rule has a default severity per dialect. `
 `--error` and `--ignore` change it, and an ignored rule is not checked at all.
 
 The [README](../README.md#rules) lists the rules and their defaults. `syntax` is always an error,
-and `duplicate-key` is an error in every dialect, not only `i-json`, although RFC 7493 is where
-unique names are required. `invalid-number` and `invalid-code-point` are the I-JSON rules: off
+and `duplicate-key` is an error in every dialect, not only `i-json`. `invalid-number` and `invalid-code-point` are the I-JSON rules: off
 outside `i-json`.
 
 Two things the I-JSON rules do not flag, and RFC 7493 leaves open: a number that underflows to
-zero (`1e-400`), and an integer written with a fraction or an exponent past 2^53 (`9007199254740993.0`).
+zero (`1e-400`), and an integer written with a fraction or an exponent past 2⁵³ (`9007199254740993.0`).
 `i-json` reports an overflow, and an integer written as digits alone past ±(2⁵³ − 1).
 
 Warnings don't fail a run unless `--max-warnings N` is exceeded. In GitHub Actions each problem is
