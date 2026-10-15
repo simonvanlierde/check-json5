@@ -1,6 +1,6 @@
 # check-json5 on PyPI from 2.0 on: the old name, installing jsonvet. No code of its own.
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
