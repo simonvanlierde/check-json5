@@ -56,20 +56,24 @@ optional:
 
 | Input     | What it does                                                                         |
 | --------- | ------------------------------------------------------------------------------------ |
-| `files`   | paths or globs to check, separated by spaces; by default every tracked file the hook would check |
+| `files`   | paths or globs to check, separated by spaces; `**` matches folders at any depth on every runner; by default every tracked file the hook would check, apart from symlinks and submodules |
 | `args`    | extra options, separated by spaces, such as `--strict package.json`                  |
 | `sarif`   | also write a SARIF file to this path (see [GitHub code scanning](#github-code-scanning)) |
-| `version` | the jsonvet version to install: an exact version such as `2.1.0`, a prefix such as `2.*`, or `latest` |
+| `version` | the jsonvet version to install: `X.Y.Z`, `X.*`, `X.Y.*` or `latest`; anything else stops the step |
 
 Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
 installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
-to a commit SHA, it installs the version in that commit's `Cargo.toml`. That is the release you
-mean only when the SHA is a release commit; on any other commit it is the last release before it.
+to a commit SHA or a branch, it installs the release named in that commit's `Cargo.toml`. Between
+releases that is the last release, not the code in the commit; the step log says which version it
+installed. Pinning the action does not pin the wheel's bytes: pip installs `jsonvet==X.Y.Z`
+from PyPI without a hash check. Set `version:` to say which release you want.
 
 ## Dialects
 
 Each file is checked in the dialect its extension implies, and `--dialect` or the config file can
-choose another. Each step in JSON, JSONC, JWCC, JSON5 only adds syntax to the one before.
+choose another. Going from JSON to JSONC, JWCC and JSON5 adds syntax at each step. The one thing that
+does not carry over is where a `//` comment ends: JWCC ends it at LF only, JSONC also at a lone
+CR, and JSON5 also at U+2028 and U+2029.
 
 | Dialect  | Adds to JSON                                                                 | Default for                                                        |
 | -------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
@@ -113,8 +117,21 @@ Warnings don't fail a run unless there are more than `--max-warnings N`.
 ```
 
 A glob without `/` matches the file name at any depth, and one with `/` matches the whole path.
-`*` also matches `/`. Paths are matched as given on the command line, so relative to the working
-directory, even for globs from a config file; pre-commit runs from the repository root.
+`*` also matches `/`. A glob given with `--dialect` or `--strict` matches the path as you typed it
+on the command line, so relative to the working directory; pre-commit runs from the repository
+root. A glob in a config file is relative to the directory that holds the file: `data/*.json` in
+the root's `jsonvet.toml` matches `data/x.json` whether jsonvet runs in the root or in `data/`, and
+when the path is absolute. A file outside that directory matches none of the file's globs.
+
+jsonvet reads regular files only. It follows a symlink and checks it when the target is a regular
+file. A directory, device, FIFO or socket prints `error: not a regular file` (rule `unreadable`)
+and makes the run exit 1. The hook (`types: [text]`) and the action skip tracked symlinks and
+submodules.
+
+pre-commit passes file names without a `--`, so a name that starts with `-` is read as an option
+unless it is a file that exists: `-x.json` is a name, and so is an existing `--x.json`. An unknown
+`--name` that is not an existing file is a usage error (`unknown option`). Put `--` before the
+file names when you cannot rule out the confusion: `jsonvet -- --x.json`.
 
 Settings can also live in `jsonvet.toml`, or in a `[tool.jsonvet]` table in `pyproject.toml`.
 jsonvet looks in the working directory and its parents up to the repository root, and the command
@@ -134,9 +151,20 @@ A key other than `rules` and `dialects`, in the file or in a `dialects` entry, i
 (exit status 2), so a typo is never ignored. A severity is `error`, `warning` (or `warn`), or
 `ignore` (or `off`).
 
-Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error. A file jsonvet
-cannot read, or that does not exist, prints `name: error: <reason>` with no line or column and
-makes the run exit 1. With no files, it exits 0.
+Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error, which includes an
+unknown option. A file jsonvet cannot read, or that does not exist, prints `name: error: <reason>`
+with no line or column and makes the run exit 1. With no files, it exits 0. When the output pipe
+closes early, as in `jsonvet … | head -1`, jsonvet stops quietly and exits with the verdict of the
+files it had checked so far.
+
+### Output
+
+File names and messages come from the files you check. jsonvet escapes what could break the line
+or a terminal. A control character prints as `\u001b`, with CR and LF as `\r` and `\n`, and
+a Unicode bidirectional control (U+202A to U+202E, U+2066 to U+2069) as `\u202e`. A name that
+starts with `::`, after any white space, prints as `./::…`. A `[` straight after `##` prints as
+`\u005b`. So no output line looks like a workflow command, old (`##[command]`) or new
+(`::command`). The `file=` value of an annotation holds the real name, percent-encoded as GitHub requires.
 
 ## GitHub code scanning
 
@@ -204,8 +232,9 @@ For `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` file
 mode, 2.0 gives the same pass or fail as 1.4.1, the same exit codes and the same duplicate-key
 paths. Comparing both on 20,184 files in JSON5 and in strict mode (20,000 generated, the 114
 json5-tests cases and the 70-file corpus), 40,368 runs in all, the verdicts and duplicate-key
-reports match on every run but 3, on 2 files, both deliberate:
-a nesting depth of 10,000, and a `\u` escape in an unquoted key. What changes, and why, is listed in the
+reports match on every run but 385, on 383 files, all deliberate: an unquoted key that starts with
+a `\u` escape that cannot start a key (381 files), a nesting depth of 10,000, and a syntax error
+reported after a duplicate key. What changes, and why, is listed in the
 [CHANGELOG](https://github.com/simonvanlierde/jsonvet/blob/main/CHANGELOG.md) and in [docs/design.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/design.md):
 
 - each line gains the severity and rule, as in `error[duplicate-key]`, and syntax errors use
