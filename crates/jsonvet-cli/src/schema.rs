@@ -484,7 +484,7 @@ mod tests {
             json!({ long.clone(): 1 }),
             json!(vec![0; 100]),
         ] {
-            assert!(!fits(&value, &mut MAX_MESSAGE), "{value}");
+            assert!(!fits(&value, &mut 200), "{value}");
         }
     }
 
