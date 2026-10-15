@@ -23,6 +23,9 @@ struct Document {
 /// Past this many bytes, a message says "value" instead of quoting the value.
 const MAX_MESSAGE: usize = 200;
 
+/// How deep a schema may nest; real schemas stay well under it.
+const MAX_SCHEMA_DEPTH: usize = 128;
+
 /// A compiled schema.
 pub(crate) struct Schema(Validator);
 
@@ -33,7 +36,9 @@ impl Schema {
         let name = path.to_string_lossy();
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read the schema {name}: {e}"))?;
-        let (report, events) = jsonvet::parse(&text, &settings.config_for(&name));
+        // jsonschema compiles a schema recursively: a deep one can take gigabytes or the stack.
+        let config = settings.config_for(&name).max_depth(MAX_SCHEMA_DEPTH);
+        let (report, events) = jsonvet::parse(&text, &config);
         if let Some(problem) = report
             .problems()
             .iter()

@@ -660,3 +660,15 @@ fn a_deep_file_with_long_keys_is_placed_quickly() {
         "deep.json:1:1: error[schema] value is not of type \"string\" (at /)\n"
     );
 }
+
+#[test]
+fn a_deep_schema_is_a_usage_error() {
+    let schema = format!("{}{{}}{}", "{\"not\":".repeat(5_000), "}".repeat(5_000));
+    let dir = workdir(&[("schema.json", &schema), ("ok.json", "{}")]);
+    let (code, out, err) = jsonvet_stderr(&dir, &["--schema", "schema.json", "ok.json"]);
+    assert_eq!((code, out.as_str()), (2, ""));
+    assert_eq!(
+        err,
+        "jsonvet: the schema schema.json:1:897: nested deeper than 128 levels\n"
+    );
+}
