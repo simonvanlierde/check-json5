@@ -636,3 +636,27 @@ fn schema_errors_in_a_large_file() {
         "big.json:1:1: error[schema] value is not of type \"object\" (at /)\n"
     );
 }
+
+#[test]
+fn a_deep_file_with_long_keys_is_placed_quickly() {
+    // 9,000 levels with 100-byte keys: a JSON Pointer per value would hold about 4 GB.
+    let key = "k".repeat(100);
+    let mut text = String::new();
+    for i in 0..9_000 {
+        let _ = write!(text, "{{\"{key}{i}\":");
+    }
+    text.push('0');
+    text.push_str(&"}".repeat(9_000));
+    let dir = workdir(&[
+        ("schema.json", "{\"type\": \"string\"}"),
+        ("deep.json", &text),
+    ]);
+    let start = std::time::Instant::now();
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "deep.json"]);
+    assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+    assert_eq!(code, 1);
+    assert_eq!(
+        out,
+        "deep.json:1:1: error[schema] value is not of type \"string\" (at /)\n"
+    );
+}

@@ -94,8 +94,8 @@ document instead, with no annotations; its JSON is written by hand.
 schemas. The library's `parse` returns the file's values as events, each with its byte offset;
 the CLI folds them into `serde_json` values, validates those with the `jsonschema` crate (default
 features off, so nothing is fetched), and maps each error's instance path, a JSON Pointer, back
-to the offset of its value. Only a document with errors gets that pointer map, since building it
-costs more than validating. Schema errors are always errors and follow the file's other problems;
+to the offset of its value: one walk over the events of a document with errors finds every
+error's value, with no pointer kept per value. Schema errors are always errors and follow the file's other problems;
 a file with a syntax error has no events, so it gets none.
 
 Output:
