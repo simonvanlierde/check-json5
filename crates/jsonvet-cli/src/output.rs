@@ -120,7 +120,7 @@ impl<W: Write> Printer<W> {
     pub(crate) fn unreadable(&mut self, file: &OsStr, message: &str) -> io::Result<()> {
         if let Some(results) = &mut self.sarif {
             // GitHub code scanning needs a line in every result.
-            let start = Location { line: 1, column: 1 };
+            let start = Location::START;
             results.push(sarif::result(
                 file,
                 sarif::UNREADABLE,

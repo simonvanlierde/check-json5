@@ -17,11 +17,17 @@ pub struct Report<'a> {
 /// A 1-based line and column. Lines end at LF, CR, CRLF, U+2028 and U+2029, as JSON5 defines
 /// them; columns count Unicode code points from the start of the line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct Location {
     /// The line, from 1.
     pub line: usize,
     /// The column, from 1.
     pub column: usize,
+}
+
+impl Location {
+    /// The start of the text: line 1, column 1.
+    pub const START: Location = Location { line: 1, column: 1 };
 }
 
 impl<'a> Report<'a> {

@@ -90,7 +90,14 @@ impl fmt::Display for Dialect {
 
 /// The error for a dialect name jsonvet does not know.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnknownDialect(pub String);
+pub struct UnknownDialect(String);
+
+impl UnknownDialect {
+    /// The name that was given.
+    pub fn name(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for UnknownDialect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

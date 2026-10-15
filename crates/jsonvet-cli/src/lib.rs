@@ -113,7 +113,7 @@ fn check_file(
         match problem.severity() {
             Severity::Error => counts.errors += 1,
             Severity::Warning => counts.warnings += 1,
-            Severity::Off => {}
+            _ => {}
         }
     }
     Ok(counts)

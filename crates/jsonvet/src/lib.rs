@@ -33,3 +33,35 @@ pub use rule::{Config, Rule, Severity, UnknownRule};
 pub fn check<'a>(text: &'a str, config: &Config) -> Report<'a> {
     Report::new(text, parse::check(text, config))
 }
+
+/// Guards on the public API: each example must fail to compile.
+///
+/// A `Location` cannot be built outside the crate, so fields can be added:
+///
+/// ```compile_fail,E0639
+/// let _ = jsonvet::Location { line: 1, column: 1 };
+/// ```
+///
+/// A match on `Severity` needs a wildcard arm, so severities can be added:
+///
+/// ```compile_fail,E0004
+/// fn name(severity: jsonvet::Severity) -> &'static str {
+///     match severity {
+///         jsonvet::Severity::Off => "off",
+///         jsonvet::Severity::Warning => "warning",
+///         jsonvet::Severity::Error => "error",
+///     }
+/// }
+/// ```
+///
+/// The parse errors keep their payload private:
+///
+/// ```compile_fail,E0423
+/// let _ = jsonvet::UnknownRule(String::new());
+/// ```
+///
+/// ```compile_fail,E0423
+/// let _ = jsonvet::UnknownDialect(String::new());
+/// ```
+#[cfg(doctest)]
+pub struct ApiGuards;

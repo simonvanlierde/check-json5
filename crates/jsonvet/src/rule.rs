@@ -65,7 +65,14 @@ impl fmt::Display for Rule {
 
 /// The error for a rule id jsonvet does not know.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnknownRule(pub String);
+pub struct UnknownRule(String);
+
+impl UnknownRule {
+    /// The id that was given.
+    pub fn id(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for UnknownRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -93,8 +100,10 @@ impl FromStr for Rule {
     }
 }
 
-/// How much a problem matters. An ignored (`Off`) rule is not checked at all.
+/// How much a problem matters. An ignored (`Off`) rule is not checked at all. Severities are
+/// ordered from `Off` to `Error`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Severity {
     /// Not checked.
     Off,

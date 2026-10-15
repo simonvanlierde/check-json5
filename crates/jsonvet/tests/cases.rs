@@ -258,12 +258,14 @@ fn names_and_file_names() {
         assert_eq!(alias.parse(), Ok(dialect), "{alias}");
     }
     let unknown = "yaml".parse::<Dialect>().expect_err("not a dialect");
+    assert_eq!(unknown.name(), "yaml");
     assert!(
         unknown
             .to_string()
             .starts_with("unknown dialect `yaml`; expected one of json,")
     );
     let unknown = "tabs".parse::<jsonvet::Rule>().expect_err("not a rule");
+    assert_eq!(unknown.id(), "tabs");
     assert!(
         unknown
             .to_string()
