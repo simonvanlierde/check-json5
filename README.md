@@ -161,9 +161,9 @@ files it had checked so far.
 
 File names and messages come from the files you check. jsonvet escapes what could break the line
 or a terminal. A control character prints as `\u001b`, with CR and LF as `\r` and `\n`, and
-a Unicode bidirectional control (U+202A to U+202E, U+2066 to U+2069) as `\u202e`. A name that
-starts with `::`, after any white space, prints as `./::…`. A `[` straight after `##` prints as
-`\u005b`. So no output line looks like a workflow command, old (`##[command]`) or new
+a Unicode bidirectional control (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069)
+as `\u202e`. A name that starts with `::`, after any white space, prints as `./::…`. A `[`
+straight after `##` prints as `\u005b`. So no output line looks like a workflow command, old (`##[command]`) or new
 (`::command`). The `file=` value of an annotation holds the real name, percent-encoded as GitHub requires.
 
 ## GitHub code scanning
