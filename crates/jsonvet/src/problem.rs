@@ -34,15 +34,41 @@ impl Problem {
         }
     }
 
-    /// A second offset the problem refers to: the first occurrence of a duplicate key, or
-    /// where an unterminated string or comment starts.
-    pub fn related_offset(&self) -> Option<usize> {
-        match &self.detail {
-            Detail::DuplicateKey { first, .. } => Some(*first),
-            Detail::Syntax(s) => s.started,
-            _ => None,
-        }
+    /// A second place the problem refers to: the first occurrence of a duplicate key, or where
+    /// an unterminated string or comment starts.
+    pub fn related(&self) -> Option<Related> {
+        let (offset, kind) = match &self.detail {
+            Detail::DuplicateKey { first, .. } => (*first, RelatedKind::FirstOccurrence),
+            Detail::Syntax(s) => (s.started?, RelatedKind::Start),
+            _ => return None,
+        };
+        Some(Related { offset, kind })
     }
+
+    /// The offset of [`related`](Self::related).
+    pub fn related_offset(&self) -> Option<usize> {
+        self.related().map(|r| r.offset)
+    }
+}
+
+/// A second place a [`Problem`] refers to, and what it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Related {
+    /// The byte offset in the text. Always on a character boundary.
+    pub offset: usize,
+    /// What sits at the offset.
+    pub kind: RelatedKind,
+}
+
+/// What a [`Related`] offset points at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RelatedKind {
+    /// The first occurrence of a duplicate key.
+    FirstOccurrence,
+    /// The start of the unterminated string or comment a syntax error is about.
+    Start,
 }
 
 /// The message, without its position or rule id.

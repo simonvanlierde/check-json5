@@ -316,3 +316,28 @@ fn nesting_stops_at_the_depth_limit() {
     assert!(check("{a: [1]}", &shallow).passed());
     assert!(!check("{a: [{}]}", &shallow).passed());
 }
+
+#[test]
+fn related_offsets_say_what_they_point_at() {
+    use jsonvet::RelatedKind;
+    let related = |dialect, text| {
+        let report = check(text, &Config::new(dialect));
+        let problem = &report.problems()[0];
+        let related = problem.related().map(|r| (r.offset, r.kind));
+        assert_eq!(problem.related_offset(), related.map(|(offset, _)| offset));
+        related
+    };
+    assert_eq!(
+        related(Dialect::Json, r#"{"a": 1, "a": 2}"#),
+        Some((1, RelatedKind::FirstOccurrence))
+    );
+    assert_eq!(
+        related(Dialect::Json, r#"[1, "abc"#),
+        Some((4, RelatedKind::Start))
+    );
+    assert_eq!(
+        related(Dialect::Jsonc, "1 /* open"),
+        Some((2, RelatedKind::Start))
+    );
+    assert_eq!(related(Dialect::Json, "[1 2]"), None);
+}

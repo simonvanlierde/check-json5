@@ -24,7 +24,7 @@ mod rule;
 mod unicode;
 
 pub use dialect::{Dialect, UnknownDialect};
-pub use problem::Problem;
+pub use problem::{Problem, Related, RelatedKind};
 pub use report::{Location, Report};
 pub use rule::{Config, Rule, Severity, UnknownRule};
 
