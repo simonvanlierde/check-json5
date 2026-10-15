@@ -245,8 +245,21 @@ fn names_and_file_names() {
         ("a.ndjson", Some("jsonl")),
         ("a.txt", None),
         ("json", None),
+        ("a.JSON", None),
+        ("a.", None),
     ] {
         assert_eq!(for_path(name), dialect, "{name}");
+    }
+    for (ext, dialect) in Dialect::EXTENSIONS {
+        let name = format!("dir/a.{ext}");
+        assert_eq!(
+            Dialect::for_path(Path::new(&name)),
+            Some(*dialect),
+            "{name}"
+        );
+    }
+    for (name, dialect) in Dialect::FILE_NAMES {
+        assert_eq!(Dialect::for_path(Path::new(name)), Some(*dialect), "{name}");
     }
     for (alias, dialect) in [
         ("ndjson", Dialect::JsonLines),

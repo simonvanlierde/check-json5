@@ -46,22 +46,38 @@ impl Dialect {
         }
     }
 
-    /// The default dialect for a file, from its name, or `None` for a file jsonvet does not
-    /// check by default. `.json` files default to JSON5, because most `.json` files that fail
-    /// as JSON are config files with comments.
+    /// The file extensions jsonvet checks by default, without the dot, each with its dialect.
+    /// Matching is case-sensitive.
+    pub const EXTENSIONS: &'static [(&'static str, Dialect)] = &[
+        ("json", Dialect::Json5),
+        ("json5", Dialect::Json5),
+        ("geojson", Dialect::Json5),
+        ("jsonld", Dialect::Json5),
+        ("webmanifest", Dialect::Json5),
+        ("jsonc", Dialect::Jsonc),
+        ("code-workspace", Dialect::Jsonc),
+        ("code-snippets", Dialect::Jsonc),
+        ("hujson", Dialect::Jwcc),
+        ("jwcc", Dialect::Jwcc),
+        ("jsonl", Dialect::JsonLines),
+        ("ndjson", Dialect::JsonLines),
+    ];
+
+    /// Whole file names jsonvet checks by default, each with its dialect. These match the
+    /// complete name only: `.babelrc`, not `a.babelrc`.
+    pub const FILE_NAMES: &'static [(&'static str, Dialect)] = &[(".babelrc", Dialect::Json5)];
+
+    /// The default dialect for a file, from [`FILE_NAMES`](Self::FILE_NAMES) or else
+    /// [`EXTENSIONS`](Self::EXTENSIONS), or `None` for a file jsonvet does not check by default.
+    /// `.json` files default to JSON5, because most `.json` files that fail as JSON are config
+    /// files with comments.
     pub fn for_path(path: &Path) -> Option<Dialect> {
         let name = path.file_name()?.to_str()?;
-        if name == ".babelrc" {
-            return Some(Dialect::Json5);
-        }
-        let (_, ext) = name.rsplit_once('.')?;
-        match ext {
-            "json" | "json5" | "geojson" | "jsonld" | "webmanifest" => Some(Dialect::Json5),
-            "jsonc" | "code-workspace" | "code-snippets" => Some(Dialect::Jsonc),
-            "hujson" | "jwcc" => Some(Dialect::Jwcc),
-            "jsonl" | "ndjson" => Some(Dialect::JsonLines),
-            _ => None,
-        }
+        let (_, ext) = name.rsplit_once('.').unwrap_or_default();
+        let find = |table: &[(&str, Dialect)], key: &str| {
+            table.iter().find(|(k, _)| *k == key).map(|&(_, d)| d)
+        };
+        find(Self::FILE_NAMES, name).or_else(|| find(Self::EXTENSIONS, ext))
     }
 
     pub(crate) fn comments(self) -> bool {
