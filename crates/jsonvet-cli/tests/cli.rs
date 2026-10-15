@@ -752,3 +752,51 @@ fn each_extension_has_its_dialect() {
         assert_eq!(jsonvet(&dir, &["--dialect", "json5", name]).0, 1, "{name}");
     }
 }
+
+/// A write error other than a closed pipe, such as a full disk, is a failure of the run (exit 2),
+/// for problems and for `--version` alike.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_write_is_an_error() {
+    let dir = workdir(&[("bad.json", "[1,")]);
+    for args in [&["bad.json"][..], &["--version"]] {
+        let full = fs::File::create("/dev/full").expect("open /dev/full");
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GITHUB_ACTIONS")
+            .stdout(full)
+            .output()
+            .expect("run jsonvet");
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.starts_with("jsonvet: cannot write output:"),
+            "{stderr}"
+        );
+    }
+}
+
+/// Only a missing file is "no such file"; any other failure to open it gives the system's reason.
+#[cfg(unix)]
+#[test]
+fn a_file_that_cannot_be_read_says_why() {
+    let dir = workdir(&[("a.json", "{}")]);
+    let (code, out) = jsonvet(&dir, &["a.json/b.json", "gone.json"]);
+    assert_eq!(code, 1);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines[0].starts_with("a.json/b.json: error: cannot read: "),
+        "{out}"
+    );
+    assert_eq!(lines[1], "gone.json: error: no such file");
+}
+
+/// SARIF strings escape a `[` only where it follows `##`.
+#[test]
+fn sarif_keeps_other_brackets() {
+    let dir = workdir(&[("a.json", "[{\"a\": 1, \"a\": 2}]")]);
+    let (code, out) = jsonvet(&dir, &["--format", "sarif", "a.json"]);
+    assert_eq!(code, 1);
+    assert!(out.contains("duplicate key $[0].a"), "{out}");
+}
