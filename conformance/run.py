@@ -179,7 +179,11 @@ def run_container(parser: str, work: Path, files: list[str]) -> dict[str, str]:
         assert proc.stdin is not None  # noqa: S101 - always set with stdin=PIPE
         proc.stdin.write("".join(f"{path}\n" for path in todo))
         proc.stdin.close()
-        if lines.get(timeout=STARTUP) != "ready":
+        try:
+            ready = lines.get(timeout=STARTUP)
+        except queue.Empty:
+            ready = None
+        if ready != "ready":
             sys.exit(f"{parser}: the driver did not start")
         done = 0
         for path in todo:
