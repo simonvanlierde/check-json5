@@ -18,18 +18,33 @@ pub(crate) enum Format {
 }
 
 /// A newline in a file name or message would start a line of its own, which GitHub Actions
-/// reads as a workflow command when it starts with `::`.
+/// reads as a workflow command when it starts with `::`, and other control characters such as
+/// ESC can drive the terminal. Each is written as an escape, as duplicate-key paths write them.
 pub(crate) fn one_line(value: &str) -> String {
-    value.replace('\r', "\\r").replace('\n', "\\n")
+    let mut line = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '\n' => line.push_str("\\n"),
+            '\r' => line.push_str("\\r"),
+            '\t' => line.push_str("\\t"),
+            c if c.is_control() => {
+                let _ = write!(line, "\\u{:04x}", u32::from(c));
+            }
+            c => line.push(c),
+        }
+    }
+    line
 }
 
 /// Escape a value for a GitHub workflow command: `%`, CR and LF always, `:` and `,` in
-/// properties such as `file=`.
+/// properties such as `file=`, and other control characters as [`one_line`] does.
 fn escape(value: &str, property: bool) -> String {
-    let value = value
-        .replace('%', "%25")
-        .replace('\r', "%0D")
-        .replace('\n', "%0A");
+    let value = one_line(
+        &value
+            .replace('%', "%25")
+            .replace('\r', "%0D")
+            .replace('\n', "%0A"),
+    );
     if property {
         value.replace(':', "%3A").replace(',', "%2C")
     } else {
@@ -186,6 +201,11 @@ mod tests {
     #[test]
     fn messages_stay_on_one_line_and_annotation_fields_are_percent_encoded() {
         assert_eq!(one_line("a\n::warning::x"), "a\\n::warning::x");
+        assert_eq!(
+            one_line("a\u{1b}[31m\u{7}\t\u{9b}"),
+            "a\\u001b[31m\\u0007\\t\\u009b"
+        );
+        assert_eq!(escape("a\u{1b}]0;x\n", false), "a\\u001b]0;x%0A");
         assert_eq!(escape("50% a\r\nb", false), "50%25 a%0D%0Ab");
         assert_eq!(escape("a:b,c", true), "a%3Ab%2Cc");
         assert_eq!(escape("not strict: x, y", false), "not strict: x, y");

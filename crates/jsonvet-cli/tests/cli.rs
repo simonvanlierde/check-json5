@@ -764,3 +764,20 @@ fn a_message_listing_many_keys_is_cut_short() {
     );
     assert!(out.ends_with("... (at /)\n"), "{out}");
 }
+
+#[test]
+fn control_characters_in_keys_are_escaped_in_the_output() {
+    let dir = workdir(&[
+        (
+            "schema.json",
+            r#"{"additionalProperties": {"type": "string"}}"#,
+        ),
+        ("k.json", r#"{"x\u001b]0;t\u0007\r\n::error::y": 1}"#),
+    ]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "k.json"]);
+    assert_eq!(code, 1);
+    assert_eq!(
+        out,
+        "k.json:1:37: error[schema] 1 is not of type \"string\" (at /x\\u001b]0;t\\u0007\\r\\n::error::y)\n"
+    );
+}
