@@ -123,6 +123,35 @@ fn github_annotations_follow_each_problem() {
     assert!(!run("false").contains("::"));
 }
 
+// Unix only: Windows refuses `:` in a file name.
+#[cfg(unix)]
+#[test]
+fn a_file_name_cannot_start_a_workflow_command_or_send_escapes() {
+    let dir = workdir(&[
+        ("::stop-commands::tok.json", "[1,"),
+        ("\u{1b}]0;x\u{7}.json", "[1,"),
+    ]);
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args([
+            "::stop-commands::tok.json",
+            "\u{1b}]0;x\u{7}.json",
+            "gone\u{1b}[2J.json",
+        ])
+        .current_dir(&dir)
+        .env("GITHUB_ACTIONS", "true")
+        .output()
+        .expect("run jsonvet");
+    assert_eq!(
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        "./::stop-commands::tok.json:1:4: error[syntax] expected a value, found the end of the file\n\
+         ::error file=%3A%3Astop-commands%3A%3Atok.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
+         \\u001b]0;x\\u0007.json:1:4: error[syntax] expected a value, found the end of the file\n\
+         ::error file=\u{1b}]0;x\u{7}.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
+         gone\\u001b[2J.json: error: no such file\n\
+         ::error file=gone\u{1b}[2J.json,title=jsonvet::no such file\n"
+    );
+}
+
 #[test]
 fn help_version_and_the_check_json5_name() {
     let dir = workdir(&[("dup.json", "{\"a\":1,\"a\":2}"), ("sub.json", "{}")]);
