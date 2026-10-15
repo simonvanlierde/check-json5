@@ -13,9 +13,14 @@ pub struct Report<'a> {
     text: &'a str,
     problems: Vec<Problem>,
     line_starts: OnceCell<Vec<usize>>,
+    /// Whether the text is all ASCII, where a column is a byte count.
+    ascii: OnceCell<bool>,
     /// The furthest location found so far, as (offset, line, column). A later offset on the
     /// same line counts on from it, so locating every problem on a long line stays linear.
     furthest: Cell<(usize, usize, usize)>,
+    /// How many bytes `location` has counted characters in, for tests of its cost.
+    #[cfg(test)]
+    counted: Cell<usize>,
 }
 
 /// A 1-based line and column. Lines end at LF, CR, CRLF, U+2028 and U+2029, as JSON5 defines
@@ -42,7 +47,10 @@ impl<'a> Report<'a> {
             text,
             problems,
             line_starts: OnceCell::new(),
+            ascii: OnceCell::new(),
             furthest: Cell::new((0, 1, 1)),
+            #[cfg(test)]
+            counted: Cell::new(0),
         }
     }
 
@@ -57,17 +65,26 @@ impl<'a> Report<'a> {
     }
 
     /// The line and column of a byte offset in the text. The first call finds the line starts;
-    /// later calls cost a binary search and a count of the characters before the offset on its
-    /// line, counted from the line start or from the furthest offset found on that line,
-    /// whichever is nearer.
+    /// later calls cost a binary search, and in text that is not all ASCII a count of the
+    /// characters before the offset on its line, counted from the line start or from the
+    /// furthest offset found on that line, whichever is nearer.
     /// An offset past the end is treated as the end.
     pub fn location(&self, offset: usize) -> Location {
         let offset = offset.min(self.text.len());
         let starts = self.line_starts.get_or_init(|| line_starts(self.text));
         let line = starts.partition_point(|&s| s <= offset);
         let start = starts[line - 1];
-        let count =
-            |from: usize, to: usize| self.text.get(from..to).map_or(0, |s| s.chars().count());
+        if *self.ascii.get_or_init(|| self.text.is_ascii()) {
+            return Location {
+                line,
+                column: 1 + offset - start,
+            };
+        }
+        let count = |from: usize, to: usize| {
+            #[cfg(test)]
+            self.counted.set(self.counted.get() + to.abs_diff(from));
+            self.text.get(from..to).map_or(0, |s| s.chars().count())
+        };
         let (furthest, furthest_line, furthest_column) = self.furthest.get();
         let column = if furthest_line != line {
             1 + count(start, offset)
@@ -111,6 +128,7 @@ fn line_starts(text: &str) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::{Location, Report, line_starts};
+    use crate::{Config, Dialect, check};
 
     #[test]
     fn every_json5_line_terminator_starts_a_line() {
@@ -135,5 +153,21 @@ mod tests {
         for (offset, (line, column)) in expected {
             assert_eq!(at(offset), Location { line, column }, "offset {offset}");
         }
+    }
+
+    #[test]
+    fn ascii_columns_need_no_counting() {
+        // One line with every key repeated far from its first occurrence, located in the order
+        // the command does: each duplicate, then its first occurrence.
+        let keys: Vec<String> = (0..1000).map(|i| format!("\"k{i}\":1")).collect();
+        let text = format!("{{{},{}}}", keys.join(","), keys.join(","));
+        let report = check(&text, &Config::new(Dialect::Json));
+        assert_eq!(report.problems().len(), 1000);
+        for problem in report.problems() {
+            let at = report.location(problem.offset());
+            assert_eq!(at.column, problem.offset() + 1);
+            report.location(problem.related_offset().unwrap_or_default());
+        }
+        assert_eq!(report.counted.get(), 0);
     }
 }
