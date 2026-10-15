@@ -1,5 +1,5 @@
 //! The contract corpus: every file under `tests/corpus/<dialect>/`, checked by the jsonvet binary
-//! as that dialect, with its exit code and output kept as one reviewed snapshot.
+//! as that dialect, with its exit code, output and error output kept as one reviewed snapshot.
 //! `scripts/differential.py` also runs the `json5` and `json` folders through check-json5 1.4.1.
 
 #![allow(
@@ -52,6 +52,10 @@ fn corpus() {
             let _ = writeln!(out, "{file} -> {code}");
             for line in String::from_utf8(run.stdout).expect("UTF-8 output").lines() {
                 let _ = writeln!(out, "    {line}");
+            }
+            // A warning or crash message on stderr is part of the behaviour, and stdout hides it.
+            for line in String::from_utf8(run.stderr).expect("UTF-8 output").lines() {
+                let _ = writeln!(out, "    stderr: {line}");
             }
         }
     }

@@ -1,4 +1,4 @@
-//! jsonvet and serde_json agree on what is JSON, both ways, apart from serde_json's own limits.
+//! jsonvet and serde_json agree on what is JSON, both ways, apart from a byte order mark.
 #![no_main]
 
 use jsonvet::{Config, Dialect, Rule, Severity, check};
@@ -15,14 +15,15 @@ fuzz_target!(|text: &str| {
             report.problems()
         ),
         Err(e) if report.passed() => {
-            // A byte order mark is only a warning in jsonvet. serde_json stops at 128 levels
-            // of nesting, and at numbers past a double's range, which JSON allows.
-            let message = e.to_string();
-            let limit = text.starts_with('\u{FEFF}')
-                || message.starts_with("recursion limit exceeded")
-                || message.starts_with("number out of range")
-                || message.contains("surrogate");
-            assert!(limit, "jsonvet accepts {text:?} as JSON, serde_json rejects it: {e}");
+            // A byte order mark is only a warning in jsonvet; serde_json rejects it, and the
+            // text without it must then be fine, so nothing else hides behind it.
+            let bom_only = text
+                .strip_prefix('\u{FEFF}')
+                .is_some_and(|rest| serde_json::from_str::<serde::de::IgnoredAny>(rest).is_ok());
+            assert!(
+                bom_only,
+                "jsonvet accepts {text:?} as JSON, serde_json rejects it: {e}"
+            );
         }
         Err(_) => {}
     }

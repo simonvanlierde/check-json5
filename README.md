@@ -260,7 +260,7 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 | JSON Lines | 11 | `jsonvet-jsonl` 100%, `py-jsonlines` 82%, `go-json-stream` 64%, `rs-serde-json-stream` 64% |
 | Strict JSON (baseline) | 129 | `js-json-parse` 100%, `jsonvet-json` 100%, `rs-serde-json` 98%, `py-json` 96% |
 
-Run on 2026-10-14. The full grid, and where each expected verdict comes from: [docs/conformance.md](docs/conformance.md).
+Run on 2026-10-14. The full grid, and where each expected verdict comes from: [docs/conformance.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/conformance.md).
 
 <!-- conformance:end -->
 

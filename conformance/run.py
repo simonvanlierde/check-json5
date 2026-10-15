@@ -108,7 +108,6 @@ PARSERS: dict[str, tuple[str, str | None, list[str]]] = {
     "jsonvet-jsonl": ("jsonvet", "jsonvet", ["jsonl"]),
     "jsonvet-dupes": ("jsonvet", "jsonvet", ["dupes"]),
 }
-CORPUS_DIALECTS = {"json", "i-json", "jsonc", "jwcc", "json5", "jsonl"}
 
 
 def inputs() -> list[str]:
@@ -180,7 +179,11 @@ def run_container(parser: str, work: Path, files: list[str]) -> dict[str, str]:
         assert proc.stdin is not None  # noqa: S101 - always set with stdin=PIPE
         proc.stdin.write("".join(f"{path}\n" for path in todo))
         proc.stdin.close()
-        if lines.get(timeout=STARTUP) != "ready":
+        try:
+            ready = lines.get(timeout=STARTUP)
+        except queue.Empty:
+            ready = None
+        if ready != "ready":
             sys.exit(f"{parser}: the driver did not start")
         done = 0
         for path in todo:
@@ -209,7 +212,7 @@ def run_jsonvet(parser: str, jsonvet: Path, files: list[str]) -> dict[str, str]:
     for path in files:
         if parser == "jsonvet-dupes":  # every rule on, in the corpus folder's dialect
             folder = path.split("/")[2] if path.startswith("tests/corpus/") else "json5"
-            args = ["--dialect", folder if folder in CORPUS_DIALECTS else "json5"]
+            args = ["--dialect", folder]
         else:
             args = ["--dialect", parser.removeprefix("jsonvet-"), "--ignore", "duplicate-key"]
         try:
