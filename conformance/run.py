@@ -108,7 +108,6 @@ PARSERS: dict[str, tuple[str, str | None, list[str]]] = {
     "jsonvet-jsonl": ("jsonvet", "jsonvet", ["jsonl"]),
     "jsonvet-dupes": ("jsonvet", "jsonvet", ["dupes"]),
 }
-CORPUS_DIALECTS = {"json", "i-json", "jsonc", "jwcc", "json5", "jsonl"}
 
 
 def inputs() -> list[str]:
@@ -209,7 +208,7 @@ def run_jsonvet(parser: str, jsonvet: Path, files: list[str]) -> dict[str, str]:
     for path in files:
         if parser == "jsonvet-dupes":  # every rule on, in the corpus folder's dialect
             folder = path.split("/")[2] if path.startswith("tests/corpus/") else "json5"
-            args = ["--dialect", folder if folder in CORPUS_DIALECTS else "json5"]
+            args = ["--dialect", folder]
         else:
             args = ["--dialect", parser.removeprefix("jsonvet-"), "--ignore", "duplicate-key"]
         try:
