@@ -411,3 +411,23 @@ fn messages_show_bidi_controls_as_code_points() {
         "expected a value, found `\u{200D}`"
     );
 }
+
+/// JWCC ends a `//` comment at LF only, JSONC also at a lone CR, and JSON5 also at U+2028 and
+/// U+2029. Where the comment does not end, it swallows the `2]` after it.
+#[test]
+fn line_comments_end_where_each_dialect_says() {
+    use Dialect::{Json5, Jsonc, Jwcc};
+    for (end, dialects) in [
+        ("\n", &[Jwcc, Jsonc, Json5][..]),
+        ("\r\n", &[Jwcc, Jsonc, Json5]),
+        ("\r", &[Jsonc, Json5]),
+        ("\u{2028}", &[Json5]),
+        ("\u{2029}", &[Json5]),
+    ] {
+        for dialect in [Jwcc, Jsonc, Json5] {
+            let text = format!("[1, // c{end}2]");
+            let passed = check(&text, &Config::new(dialect)).passed();
+            assert_eq!(passed, dialects.contains(&dialect), "{dialect} {text:?}");
+        }
+    }
+}
