@@ -19,6 +19,8 @@ Options:
       --dialect DIALECT[:GLOB]  Check files matching GLOB (every file, without one) as DIALECT:
                                 json, i-json, jsonc, jwcc, json5, jsonl, or auto for the file
                                 extension's default. Repeatable; the last match wins.
+                                Files with any other extension are checked as json5;
+                                extensions match in lower case only.
       --strict GLOB             Same as --dialect json:GLOB; --strict '!GLOB' means auto:GLOB.
       --error RULE              Report RULE as an error. Repeatable, as are the next two.
       --warn RULE               Report RULE as a warning.
@@ -163,8 +165,22 @@ fn joined(option: &str, separator: &str, rest: &OsString) -> OsString {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, ConfigSource, Format, parse};
-    use jsonvet::{Rule, Severity};
+    use super::{Command, ConfigSource, Format, HELP, parse};
+    use jsonvet::{Dialect, Rule, Severity};
+
+    #[test]
+    fn help_names_every_rule_and_dialect() {
+        let words: Vec<&str> = HELP
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .collect();
+        let missing: Vec<String> = Rule::ALL
+            .iter()
+            .map(|rule| rule.id().to_owned())
+            .chain(Dialect::ALL.iter().map(ToString::to_string))
+            .filter(|name| !words.contains(&name.as_str()))
+            .collect();
+        assert!(missing.is_empty(), "not in the help: {missing:?}");
+    }
 
     fn check(args: &[&str]) -> super::Args {
         match parse(args.iter().map(Into::into)) {
