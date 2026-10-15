@@ -45,6 +45,23 @@ impl Problem {
         Some(Related { offset, kind })
     }
 
+    /// The JSONPath of a duplicate key, such as `$.server.port`, or `None` for other problems.
+    /// A path longer than 256 bytes keeps its ends, with `…` in place of the middle.
+    ///
+    /// ```
+    /// use jsonvet::{check, Config, Dialect};
+    ///
+    /// let report = check(r#"{"server": {"port": 80, "port": 8080}}"#, &Config::new(Dialect::Json));
+    /// assert_eq!(report.problems()[0].path(), Some("$.server.port"));
+    /// assert_eq!(check("[1 2]", &Config::new(Dialect::Json)).problems()[0].path(), None);
+    /// ```
+    pub fn path(&self) -> Option<&str> {
+        match &self.detail {
+            Detail::DuplicateKey { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
     /// The offset of [`related`](Self::related).
     pub fn related_offset(&self) -> Option<usize> {
         self.related().map(|r| r.offset)
