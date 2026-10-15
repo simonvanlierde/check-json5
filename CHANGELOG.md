@@ -20,8 +20,12 @@ version for a new option or output, the patch version for a fix.
   `schema`, at the line and column of the value it is about, in every dialect and output format.
   A file with a syntax error gets no schema errors. A `$ref` must stay inside the schema file:
   jsonvet fetches nothing. Each document lists at most 100 schema errors, then a count of the
-  rest. A schema that cannot be read or used exits with status 2. The binary
-  grows from about 0.6 MB to about 5 MB on Linux x86-64.
+  rest. A document holding `NaN`, `Infinity` or a number past a double's range has no JSON
+  Schema value, so it gets one schema error at that number and is not checked. Schema errors are
+  always errors: `--error`, `--warn`, `--ignore` and settings files do not take `schema`. SARIF
+  output lists `schema` among its rules. A schema that cannot be read or used, nests more than
+  128 levels, or holds such a number exits with status 2. A regex in it may backtrack 5,000
+  times per match. The binary grows from about 0.6 MB to about 5 MB on Linux x86-64.
 - The library's `parse` returns a text's values as positioned events, next to the report
   `check` gives.
 
@@ -34,6 +38,8 @@ version for a new option or output, the patch version for a fix.
 
 - In JWCC (HuJSON) files, a `//` comment ends only at a line feed, as the JWCC text says. A lone
   carriage return no longer ends it, so `[1, // c` + CR + `2]` fails as it should.
+- Control characters other than CR and LF in a file name or message, such as ESC, are now
+  written as `\u001b` and so on, in text lines and GitHub annotations alike.
 
 ## [2.0.0] - 2026-10-13
 
