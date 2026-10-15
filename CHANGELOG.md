@@ -20,6 +20,8 @@ Upgrade: set `rev: v2.1.0`. Nothing else is needed.
 - A GitHub Action: `uses: simonvanlierde/jsonvet@v2` checks the repository's tracked JSON files,
   or the `files` you give it, and can write a SARIF file for code scanning with `sarif:`. It
   installs jsonvet from PyPI and runs on Linux, macOS and Windows runners.
+- A `CITATION.cff`, and a Zenodo DOI for each release from this one on, so jsonvet and its
+  conformance matrix can be cited.
 
 ### Changed
 
