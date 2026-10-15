@@ -1,5 +1,5 @@
 //! SARIF 2.1.0 output, for GitHub code scanning and other tools that read static analysis
-//! results. The JSON is written by hand: the CLI keeps its dependencies few.
+//! results. The JSON is written by hand.
 
 use std::ffi::OsStr;
 use std::fmt::Write as _;
@@ -10,6 +10,9 @@ use jsonvet::{Location, Rule, Severity};
 /// A file that could not be read gets its own rule, so it shows as an alert. GitHub code scanning
 /// lists tool notifications only on its tool status page, where a failing file is easy to miss.
 pub(crate) const UNREADABLE: &str = "unreadable";
+
+/// A value the schema given with `--schema` rejects. A CLI rule: the library knows no schemas.
+pub(crate) const SCHEMA: &str = "schema";
 
 /// One result, as a JSON object. `related` is a second position with its message, such as a
 /// duplicate key's first copy.
@@ -49,7 +52,13 @@ pub(crate) fn document(results: &[String]) -> String {
     let rules: Vec<String> = Rule::ALL
         .iter()
         .map(|rule| (rule.id(), description(*rule)))
-        .chain([(UNREADABLE, "a file that could not be read, or is not UTF-8")])
+        .chain([
+            (UNREADABLE, "a file that could not be read, or is not UTF-8"),
+            (
+                SCHEMA,
+                "a value the JSON Schema given with --schema rejects",
+            ),
+        ])
         .map(|(id, text)| {
             format!(
                 r#"{{"id":{},"shortDescription":{{"text":{}}}}}"#,

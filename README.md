@@ -97,6 +97,7 @@ Warnings don't fail a run unless there are more than `--max-warnings N`.
 --error RULE, --warn RULE, --ignore RULE
 --max-warnings N
 --format text|sarif        text lines (the default), or one SARIF 2.1.0 document on stdout
+--schema FILE              also check every file against the JSON Schema in FILE
 --config FILE, --no-config
 ```
 
@@ -119,6 +120,28 @@ dialects = [
 ```
 
 Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.
+
+## JSON Schema
+
+`--schema FILE` checks each file's values against one JSON Schema, and reports each error at the
+line and column of the value it is about, in every dialect, comments and JSON5 syntax included:
+
+```text
+$ jsonvet --schema server.schema.json server.json5
+server.json5:3:9: error[schema] "80" is not of type "integer" (at /port)
+server.json5:6:3: error[schema] Additional properties are not allowed ('debug' was unexpected) (at /)
+```
+
+The errors come under the rule `schema` and are errors, in text, GitHub annotations and SARIF
+alike. A message quotes the value unless that would make it long; then it says `value`. A file
+with a syntax error gets no schema errors. Each line of a JSON Lines file is checked
+on its own. `NaN`, `Infinity` and numbers past a double's range have no JSON Schema value, so a
+document holding one is reported once and not checked.
+
+The schema file may itself be in any dialect. Its `$schema` picks the draft, from draft 4 to
+2020-12. A `$ref` must point inside the schema file: jsonvet fetches nothing over the network or
+from disk. A schema that cannot be read or used, such as one with a `$ref` to another file, is a
+usage error with exit status 2.
 
 ## GitHub code scanning
 

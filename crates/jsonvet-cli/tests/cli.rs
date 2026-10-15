@@ -5,6 +5,7 @@
     reason = "a broken test setup should fail the test loudly"
 )]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -356,7 +357,8 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
             "invalid-code-point",
             "byte-order-mark",
             "missing-final-newline",
-            "unreadable"
+            "unreadable",
+            "schema"
         ]
     );
     // `Rule` is non-exhaustive, so a new rule without a description would compile.
@@ -405,4 +407,232 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
     let (code, sarif) = run(&["--format", "sarif", "ok.json"]);
     assert_eq!(code, 0);
     assert_eq!(sarif["runs"][0]["results"], serde_json::json!([]));
+}
+
+/// Run jsonvet in `dir` with GitHub annotations off; return its exit code, stdout and stderr.
+fn jsonvet_stderr(dir: &Path, args: &[&str]) -> (i32, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(args)
+        .current_dir(dir)
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .expect("run jsonvet");
+    (
+        out.status.code().expect("an exit code"),
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        String::from_utf8(out.stderr).expect("UTF-8 errors"),
+    )
+}
+
+/// A schema in JSON5, so the schema file itself may use any dialect's syntax.
+const SCHEMA: &str = r#"{
+  // Every file below breaks it the same three ways.
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    port: { type: "integer" },
+    tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["name"],
+  additionalProperties: false,
+}
+"#;
+
+#[test]
+fn schema_errors_point_at_the_value_in_every_dialect() {
+    let dir = workdir(&[
+        ("schema.json", SCHEMA),
+        (
+            "strict.json",
+            "{\"name\": \"é\", \"port\": \"80\",\n \"tags\": [\"a\", 1], \"x\": 0}",
+        ),
+        (
+            "i.json",
+            "{\"name\": \"é\", \"port\": \"80\",\n \"tags\": [\"a\", 1], \"x\": 0}",
+        ),
+        (
+            "c.jsonc",
+            "{\"name\": /* é */ \"n\", \"port\": \"80\", // c\n \"tags\": [\"a\", 1], \"x\": 0}",
+        ),
+        (
+            "w.hujson",
+            "{\"name\": \"n\", \"port\": \"80\",\n \"tags\": [\"a\", 1,], \"x\": 0,}",
+        ),
+        (
+            "f.json5",
+            "{name: 'n', 'po\\u0072t': '80',\n tags: ['a', +0x1], x: 0,}",
+        ),
+        (
+            "l.jsonl",
+            "{\"name\": \"n\", \"port\": 80}\n{\"port\": \"80\", \"tags\": [\"a\", 1], \"x\": 0}\n",
+        ),
+    ]);
+    let (code, out, _) = jsonvet_stderr(
+        &dir,
+        &[
+            "--schema",
+            "schema.json",
+            "--dialect",
+            "json:strict.json",
+            "--dialect",
+            "i-json:i.json",
+            "strict.json",
+            "i.json",
+            "c.jsonc",
+            "w.hujson",
+            "f.json5",
+            "l.jsonl",
+        ],
+    );
+    assert_eq!(code, 1);
+    let expected = "\
+strict.json:1:23: error[schema] \"80\" is not of type \"integer\" (at /port)
+strict.json:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
+strict.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+i.json:1:23: error[schema] \"80\" is not of type \"integer\" (at /port)
+i.json:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
+i.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+c.jsonc:1:31: error[schema] \"80\" is not of type \"integer\" (at /port)
+c.jsonc:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
+c.jsonc:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+w.hujson:1:23: error[schema] \"80\" is not of type \"integer\" (at /port)
+w.hujson:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
+w.hujson:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+f.json5:1:26: error[schema] \"80\" is not of type \"integer\" (at /port)
+f.json5:2:14: error[schema] 1 is not of type \"string\" (at /tags/1)
+f.json5:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+l.jsonl:2:1: error[schema] \"name\" is a required property (at /)
+l.jsonl:2:10: error[schema] \"80\" is not of type \"integer\" (at /port)
+l.jsonl:2:30: error[schema] 1 is not of type \"string\" (at /tags/1)
+l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+";
+    assert_eq!(out, expected);
+
+    // The same errors as GitHub annotations and as SARIF results.
+    let annotated = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(["--schema", "schema.json", "f.json5"])
+        .current_dir(&dir)
+        .env("GITHUB_ACTIONS", "true")
+        .output()
+        .expect("run jsonvet");
+    assert!(String::from_utf8_lossy(&annotated.stdout).contains(
+        "::error file=f.json5,line=1,col=26,title=jsonvet (schema)::\"80\" is not of type"
+    ));
+    let (_, out, _) = jsonvet_stderr(
+        &dir,
+        &["--format", "sarif", "--schema", "schema.json", "f.json5"],
+    );
+    let sarif: serde_json::Value = serde_json::from_str(&out).expect("JSON output");
+    let result = &sarif["runs"][0]["results"][0];
+    assert_eq!(result["ruleId"], "schema");
+    let region = &result["locations"][0]["physicalLocation"]["region"];
+    assert_eq!(
+        (&region["startLine"], &region["startColumn"]),
+        (&1.into(), &26.into())
+    );
+}
+
+#[test]
+fn a_file_with_a_syntax_error_gets_no_schema_errors() {
+    let dir = workdir(&[
+        ("schema.json", SCHEMA),
+        ("bad.json", "{\"port\": \"80\", \"x\": [1,"),
+        ("dup.json", "{\"name\": \"n\", \"name\": \"m\"}"),
+    ]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "bad.json", "dup.json"]);
+    assert_eq!(code, 1);
+    assert_eq!(
+        out,
+        "bad.json:1:24: error[syntax] expected a value, found the end of the file\n\
+         dup.json:1:15: error[duplicate-key] duplicate key $.name (first at 1:2)\n"
+    );
+}
+
+#[test]
+fn a_schema_that_cannot_be_used_is_a_usage_error() {
+    let dir = workdir(&[
+        ("ok.json", "{}"),
+        ("type.json", "{\n  \"type\": 5\n}"),
+        ("broken.json", "{\"type\": "),
+        (
+            "remote.json",
+            "{\"properties\": {\"a\": {\"$ref\": \"https://example.com/a.json\"}}}",
+        ),
+        ("relative.json", "{\"$ref\": \"other.json\"}"),
+        (
+            "local.json",
+            "{\"$defs\": {\"s\": {\"type\": \"string\"}}, \"$ref\": \"#/$defs/s\"}",
+        ),
+    ]);
+    let cases = [
+        (
+            "type.json",
+            "jsonvet: the schema type.json:2:11: 5 is not valid under any of the schemas listed in the 'anyOf' keyword\n",
+        ),
+        (
+            "broken.json",
+            "jsonvet: the schema broken.json:1:10: expected a value, found the end of the file\n",
+        ),
+        (
+            "remote.json",
+            "jsonvet: the schema remote.json has a `$ref` to https://example.com/a.json, outside the file; jsonvet fetches no schemas\n",
+        ),
+        (
+            "relative.json",
+            "jsonvet: the schema relative.json has a `$ref` to other.json, outside the file; jsonvet fetches no schemas\n",
+        ),
+        ("gone.json", "jsonvet: cannot read the schema gone.json: "),
+    ];
+    for (schema, message) in cases {
+        let (code, out, err) = jsonvet_stderr(&dir, &["--schema", schema, "ok.json"]);
+        assert_eq!((code, out.as_str()), (2, ""), "{schema}");
+        assert!(err.starts_with(message), "{schema}: {err}");
+    }
+    // A `$ref` inside the schema file resolves.
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "local.json", "ok.json"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (
+            1,
+            "ok.json:1:1: error[schema] {} is not of type \"string\" (at /)\n"
+        )
+    );
+}
+
+#[test]
+fn schema_errors_in_a_large_file() {
+    // 100,000 records, every 10,000th with a string port: about 3 MB.
+    let mut text = String::from("[\n");
+    for i in 0..100_000 {
+        let port = if i % 10_000 == 0 {
+            "\"80\"".to_owned()
+        } else {
+            i.to_string()
+        };
+        let _ = writeln!(text, "  {{\"name\": \"n{i}\", \"port\": {port}}},");
+    }
+    text.push_str("  {\"name\": \"last\"}\n]\n");
+    let schema = "{\"items\": {\"properties\": {\"port\": {\"type\": \"integer\"}}}}";
+    let dir = workdir(&[
+        ("schema.json", schema),
+        ("object.json", "{\"type\": \"object\"}"),
+        ("big.json", &text),
+    ]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "big.json"]);
+    assert_eq!(code, 1);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 10);
+    assert_eq!(
+        lines[0],
+        "big.json:2:26: error[schema] \"80\" is not of type \"integer\" (at /0/port)"
+    );
+    assert_eq!(
+        lines[9],
+        "big.json:90002:30: error[schema] \"80\" is not of type \"integer\" (at /90000/port)"
+    );
+    // The message names a large value instead of quoting all of it.
+    assert_eq!(
+        jsonvet_stderr(&dir, &["--schema", "object.json", "big.json"]).1,
+        "big.json:1:1: error[schema] value is not of type \"object\" (at /)\n"
+    );
 }

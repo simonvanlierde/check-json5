@@ -11,10 +11,12 @@ mod args;
 mod glob;
 mod output;
 mod sarif;
+mod schema;
 mod settings;
 
 use args::{Command, ConfigSource};
 use output::Printer;
+use schema::Schema;
 use settings::Settings;
 
 /// Run the command with the process's arguments and environment, and return its exit code.
@@ -60,11 +62,15 @@ fn run_with(
         }
     };
     let settings = from_file.overridden_by(args.settings);
+    let schema = match &args.schema {
+        Some(path) => Some(Schema::load(path, &settings)?),
+        None => None,
+    };
 
     let mut printer = Printer::new(out, args.format, annotate);
     let (mut failed, mut warnings) = (false, 0usize);
     for file in &args.files {
-        let result = check_file(file, &settings, &mut printer)
+        let result = check_file(file, &settings, schema.as_ref(), &mut printer)
             .map_err(|e| format!("cannot write output: {e}"))?;
         failed |= result.errors > 0;
         warnings += result.warnings;
@@ -82,11 +88,12 @@ struct Counts {
     warnings: usize,
 }
 
-/// Check one file. The name is opened as given; its lossy UTF-8 form is only for output and
-/// glob matching.
+/// Check one file, and against `schema` if there is one. The name is opened as given; its lossy
+/// UTF-8 form is only for output and glob matching.
 fn check_file(
     file: &OsStr,
     settings: &Settings,
+    schema: Option<&Schema>,
     printer: &mut Printer<impl Write>,
 ) -> io::Result<Counts> {
     let text = match std::fs::read(Path::new(file)) {
@@ -106,7 +113,11 @@ fn check_file(
             });
         }
     };
-    let report = jsonvet::check(&text, &settings.config_for(&name));
+    let config = settings.config_for(&name);
+    let (report, events) = match schema {
+        Some(_) => jsonvet::parse(&text, &config),
+        None => (jsonvet::check(&text, &config), None),
+    };
     let mut counts = Counts::default();
     for problem in report.problems() {
         printer.problem(file, &report, problem)?;
@@ -114,6 +125,13 @@ fn check_file(
             Severity::Error => counts.errors += 1,
             Severity::Warning => counts.warnings += 1,
             Severity::Off => {}
+        }
+    }
+    // `events` is `None` after a syntax error, so such a file gets no schema errors.
+    if let (Some(schema), Some(events)) = (schema, events) {
+        for (offset, message) in schema.errors(&events) {
+            printer.schema_error(file, &report, offset, &message)?;
+            counts.errors += 1;
         }
     }
     Ok(counts)

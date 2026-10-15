@@ -88,8 +88,15 @@ Every problem belongs to a rule. Each rule has a default severity per dialect. `
 
 Warnings don't fail a run unless `--max-warnings N` is exceeded. In GitHub Actions each problem is
 also printed as a `::warning` or `::error` annotation. `--format sarif` prints one SARIF 2.1.0
-document instead, with no annotations; its JSON is written by hand, to keep serde_json out of the
-binary.
+document instead, with no annotations; its JSON is written by hand.
+
+`--schema FILE` adds a seventh rule, `schema`, which belongs to the CLI: the library knows no
+schemas. The library's `parse` returns the file's values as events, each with its byte offset;
+the CLI folds them into `serde_json` values, validates those with the `jsonschema` crate (default
+features off, so nothing is fetched), and maps each error's instance path, a JSON Pointer, back
+to the offset of its value. Only a document with errors gets that pointer map, since building it
+costs more than validating. Schema errors are always errors and follow the file's other problems;
+a file with a syntax error has no events, so it gets none.
 
 Output:
 
@@ -122,8 +129,8 @@ A glob without `/` matches the file name at any depth, and one with `/` matches 
 
 ```text
 crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-properties.
-crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output. Built into the
-                       PyPI wheels by maturin.
+crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output, --schema
+                       (jsonschema, serde_json). Built into the PyPI wheels by maturin.
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
 setup.py               placeholder that pre-commit installs: pins the jsonvet wheel
 action.yml             the GitHub Action: installs the jsonvet wheel from PyPI and runs it
@@ -134,6 +141,7 @@ fuzz/  tests/  scripts/
 
 ```rust
 pub fn check(text: &str, config: &Config) -> Report<'_>;
+pub fn parse(text: &str, config: &Config) -> (Report<'_>, Option<Vec<Event<'_>>>); // None after a syntax error
 
 pub struct Config { /* dialect, rule overrides */ }
 impl Config { pub fn new(dialect: Dialect) -> Self; pub fn rule(self, rule: Rule, severity: Severity) -> Self; }

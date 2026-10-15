@@ -72,25 +72,43 @@ impl<W: Write> Printer<W> {
             };
             let _ = write!(message, " ({what} {}:{})", first.line, first.column);
         }
-        let severity = problem.severity();
         let rule = problem.rule();
+        let related = problem.related_offset().map(|offset| {
+            let what = if rule == Rule::DuplicateKey {
+                "first copy"
+            } else {
+                "starts here"
+            };
+            (report.location(offset), what)
+        });
+        self.line(file, rule.id(), problem.severity(), &message, at, related)
+    }
+
+    /// A value the `--schema` schema rejects, at `offset`.
+    pub(crate) fn schema_error(
+        &mut self,
+        file: &OsStr,
+        report: &Report<'_>,
+        offset: usize,
+        message: &str,
+    ) -> io::Result<()> {
+        let at = report.location(offset);
+        self.line(file, sarif::SCHEMA, Severity::Error, message, at, None)
+    }
+
+    /// One problem, in whichever format: a text line and maybe an annotation, or a SARIF
+    /// result. `related` is only for SARIF; the text message already names it.
+    fn line(
+        &mut self,
+        file: &OsStr,
+        rule: &str,
+        severity: Severity,
+        message: &str,
+        at: Location,
+        related: Option<(Location, &str)>,
+    ) -> io::Result<()> {
         if let Some(results) = &mut self.sarif {
-            let related = problem.related_offset().map(|offset| {
-                let what = if rule == Rule::DuplicateKey {
-                    "first copy"
-                } else {
-                    "starts here"
-                };
-                (report.location(offset), what)
-            });
-            results.push(sarif::result(
-                file,
-                rule.id(),
-                severity,
-                &message,
-                at,
-                related,
-            ));
+            results.push(sarif::result(file, rule, severity, message, at, related));
             return Ok(());
         }
         let file = &file.to_string_lossy();
@@ -100,7 +118,7 @@ impl<W: Write> Printer<W> {
             one_line(file),
             at.line,
             at.column,
-            one_line(&message)
+            one_line(message)
         )?;
         if self.annotate {
             writeln!(
@@ -110,7 +128,7 @@ impl<W: Write> Printer<W> {
                 escape(file, true),
                 at.line,
                 at.column,
-                escape(&message, false)
+                escape(message, false)
             )?;
         }
         Ok(())

@@ -26,18 +26,23 @@ Options:
       --max-warnings N          Fail when there are more than N warnings.
       --format FORMAT           Print problems as text (the default) or as one SARIF 2.1.0
                                 document, for GitHub code scanning.
+      --schema FILE             Also check each file against the JSON Schema in FILE, reported
+                                under the rule schema at the value each error is about. Files
+                                with a syntax error are not checked. A $ref must stay inside
+                                FILE: nothing is fetched.
       --config FILE             Read settings from FILE instead of searching for one.
       --no-config               Do not read a settings file.
   -h, --help                    Print this help.
   -V, --version                 Print the version.
 
 Rules: syntax, duplicate-key, invalid-number, invalid-code-point, byte-order-mark,
-missing-final-newline.
+missing-final-newline, and schema with --schema.
 
 Settings come from jsonvet.toml, or [tool.jsonvet] in pyproject.toml, found in the working
 directory or a parent up to the repository root. Options on the command line win.
 
-Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.";
+Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error, which
+includes a schema that cannot be read or used.";
 
 /// Where settings come from besides the command line.
 #[derive(Debug, PartialEq, Eq)]
@@ -54,6 +59,7 @@ pub(crate) struct Args {
     pub(crate) max_warnings: Option<usize>,
     pub(crate) config: ConfigSource,
     pub(crate) format: Format,
+    pub(crate) schema: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -70,6 +76,7 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
     let mut max_warnings = None;
     let mut config = ConfigSource::Search;
     let mut format = Format::Text;
+    let mut schema = None;
     while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
         match arg {
             Long("dialect") => settings
@@ -103,6 +110,7 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
             }
             Long("config") => config = ConfigSource::File(PathBuf::from(value(&mut parser)?)),
             Long("no-config") => config = ConfigSource::None,
+            Long("schema") => schema = Some(PathBuf::from(value(&mut parser)?)),
             Value(file) => files.push(file),
             // pre-commit puts file names after the options with no `--`, so a name like
             // `-x.json`, `-h.json` or `--y.json` is a file, not an option.
@@ -132,6 +140,7 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
         max_warnings,
         config,
         format,
+        schema,
     }))
 }
 

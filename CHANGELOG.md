@@ -16,6 +16,13 @@ version for a new option or output, the patch version for a fix.
 - A GitHub Action: `uses: simonvanlierde/jsonvet@v2` checks the repository's tracked JSON files,
   or the `files` you give it, and can write a SARIF file for code scanning with `sarif:`. It
   installs jsonvet from PyPI and runs on Linux, macOS and Windows runners.
+- `--schema FILE` checks each file against one JSON Schema and reports each error under the rule
+  `schema`, at the line and column of the value it is about, in every dialect and output format.
+  A file with a syntax error gets no schema errors. A `$ref` must stay inside the schema file:
+  jsonvet fetches nothing. A schema that cannot be read or used exits with status 2. The binary
+  grows from about 0.6 MB to about 5 MB on Linux x86-64.
+- The library's `parse` returns a text's values as positioned events, next to the report
+  `check` gives.
 
 ### Changed
 
