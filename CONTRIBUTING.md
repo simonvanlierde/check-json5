@@ -1,0 +1,63 @@
+# Contributing
+
+## Set up
+
+Clone with `--recurse-submodules` and install the tools in `mise.toml` (`mise install`), plus
+Rust from rustup. Then run `just setup` once: it fetches the json5-tests submodule and installs
+the git hooks with [prek](https://github.com/j178/prek). `just --list` shows every task.
+
+`just check` runs what CI runs on Linux: formatting, clippy, rustdoc, cargo deny, ruff, the tests
+(including doctests) and the version check. Run it before you open a pull request.
+
+## Pull requests
+
+`main` is protected, and the `no-commit-to-branch` hook stops a commit on it. Work on a branch and
+open a pull request. Write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/),
+such as `fix(parser): reject a lone CR in a JWCC comment`. The pull request number is added on merge.
+
+Commit hooks run `cargo fmt --check`, ruff and the version check; `git push` runs clippy and
+cargo deny.
+
+## Tests
+
+- **Snapshots.** CLI output is tested with [insta](https://insta.rs). A change in behaviour shows
+  up as a `.snap` diff. Review it with `cargo insta review`, or accept everything with
+  `INSTA_UPDATE=always cargo test`, then read the diff and commit the `.snap` files.
+- **Corpus.** `tests/corpus/<dialect>/` has one file per case. Its bytes are part of the test:
+  missing final newlines, CRs and trailing spaces stay. `.gitattributes` sets `-text` on it and
+  the hooks skip it, so do not let an editor reformat those files.
+- **`\uXXXX` escapes.** Tests and snapshots contain them. Edit those files with a script, not an
+  editor that unescapes them, and check the diff.
+- **Conformance matrix.** `just matrix` runs one set of inputs through 16 other parsers in docker
+  containers (never on the host), then renders `docs/conformance.md` and the block in the README.
+  Commit `conformance/results/` and both rendered files. CI fails when the report is stale, and when
+  `conformance/results/versions.json` disagrees with the pinned parsers (`run.py --check`), which
+  happens after a pin bump until someone re-runs the matrix. After a pin change, run
+  `just matrix-lock` first. Details: [conformance/README.md](conformance/README.md).
+- **Fuzzing.** `just fuzz check` (or `diff_serde_json`, `diff_json5`) runs a target for 20
+  minutes. It needs a nightly toolchain and cargo-fuzz. Coverage stops growing within about two
+  hours per target. A new json5 version in `fuzz/` can need new skips in `diff_json5`: read its skip
+  list before calling a divergence a jsonvet bug.
+- **Mutation testing.** `just mutants` runs cargo-mutants over both crates in about 8 minutes. The
+  mutants that survive change no behaviour.
+- **Speed claims.** Measure with `just bench`: hyperfine without a shell, warm, 20 runs.
+
+## Releasing
+
+A release changes the version in these places, in one commit on a branch:
+
+1. `version` in the root `Cargo.toml`, and `Cargo.lock` with it
+2. the `=x.y.z` pin on `jsonvet` in `crates/jsonvet-cli/Cargo.toml`
+3. the pin in `setup.py`
+4. `version` and the `jsonvet==` pin in `compat/check-json5/pyproject.toml`
+5. `rev: vX.Y.Z` in the README's hook example
+6. in `CHANGELOG.md`, the Unreleased entries moved under a new `## [X.Y.Z] - date` heading
+
+`uv run scripts/check-versions.py` fails when any of them disagrees, or when the CHANGELOG has no
+heading for the version. Renovate owns the dependency pins, so do not bump those by hand.
+
+After the pull request merges, publish a GitHub release for the tag `vX.Y.Z`. That runs
+`release.yml`: it checks the tag against the versions, builds the wheels, publishes them to PyPI,
+then publishes the `check-json5` package and the crates to crates.io, all by trusted publishing.
+Once PyPI has the release, the workflow moves the `v<major>` tag (`v2`) to it, which is what
+`uses: simonvanlierde/jsonvet@v2` follows.
