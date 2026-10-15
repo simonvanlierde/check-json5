@@ -2,9 +2,10 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
-/// A member of the JSON family. Each one only adds syntax to the one before it, in the order
-/// JSON, JSONC, JWCC, JSON5; I-JSON is JSON with stricter content rules, and JSON Lines is one
-/// JSON value per line.
+/// A member of the JSON family. In the order JSON, JSONC, JWCC, JSON5, each one adds syntax to the
+/// one before it. The one thing that does not carry over is where a `//` comment ends: JWCC ends
+/// it at LF only, JSONC also at a lone CR, and JSON5 also at U+2028 and U+2029. I-JSON is JSON
+/// with stricter content rules, and JSON Lines is one JSON value per line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Dialect {
