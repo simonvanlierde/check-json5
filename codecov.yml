@@ -11,6 +11,7 @@ coverage:
       default:
         informational: true
 
-# No pull request comments: Codecov posts an "all lines covered" note even with
-# require_changes set. A failing project check is the notice.
-comment: false
+# Comment only when a pull request adds lines no test runs. A total drop of over 2 points
+# shows as the failing project check instead.
+comment:
+  require_changes: "uncovered_patch"
