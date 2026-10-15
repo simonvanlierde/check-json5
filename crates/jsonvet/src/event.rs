@@ -5,6 +5,7 @@ use std::borrow::Cow;
 /// An object is `ObjectStart`, then a `Key` and its value for each member, then `End`; an array
 /// is `ArrayStart`, its elements, then `End`. A JSON Lines file is one document after another.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Event<'a> {
     /// The byte offset where the token starts: the bracket, the key or the value.
     pub offset: usize,
