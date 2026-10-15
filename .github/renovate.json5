@@ -58,6 +58,12 @@
       groupName: "dependencies",
     },
     {
+      // uv in CI and mise.toml, and uv_build, which builds check-json5: one pull request, so the
+      // backend stays at the version of the uv that runs it.
+      matchPackageNames: ["uv", "astral-sh/uv", "uv_build", "uv-build"],
+      groupName: "uv",
+    },
+    {
       // The matrix's parsers and images: pinned exactly, bumped once a quarter, never merged
       // without a re-run. CI's `run.py --check` fails until results/versions.json matches.
       matchFileNames: ["conformance/**"],
@@ -90,7 +96,7 @@
     },
     {
       // The check-json5 package pins jsonvet's own version, which the release sets. Its build
-      // backend (hatchling) is bumped like any other pin.
+      // backend, uv_build, is bumped in the uv group.
       matchFileNames: ["compat/**"],
       matchPackageNames: ["jsonvet"],
       enabled: false,
