@@ -10,8 +10,8 @@ use std::str::FromStr;
 pub enum Dialect {
     /// JSON as RFC 8259 defines it.
     Json,
-    /// I-JSON (RFC 7493): JSON whose duplicate keys, lone surrogates, noncharacters and
-    /// out-of-range numbers are errors.
+    /// I-JSON (RFC 7493): JSON whose lone surrogates, noncharacters and out-of-range numbers
+    /// are errors. Duplicate keys are an error in every dialect.
     IJson,
     /// JSON with `//` and `/* */` comments.
     Jsonc,
