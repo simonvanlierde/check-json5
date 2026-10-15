@@ -54,6 +54,13 @@ pub fn check<'a>(text: &'a str, config: &Config) -> Report<'a> {
 /// }
 /// ```
 ///
+/// A `Report` caches locations in cells, so it is not `Sync`, as its docs say:
+///
+/// ```compile_fail,E0277
+/// fn sync<T: Sync>() {}
+/// sync::<jsonvet::Report<'static>>();
+/// ```
+///
 /// The parse errors keep their payload private:
 ///
 /// ```compile_fail,E0423

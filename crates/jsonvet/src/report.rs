@@ -4,6 +4,10 @@ use crate::unicode::line_separator_at;
 use crate::{Problem, Severity};
 
 /// The problems found in one text, in document order.
+///
+/// A `Report` is `Send` but not `Sync`: [`location`](Self::location) caches the line starts and
+/// its last answer inside the report. To share one between threads, put it behind a `Mutex`,
+/// or look up the locations first.
 #[derive(Debug)]
 pub struct Report<'a> {
     text: &'a str,
