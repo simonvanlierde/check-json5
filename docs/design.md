@@ -40,9 +40,11 @@ other difference is a bug.
 `scripts/differential.py` compares jsonvet with check-json5 1.4.1 file by file. Its first run,
 against 1.4.0, found two bugs in 1.4.0, fixed in 1.4.1: strict mode passed `NaN` or `Infinity`
 running on into other text (`[NaN-2.5e3`), and unquoted JSON5 keys were compared with their
-`\u` escapes undecoded. Against 1.4.1, all 40,228 comparisons (20,114 files in each of
-JSON5 and strict mode, 2026-10-13) agree. These differences are deliberate, and the corpus
-can still meet them:
+`\u` escapes undecoded. Against 1.4.1, on 20,184 files in each of JSON5 and strict mode (20,000
+generated, the 114 json5-tests cases and the 70 corpus files; `--cases 20000 --seed 7`,
+2026-10-15), 40,368 runs in all, every verdict and duplicate-key report matches except 3 runs on 2
+files: the depth-10,000 file and the `\u0301` identifier key, both below. These differences are
+deliberate, and the corpus can still meet them:
 
 - Lines end at lone CR, U+2028 and U+2029 in jsonvet, so positions after one of them differ.
 - Raw U+2028 and U+2029 inside strings pass in jsonvet, as the JSON5 spec allows; 1.4's JSON5

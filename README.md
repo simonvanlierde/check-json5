@@ -202,8 +202,10 @@ working until 3.0, and the `check-json5` package on PyPI now installs jsonvet.
 
 For `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and in strict
 mode, 2.0 gives the same pass or fail as 1.4.1, the same exit codes and the same duplicate-key
-paths. Comparing both on 20,114 generated files in JSON5 and in strict mode, 40,228 runs in all,
-they agree on every one. What changes, and why, is listed in the
+paths. Comparing both on 20,184 files in JSON5 and in strict mode (20,000 generated, the 114
+json5-tests cases and the 70-file corpus), 40,368 runs in all, the verdicts and duplicate-key
+reports match on every run but 3, on 2 files, both deliberate:
+a nesting depth of 10,000, and a `\u` escape in an unquoted key. What changes, and why, is listed in the
 [CHANGELOG](https://github.com/simonvanlierde/jsonvet/blob/main/CHANGELOG.md) and in [docs/design.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/design.md):
 
 - each line gains the severity and rule, as in `error[duplicate-key]`, and syntax errors use
