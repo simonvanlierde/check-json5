@@ -216,3 +216,32 @@ jobs:
           cargo publish --locked --no-verify -p jsonvet-cli
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  # The Action's major tag (`uses: simonvanlierde/jsonvet@v2`) follows the newest X.Y.Z release
+  # once its wheels are on PyPI, since `@v2` installs the newest 2.x from there. A pre-release, or
+  # a patch to an older minor, leaves it where it is.
+  major-tag:
+    needs: publish-jsonvet
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # to move the tag
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          [[ "$TAG" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]] || { echo "$TAG is not vX.Y.Z; no major tag"; exit 0; }
+          major="v${BASH_REMATCH[1]}"
+          newest=$(gh api "repos/$REPO/git/matching-refs/tags/$major." --jq '.[].ref' |
+            sed -n "s|^refs/tags/\($major\.[0-9]*\.[0-9]*\)$|\1|p" | sort -V | tail -n 1)
+          [[ "$newest" == "$TAG" ]] || { echo "$newest is newer than $TAG; $major stays"; exit 0; }
+          sha=$(gh api "repos/$REPO/commits/$TAG" --jq .sha)
+          if gh api "repos/$REPO/git/ref/tags/$major" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/$REPO/git/refs/tags/$major" -f sha="$sha" -F force=true > /dev/null
+          else
+            gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" > /dev/null
+          fi
+          echo "$major now points at $TAG ($sha)"
