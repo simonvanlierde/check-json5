@@ -93,7 +93,7 @@ impl Schema {
                  schemas"
             ));
         }
-        let at = report.location(locate(&events[document.events], &[&error])[0]);
+        let at = report.location(locate(&events[document.events], std::slice::from_ref(&error))[0]);
         Err(format!(
             "the schema {name}:{}:{}: {error}",
             at.line, at.column
@@ -115,23 +115,59 @@ impl Schema {
             if found.is_empty() {
                 continue;
             }
-            let found: Vec<&ValidationError<'_>> = found.iter().collect();
             let offsets = locate(&events[document.events], &found);
-            for (error, offset) in found.into_iter().zip(offsets) {
+            for (error, offset) in found.iter().zip(offsets) {
                 let pointer = error.instance_path().as_str();
                 let at = if pointer.is_empty() { "/" } else { pointer };
-                // A message quotes the value it is about, which can be the whole file.
-                let mut message = error.to_string();
-                if message.len() > MAX_MESSAGE {
-                    message = error.masked().to_string();
-                }
-                errors.push((offset, format!("{message} (at {at})")));
+                errors.push((offset, format!("{} (at {at})", message(error))));
             }
         }
         // Stable, so errors at one value keep the schema's order.
         errors.sort_by_key(|(offset, _)| *offset);
         errors
     }
+}
+
+/// An error's message, quoting the value it is about only when that is short, and cut short
+/// itself when it lists many keys or values.
+fn message(error: &ValidationError<'_>) -> String {
+    let mut budget = MAX_MESSAGE;
+    let mut message = String::new();
+    if fits(error.instance(), &mut budget) {
+        message = error.to_string();
+    }
+    if message.is_empty() || message.len() > MAX_MESSAGE {
+        message = error.masked().to_string();
+    }
+    if message.len() > MAX_MESSAGE {
+        let mut end = MAX_MESSAGE;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        message.truncate(end);
+        message.push_str("...");
+    }
+    message
+}
+
+/// Whether `value` as JSON takes about `budget` bytes or fewer, without writing it out. Each level
+/// costs at least one byte, so this recurses no deeper than the budget.
+fn fits(value: &Value, budget: &mut usize) -> bool {
+    let cost = match value {
+        Value::String(s) => s.len() + 2,
+        Value::Array(_) | Value::Object(_) => 2,
+        _ => 5,
+    };
+    *budget = budget.saturating_sub(cost);
+    *budget > 0
+        && match value {
+            Value::Array(items) => items.iter().all(|item| fits(item, budget)),
+            Value::Object(members) => members.iter().all(|(key, value)| {
+                *budget = budget.saturating_sub(key.len() + 4);
+                *budget > 0 && fits(value, budget)
+            }),
+            _ => true,
+        }
 }
 
 /// The values some errors are about, as a tree of JSON Pointer segments, with the offset of
@@ -163,7 +199,7 @@ type Slot<'e> = Result<usize, (&'e str, usize)>;
 
 /// Where each error is, found in one walk over its document's events: its value; for unexpected
 /// properties, the first such key; for a property name, that key.
-fn locate(events: &[Event<'_>], errors: &[&ValidationError<'_>]) -> Vec<usize> {
+fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
     let mut wanted = Wanted(vec![Node::default()]);
     // For each error, its value's node and the nodes of any keys it is about.
     let nodes: Vec<(usize, Vec<usize>)> = errors
@@ -368,7 +404,6 @@ mod tests {
             json!({"properties": {"a": {"type": "integer"}, "b\u{e9}/~": {"type": "integer"}}});
         let validator = jsonschema::validator_for(&schema).expect("a schema");
         let errors: Vec<_> = validator.iter_errors(&documents[0].value).collect();
-        let errors: Vec<_> = errors.iter().collect();
         let pointers: Vec<_> = errors.iter().map(|e| e.instance_path().as_str()).collect();
         assert_eq!(pointers, ["/a", "/b\u{e9}~1~0"]);
         assert_eq!(locate(&events, &errors), [44, 34]);

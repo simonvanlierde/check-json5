@@ -735,3 +735,23 @@ fn keys_that_differ_only_in_lone_surrogates_skip_the_document() {
          lone surrogates become U+FFFD, so this document is not checked against the schema\n"
     );
 }
+
+#[test]
+fn a_message_listing_many_keys_is_cut_short() {
+    let members: Vec<String> = (0..1_000).map(|i| format!("\"k{i}\": {i}")).collect();
+    let dir = workdir(&[
+        ("schema.json", r#"{"properties": {"a": true}, "additionalProperties": false}"#),
+        ("many.json", &format!("{{{}}}", members.join(", "))),
+    ]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "many.json"]);
+    assert_eq!(code, 1);
+    assert_eq!(out.lines().count(), 1);
+    assert!(out.len() < 300, "{out}");
+    assert!(
+        out.starts_with(
+            "many.json:1:2: error[schema] Additional properties are not allowed ('k0', 'k1',"
+        ),
+        "{out}"
+    );
+    assert!(out.ends_with("... (at /)\n"), "{out}");
+}
