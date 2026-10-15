@@ -25,7 +25,7 @@ pub enum Dialect {
 
 impl Dialect {
     /// Every dialect, in the order the docs list them.
-    pub const ALL: [Dialect; 6] = [
+    pub const ALL: &'static [Dialect] = &[
         Dialect::Json,
         Dialect::IJson,
         Dialect::Jsonc,
@@ -115,9 +115,33 @@ impl FromStr for Dialect {
             "hujson" => Ok(Dialect::Jwcc),
             "ijson" => Ok(Dialect::IJson),
             _ => Dialect::ALL
-                .into_iter()
+                .iter()
+                .copied()
                 .find(|d| d.name() == s)
                 .ok_or_else(|| UnknownDialect(s.to_owned())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Dialect;
+
+    #[test]
+    fn all_lists_every_dialect_at_its_index() {
+        for (i, &dialect) in Dialect::ALL.iter().enumerate() {
+            assert_eq!(dialect as usize, i, "{dialect}");
+        }
+        let last = Dialect::JsonLines;
+        // No wildcard: a new dialect stops this building until `last` and ALL are updated.
+        match last {
+            Dialect::Json
+            | Dialect::IJson
+            | Dialect::Jsonc
+            | Dialect::Jwcc
+            | Dialect::Json5
+            | Dialect::JsonLines => {}
+        }
+        assert_eq!(Dialect::ALL.len(), last as usize + 1);
     }
 }

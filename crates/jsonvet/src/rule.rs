@@ -23,7 +23,7 @@ pub enum Rule {
 
 impl Rule {
     /// Every rule, in the order the docs list them.
-    pub const ALL: [Rule; 6] = [
+    pub const ALL: &'static [Rule] = &[
         Rule::Syntax,
         Rule::DuplicateKey,
         Rule::InvalidNumber,
@@ -86,7 +86,8 @@ impl FromStr for Rule {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Rule::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .find(|r| r.id() == s)
             .ok_or_else(|| UnknownRule(s.to_owned()))
     }
@@ -172,5 +173,30 @@ impl Config {
             return Severity::Error;
         }
         self.overrides[rule as usize].unwrap_or_else(|| rule.default_severity(self.dialect))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rule;
+
+    #[test]
+    fn all_lists_every_rule_at_its_index() {
+        // `Config` indexes its overrides by `rule as usize`, so ALL must hold every rule, in
+        // declaration order.
+        for (i, &rule) in Rule::ALL.iter().enumerate() {
+            assert_eq!(rule as usize, i, "{rule}");
+        }
+        let last = Rule::MissingFinalNewline;
+        // No wildcard: a new rule stops this building until `last` and ALL are updated.
+        match last {
+            Rule::Syntax
+            | Rule::DuplicateKey
+            | Rule::InvalidNumber
+            | Rule::InvalidCodePoint
+            | Rule::ByteOrderMark
+            | Rule::MissingFinalNewline => {}
+        }
+        assert_eq!(Rule::ALL.len(), last as usize + 1);
     }
 }
