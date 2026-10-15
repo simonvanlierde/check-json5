@@ -8,6 +8,12 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
+Upgrade: hook and command users need no change, with two exceptions. `dialects` patterns in a
+config file now match paths relative to that file, and a mistyped `--option` now exits 2. Rust
+library users: `Rule::ALL` and `Dialect::ALL` are slices, a `match` on `Severity` needs a `_`
+arm, a `Location` is no longer built with a struct literal (use `Location::START`), and the text
+of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
+
 ### Added
 
 - `--format sarif` prints one SARIF 2.1.0 document instead of text lines, for GitHub code
@@ -15,10 +21,35 @@ version for a new option or output, the patch version for a fix.
   result under the rule `unreadable`. Exit codes and `--max-warnings` work as before.
 - A GitHub Action: `uses: simonvanlierde/jsonvet@v2` checks the repository's tracked JSON files,
   or the `files` you give it, and can write a SARIF file for code scanning with `sarif:`. It
-  installs jsonvet from PyPI and runs on Linux, macOS and Windows runners.
+  installs jsonvet from PyPI and runs on Linux, macOS and Windows runners. The `v2` tag moves to
+  each new 2.x release once its wheels are on PyPI.
+- Library: `Rule::description()`, `Problem::related()` with `Related` and `RelatedKind` (what the
+  second position points at), `Problem::path()` (a duplicate key's JSONPath),
+  `Dialect::EXTENSIONS`, `Dialect::FILE_NAMES` and `Location::START`.
 
 ### Changed
 
+- **Breaking:** `dialects` patterns in `jsonvet.toml` or `[tool.jsonvet]` match the path relative
+  to the directory of that file, not the working directory, so running from a subdirectory or with
+  absolute paths picks the same dialect. Patterns given with `--dialect` or `--strict` still match
+  the path as typed.
+- **Breaking:** an unknown `--option` that is not an existing file is a usage error (exit 2,
+  "unknown option") instead of a missing file (exit 1). An existing file named like `--x.json` is
+  still checked.
+- **Breaking** (library): `Rule::ALL` and `Dialect::ALL` are slices, not fixed-size arrays, and
+  `Severity` and `Location` are `#[non_exhaustive]`, so later minor releases can add rules,
+  dialects, severities and position fields. The text inside `UnknownRule` and `UnknownDialect` is
+  private; read it with `UnknownRule::id()` and `UnknownDialect::name()`.
+- Directories, devices and FIFOs are reported as `not a regular file` under the rule `unreadable`
+  (exit 1). A symlink to a regular file is still checked.
+- A duplicate-key path longer than 256 bytes is shortened to its first and last segments with `…`
+  between them. Shorter paths print as before.
+- A JSON Lines syntax error at the end of a line says "found the end of the line" instead of
+  "found U+000A".
+- The `--dialect` help says that files with any other extension are checked as JSON5, and that
+  extensions match in lower case only.
+- The Action's `version` input takes `X.Y.Z`, `X.*`, `X.Y.*` or `latest`; anything else stops the
+  step with a message.
 - Unquoted JSON5 keys follow Unicode 17, up from 16, so they may use the letters it added, such
   as the 4,298 ideographs of CJK Extension J.
 
@@ -26,12 +57,36 @@ version for a new option or output, the patch version for a fix.
 
 - In JWCC (HuJSON) files, a `//` comment ends only at a line feed, as the JWCC text says. A lone
   carriage return no longer ends it, so `[1, // c` + CR + `2]` fails as it should.
+- A FIFO no longer hangs a run, and a symlink to `/dev/zero` no longer fills memory.
+- A deep document full of duplicate keys could print hundreds of megabytes; the output now grows
+  only with the number of duplicates.
+- Finding the column of a problem on a long single line is no longer quadratic, so a minified
+  file with many duplicate keys takes milliseconds instead of seconds.
+- In JSON Lines files with CRLF line endings, an error at the end of a line gets the same column
+  as with LF.
+- `jsonvet … | head` exits with the verdict instead of printing "Broken pipe" and exiting 2.
+- The Action skips tracked symlinks and submodules in its default file list, as the hook does.
+- `**` in the Action's `files` input matches at any depth on macOS runners too.
+- The Action's `sarif` input fails with a message when the installed jsonvet cannot write SARIF,
+  instead of writing text into the file.
+- SARIF output declares the `%SRCROOT%` base in `originalUriBaseIds`, as SARIF 2.1.0 asks.
+
+### Security
+
+- File names and messages can no longer start a GitHub Actions workflow command or hold the older
+  `##[command]` form, which could hide or forge annotations. A name starting with `::` prints as
+  `./::…`, and the `[` after `##` is escaped.
+- Control characters and Unicode bidi controls in file names and messages print as escapes such
+  as `\u001b` and `\u202e`, so a file name cannot send terminal escape sequences or reorder the
+  line.
 
 ## [2.0.0] - 2026-10-13
 
-check-json5 is now **jsonvet**, rewritten in Rust. It gives the same pass or fail as 1.4.1 for
-every file in JSON5 and strict mode. I ran both on 20,114 files in each mode, 40,228 runs, and
-they agree on every one.
+check-json5 is now **jsonvet**, rewritten in Rust. In JSON5 and strict mode it gives the same
+pass or fail as 1.4.1, apart from the differences listed below. I ran both on 20,000 generated
+files plus the 114 json5-tests cases in each mode, and they agreed on every one. With the 70-file
+corpus added later (20,184 files, 40,368 runs), three runs on two files differ, both listed below:
+the depth limit and the `\u` escape in an unquoted key.
 
 Upgrade: set `rev:` to the new tag. The repository moved to `simonvanlierde/jsonvet`, and the old
 URL still works. The `check-json5` hook id, the `check-json5` command and `--strict` keep working
@@ -57,8 +112,12 @@ until 3.0. To change anything else, switch to the `jsonvet` hook id.
   own wording. GitHub annotations are `::error` or `::warning` by severity.
 - **Breaking:** lines end at every JSON5 line terminator (LF, CR, CRLF, U+2028 and U+2029), so
   positions after a lone CR, U+2028 or U+2029 differ from 1.x.
-- **Breaking:** the importable Python module is gone. The wheel brings the `jsonvet` and
-  `check-json5` commands. The `check-json5` package on PyPI now only installs `jsonvet`.
+- **Breaking:** `.jsonc`, `.code-workspace` and `.code-snippets` files are checked as JSONC, and
+  `.hujson` and `.jwcc` files as JWCC. 1.4.1 read every file as JSON5, so JSON5-only syntax such
+  as `{'a': 1, b: 2}` passed there and fails now. To keep the old verdict, pass
+  `--dialect json5:GLOB` or add a `dialects` entry to the config file.
+- The `check-json5` package on PyPI now only installs `jsonvet`. The wheel brings the `jsonvet`
+  and `check-json5` commands.
 - The hook installs a prebuilt binary, from wheels for Linux, macOS and Windows on x86-64 and
   arm64. It needs no Rust, and no longer starts Python on every run.
 - Raw U+2028 and U+2029 inside strings pass in every JSON5 file, as the spec allows. 1.x
@@ -68,6 +127,15 @@ until 3.0. To change anything else, switch to the `jsonvet` hook id.
 - Numbers of any length pass; 1.x capped integers at 1,000,000 digits.
 - A `\u` escape in an unquoted JSON5 key fails when the character it stands for could not appear
   there literally, as in `{\u0301: 1}`. 1.x passed any escape.
+
+### Deprecated
+
+- The `check-json5` hook id, the `check-json5` command and `--strict` keep working until 3.0.
+  Switch to the `jsonvet` hook id and `--dialect json:GLOB`.
+
+### Removed
+
+- **Breaking:** the importable Python module is gone.
 
 ## [1.4.1] - 2026-10-13
 
