@@ -156,6 +156,23 @@ fn a_file_name_cannot_start_a_workflow_command_or_send_escapes() {
     );
 }
 
+/// A bidi control would reorder how the rest of the line displays, so neither a file name nor a
+/// character a syntax error shows may print one.
+#[test]
+fn output_never_holds_a_bidi_control() {
+    let dir = workdir(&[("rtl\u{202e}.json", "[\u{2066}]")]);
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .arg("rtl\u{202e}.json")
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .expect("run jsonvet");
+    assert_eq!(
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        "rtl\\u202e.json:1:2: error[syntax] expected a value, found `\\u2066`\n"
+    );
+}
+
 /// GitHub Actions also runs the older `##[command]` form found anywhere in a line, so neither a
 /// file name nor a key in a message may print one, in text, annotations or SARIF.
 #[test]
@@ -509,6 +526,7 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
         ("dup.json", "{\n  \"a\": 1,\n  \"a\": 2\n}"),
         ("bom.json", "\u{FEFF}{}"),
         ("ok.json", "{}"),
+        ("open.json", "[1, /* x"),
     ]);
     let run = |args: &[&str]| {
         let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
@@ -546,7 +564,6 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
             "unreadable"
         ]
     );
-    // `Rule` is non-exhaustive, so a new rule without a description would compile.
     assert!(rules.iter().all(|r| {
         !r["shortDescription"]["text"]
             .as_str()
@@ -593,6 +610,17 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
     let (code, sarif) = run(&["--format", "sarif", "ok.json"]);
     assert_eq!(code, 0);
     assert_eq!(sarif["runs"][0]["results"], serde_json::json!([]));
+
+    // A syntax error's related location is where the unterminated comment starts.
+    let (_, sarif) = run(&["--format", "sarif", "open.json"]);
+    let open = &sarif["runs"][0]["results"][0];
+    assert_eq!(
+        open["message"]["text"],
+        "unterminated block comment (started at 1:5)"
+    );
+    let start = &open["relatedLocations"][0];
+    assert_eq!(start["message"]["text"], "starts here");
+    assert_eq!(start["physicalLocation"]["region"]["startColumn"], 5);
 }
 
 #[test]

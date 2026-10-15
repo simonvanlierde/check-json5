@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
-use jsonvet::{Location, Problem, Report, Rule, Severity};
+use jsonvet::{Location, Problem, RelatedKind, Report, Severity};
 
 use crate::sarif;
 
@@ -19,7 +19,8 @@ pub(crate) enum Format {
 
 /// A file name or message with control characters made visible: a newline would start a line
 /// of its own, which GitHub Actions reads as a workflow command when it starts with `::`, and
-/// an escape character would reach the terminal. CR and LF show as `\r` and `\n`, the rest as
+/// an escape character would reach the terminal. Bidi controls, which reorder how the rest of
+/// the line displays, show the same way. CR and LF show as `\r` and `\n`, the rest as
 /// `\u001b`, as JSONPaths in messages show them. The runner also reads its older `##[command]`
 /// form anywhere in a line, so the `[` of `##[` shows as `\u005b`.
 fn printable(value: &str) -> String {
@@ -28,7 +29,7 @@ fn printable(value: &str) -> String {
         match c {
             '\r' => shown.push_str("\\r"),
             '\n' => shown.push_str("\\n"),
-            c if c.is_control() => {
+            c if c.is_control() || is_bidi_control(c) => {
                 let _ = write!(shown, "\\u{:04x}", u32::from(c));
             }
             '[' if shown.ends_with("##") => shown.push_str("\\u005b"),
@@ -36,6 +37,15 @@ fn printable(value: &str) -> String {
         }
     }
     shown
+}
+
+/// Unicode's `Bidi_Control` characters: the marks and the embedding, override and isolate
+/// controls.
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{61c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// A file name as it starts an output line. A name starting with `::`, after any leading
@@ -89,27 +99,23 @@ impl<W: Write> Printer<W> {
         problem: &Problem,
     ) -> io::Result<()> {
         let at = report.location(problem.offset());
-        let mut message = problem.to_string();
-        if let Some(related) = problem.related_offset() {
-            let first = report.location(related);
-            let what = if problem.rule() == Rule::DuplicateKey {
-                "first at"
-            } else {
-                "started at"
+        // Where the related offset is, and its labels in the text message and in SARIF.
+        let related = problem.related().map(|related| {
+            let labels = match related.kind {
+                RelatedKind::FirstOccurrence => ("first at", "first copy"),
+                // NOTE: `RelatedKind` is non-exhaustive; `Start` is the only other kind so far.
+                _ => ("started at", "starts here"),
             };
+            (report.location(related.offset), labels)
+        });
+        let mut message = problem.to_string();
+        if let Some((first, (what, _))) = related {
             let _ = write!(message, " ({what} {}:{})", first.line, first.column);
         }
         let severity = problem.severity();
         let rule = problem.rule();
         if let Some(results) = &mut self.sarif {
-            let related = problem.related_offset().map(|offset| {
-                let what = if rule == Rule::DuplicateKey {
-                    "first copy"
-                } else {
-                    "starts here"
-                };
-                (report.location(offset), what)
-            });
+            let related = related.map(|(first, (_, what))| (first, what));
             results.push(sarif::result(
                 file,
                 rule.id(),
@@ -198,6 +204,10 @@ mod tests {
         );
         assert_eq!(printable("a##[add-mask]b#[c"), "a##\\u005badd-mask]b#[c");
         assert_eq!(printable("C:\\x\te.json"), "C:\\x\\u0009e.json");
+        assert_eq!(
+            printable("a\u{202e}b\u{2066}c\u{200f}d\u{61c}e\u{200d}f"),
+            "a\\u202eb\\u2066c\\u200fd\\u061ce\u{200d}f"
+        );
         assert_eq!(escape("50% a\r\nb", false), "50%25 a%0D%0Ab");
         assert_eq!(escape("a:b,c", true), "a%3Ab%2Cc");
         assert_eq!(escape("not strict: x, y", false), "not strict: x, y");
