@@ -153,39 +153,60 @@ fuzz/  tests/  scripts/
 ```rust
 pub fn check(text: &str, config: &Config) -> Report<'_>;
 
-pub struct Config { /* dialect, rule overrides */ }
-impl Config { pub fn new(dialect: Dialect) -> Self; pub fn rule(self, rule: Rule, severity: Severity) -> Self; }
+pub struct Config { /* dialect, rule overrides, depth limit */ }
+impl Config {
+    pub const DEFAULT_MAX_DEPTH: usize;  // 10,000
+    pub fn new(dialect: Dialect) -> Self;
+    pub fn rule(self, rule: Rule, severity: Severity) -> Self;
+    pub fn max_depth(self, depth: usize) -> Self;
+    pub fn dialect(&self) -> Dialect;
+    pub fn severity(&self, rule: Rule) -> Severity;
+}
 
 #[non_exhaustive] pub enum Dialect { Json, IJson, Jsonc, Jwcc, Json5, JsonLines }
 impl Dialect {
     pub const ALL: &'static [Dialect];
     pub const EXTENSIONS: &'static [(&'static str, Dialect)];  // default extensions, no dot
     pub const FILE_NAMES: &'static [(&'static str, Dialect)];  // default file names
+    pub fn name(self) -> &'static str;                         // as on the command line, e.g. `jsonc`
     pub fn for_path(path: &Path) -> Option<Dialect>;
 }
 
 #[non_exhaustive] pub enum Rule { /* Syntax, DuplicateKey, ... */ }
-impl Rule { pub const ALL: &'static [Rule]; pub fn id(self) -> &'static str; pub fn description(self) -> &'static str; }
+impl Rule {
+    pub const ALL: &'static [Rule];
+    pub fn id(self) -> &'static str;
+    pub fn description(self) -> &'static str;
+    pub fn default_severity(self, dialect: Dialect) -> Severity;
+}
 
-#[non_exhaustive] pub enum Severity { /* Off, Warning, Error */ }
+#[non_exhaustive] pub enum Severity { Off, Warning, Error }  // ordered; name() gives `off`, `warning`, `error`
 #[non_exhaustive] pub struct Location { pub line: usize, pub column: usize }
 impl Location { pub const START: Location; }
 
 impl<'a> Report<'a> {
     pub fn problems(&self) -> &[Problem];               // document order
+    pub fn passed(&self) -> bool;                       // no problem is an error
     pub fn location(&self, offset: usize) -> Location;  // line and column, computed on first use
 }
 
 impl Problem {
+    pub fn rule(&self) -> Rule;
+    pub fn severity(&self) -> Severity;
+    pub fn offset(&self) -> usize;
     pub fn related(&self) -> Option<Related>;  // the first copy of a duplicate key, or where an unterminated string or comment starts
+    pub fn related_offset(&self) -> Option<usize>;  // related()'s offset
     pub fn path(&self) -> Option<&str>;        // the JSONPath of a duplicate key, up to 256 bytes
-    /* rule, severity, offset, Display for the message */
+    /* Display for the message */
 }
-pub struct Related { pub offset: usize, pub kind: RelatedKind }  // RelatedKind::{FirstOccurrence, Start}
+#[non_exhaustive] pub struct Related { pub offset: usize, pub kind: RelatedKind }
+#[non_exhaustive] pub enum RelatedKind { FirstOccurrence, Start }
 ```
 
-`UnknownRule::id()` and `UnknownDialect::name()` give back the text that failed to parse. A
-`Report` is `Send` but not `Sync`, because `location` caches line starts inside it.
+`Rule`, `Severity`, `Dialect` and `Problem` implement `Display`, and `Rule` and `Dialect` parse
+from their ids and names with `FromStr`. On failure, `UnknownRule::id()` and
+`UnknownDialect::name()` give back the text that failed to parse. A `Report` is `Send` but not
+`Sync`, because `location` caches line starts and character counts inside it.
 
 The text is `&str`: the caller has already checked UTF-8, so every offset falls on a character
 boundary and columns are well defined. `check` never panics and has no error mode. Problems in the
@@ -197,7 +218,7 @@ Behind that interface:
   bytes from 0x80 up;
 - an explicit stack of frames instead of recursion, so the depth limit is a setting, not the
   call stack's size. The frames also hold each object's keys for duplicate detection and give
-  the JSONPath of any problem;
+  the JSONPath of a duplicate key;
 - keys compared by their decoded value, borrowed from the input unless they contain an escape;
 - line starts found once with memchr, and only when the first location is asked for;
 - in text that is not all ASCII, a count of the code points before every 4 KiB, built only as
