@@ -78,6 +78,14 @@ fn reports_and_exit_codes() {
     assert_eq!(
         jsonvet(
             &dir,
+            &["--strict", "*.json", "--max-warnings", "1", "bom.json"]
+        )
+        .0,
+        0
+    );
+    assert_eq!(
+        jsonvet(
+            &dir,
             &[
                 "--strict",
                 "*.json",
@@ -88,6 +96,56 @@ fn reports_and_exit_codes() {
         ),
         (0, String::new())
     );
+}
+
+#[test]
+fn github_annotations_follow_each_problem() {
+    let dir = workdir(&[
+        ("bom.json", "\u{FEFF}{}"),
+        ("dup.json", "{\"a\":1,\"a\":2}"),
+    ]);
+    let run = |actions: &str| {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(["--strict", "*.json", "bom.json", "dup.json"])
+            .current_dir(&dir)
+            .env("GITHUB_ACTIONS", actions)
+            .output()
+            .expect("run jsonvet");
+        String::from_utf8(out.stdout).expect("UTF-8 output")
+    };
+    assert_eq!(
+        run("true"),
+        "bom.json:1:1: warning[byte-order-mark] byte order mark at the start of the file\n\
+         ::warning file=bom.json,line=1,col=1,title=jsonvet (byte-order-mark)::byte order mark at the start of the file\n\
+         dup.json:1:8: error[duplicate-key] duplicate key $.a (first at 1:2)\n\
+         ::error file=dup.json,line=1,col=8,title=jsonvet (duplicate-key)::duplicate key $.a (first at 1:2)\n"
+    );
+    assert!(!run("false").contains("::"));
+}
+
+#[test]
+fn help_version_and_the_check_json5_name() {
+    let dir = workdir(&[("dup.json", "{\"a\":1,\"a\":2}"), ("sub.json", "{}")]);
+    let version = format!("jsonvet {}\n", env!("CARGO_PKG_VERSION"));
+    assert_eq!(jsonvet(&dir, &["-V"]), (0, version.clone()));
+    assert_eq!(jsonvet(&dir, &["--version"]), (0, version));
+    for flag in ["-h", "--help"] {
+        let (code, out) = jsonvet(&dir, &[flag]);
+        assert_eq!(code, 0);
+        assert!(out.starts_with("Check JSON, I-JSON,"), "{flag}");
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_check-json5"))
+        .arg("dup.json")
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .expect("run check-json5");
+    assert_eq!(out.status.code(), Some(1));
+    // A directory is unreadable for a reason other than not existing.
+    fs::create_dir(dir.join("folder.json")).expect("create a folder");
+    let (code, out) = jsonvet(&dir, &["folder.json"]);
+    assert_eq!(code, 1);
+    assert!(out.contains(": error: cannot read: "), "{out}");
 }
 
 #[test]
@@ -228,6 +286,34 @@ fn pyproject_tool_table_and_bad_configs() {
         ("d.json", "{}"),
     ]);
     assert_eq!(jsonvet(&typo, &["d.json"]).0, 2);
+
+    // A pyproject.toml without the table is no config file.
+    let plain = workdir(&[
+        ("pyproject.toml", "[project]\nname = \"x\"\n"),
+        ("d.json", "{\"a\": 1, \"a\": 2}"),
+    ]);
+    assert_eq!(jsonvet(&plain, &["d.json"]).0, 1);
+
+    let wrong_types = workdir(&[
+        ("rules.toml", "rules = 1\n"),
+        ("dialects.toml", "dialects = 1\n"),
+        ("d.json", "{}"),
+    ]);
+    for (config, message) in [
+        ("rules.toml", "`rules` must be a table"),
+        ("dialects.toml", "`dialects` must be an array of tables"),
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(["--config", config, "d.json"])
+            .current_dir(&wrong_types)
+            .output()
+            .expect("run jsonvet");
+        assert_eq!(out.status.code(), Some(2));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stderr),
+            format!("jsonvet: {config}: {message}\n")
+        );
+    }
 }
 
 #[test]
@@ -280,6 +366,10 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
             .unwrap_or("")
             .is_empty()
     }));
+    assert_eq!(
+        rules[0]["shortDescription"]["text"],
+        "the first syntax error; checking stops there"
+    );
     assert_eq!(run0["columnKind"], "unicodeCodePoints");
     let results = run0["results"].as_array().expect("results");
     assert_eq!(results.len(), 2);

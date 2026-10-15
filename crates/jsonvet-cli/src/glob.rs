@@ -117,7 +117,7 @@ fn in_class(class: &[char], c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{matches, normalize};
+    use super::{matches, normalize, wildcard};
 
     #[test]
     fn patterns_match_as_check_json5_matched_them() {
@@ -134,6 +134,37 @@ mod tests {
         assert!(matches("[a-c]?.json", "bz.json"));
         assert!(matches("[.json", "[.json"), "an unclosed `[` is a literal");
         assert!(matches(".vscode/*", ".vscode/settings.json"));
+    }
+
+    #[test]
+    fn wildcards_agree_with_fnmatchcase() {
+        // Expected values from Python's `fnmatch.fnmatchcase(text, pattern)`.
+        for (pattern, text, expected) in [
+            ("a", "ab", false),
+            ("*b", "aab", true),
+            ("*.json", "a.b.json", true),
+            ("a*b*c", "axbxbyc", true),
+            ("a*b*c", "axbxby", false),
+            ("[!]].json", "].json", false),
+            ("[!]].json", "x.json", true),
+            ("[]a].json", "].json", true),
+            ("[]a].json", "b.json", false),
+            ("[a-].json", "-.json", true),
+            ("[a-].json", "b.json", false),
+            ("[-a].json", "-.json", true),
+            ("[a-cx].json", "x.json", true),
+            ("[a-cx].json", "d.json", false),
+            ("[c-a].json", "b.json", false),
+            ("[!a-c].json", "d.json", true),
+            ("?", "", false),
+        ] {
+            let chars = |s: &str| s.chars().collect::<Vec<_>>();
+            assert_eq!(
+                wildcard(&chars(pattern), &chars(text)),
+                expected,
+                "{pattern} on {text}"
+            );
+        }
     }
 
     #[test]
