@@ -133,7 +133,8 @@ server.json5:6:3: error[schema] Additional properties are not allowed ('debug' w
 ```
 
 The errors come under the rule `schema` and are errors, in text, GitHub annotations and SARIF
-alike. A message quotes the value unless that would make it long; then it says `value`. A
+alike. They are always errors: `--error`, `--warn`, `--ignore` and the settings file do not take
+`schema`, and exit with status 2 if given it. A message quotes the value unless that would make it long; then it says `value`. A
 message that lists many keys is cut at 200 bytes and ends in `...`. Each document lists at most
 100 schema errors, then one more line, `... and N more schema errors in this document`, at its
 start. A file with a syntax error gets no schema errors. Each line of a JSON Lines file is checked

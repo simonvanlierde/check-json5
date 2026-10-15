@@ -37,7 +37,8 @@ Options:
   -V, --version                 Print the version.
 
 Rules: syntax, duplicate-key, invalid-number, invalid-code-point, byte-order-mark,
-missing-final-newline, and schema with --schema.
+missing-final-newline. With --schema, errors also come under the rule schema; they are always
+errors, and --error, --warn, --ignore and settings files do not take schema.
 
 Settings come from jsonvet.toml, or [tool.jsonvet] in pyproject.toml, found in the working
 directory or a parent up to the repository root. Options on the command line win.

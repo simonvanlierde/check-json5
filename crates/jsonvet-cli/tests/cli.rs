@@ -781,3 +781,29 @@ fn control_characters_in_keys_are_escaped_in_the_output() {
         "k.json:1:37: error[schema] 1 is not of type \"string\" (at /x\\u001b]0;t\\u0007\\r\\n::error::y)\n"
     );
 }
+
+#[test]
+fn the_schema_rule_cannot_be_reconfigured() {
+    let dir = workdir(&[
+        ("schema.json", "{}"),
+        ("ok.json", "{}"),
+        ("jsonvet.toml", "[rules]\nschema = \"warn\"\n"),
+    ]);
+    for flag in ["--error", "--warn", "--ignore"] {
+        let (code, out, err) = jsonvet_stderr(
+            &dir,
+            &[flag, "schema", "--schema", "schema.json", "ok.json"],
+        );
+        assert_eq!((code, out.as_str()), (2, ""), "{flag}");
+        assert!(
+            err.starts_with("jsonvet: unknown rule `schema`;"),
+            "{flag}: {err}"
+        );
+    }
+    let (code, _, err) = jsonvet_stderr(&dir, &["--schema", "schema.json", "ok.json"]);
+    assert_eq!(code, 2);
+    assert!(
+        err.contains("jsonvet.toml: unknown rule `schema`;"),
+        "{err}"
+    );
+}

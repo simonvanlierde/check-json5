@@ -95,8 +95,10 @@ schemas. The library's `parse` returns the file's values as events, each with it
 the CLI folds them into `serde_json` values, validates those with the `jsonschema` crate (default
 features off, so nothing is fetched), and maps each error's instance path, a JSON Pointer, back
 to the offset of its value: one walk over the events of a document with errors finds every
-error's value, with no pointer kept per value. Schema errors are always errors and follow the file's other problems;
-a file with a syntax error has no events, so it gets none.
+error's value, with no pointer kept per value. Schema errors are always errors: `--error`,
+`--warn`, `--ignore` and the settings file do not take the id `schema`, and exit 2 on it as an
+unknown rule. They follow the file's other problems; a file with a syntax error has no events,
+so it gets none.
 
 Schema regexes with back-references or lookaround run on fancy-regex, which backtracks; jsonvet
 caps that at 5,000 steps per match, so `^(a|a)*\1b` over 5,000 strings takes under a second
