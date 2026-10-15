@@ -27,6 +27,10 @@ const NOT_A_NUMBER: &str =
 const SAME_KEYS: &str =
     "this key and an earlier one in the object are the same once lone surrogates become U+FFFD";
 
+/// How many schema errors one document reports, in the order jsonschema finds them; one more
+/// line counts the rest.
+const MAX_ERRORS: usize = 100;
+
 /// Past this many bytes, a message says "value" instead of quoting the value.
 const MAX_MESSAGE: usize = 200;
 
@@ -100,7 +104,8 @@ impl Schema {
         ))
     }
 
-    /// The schema errors in one file's values, as (offset, message), in document order.
+    /// The schema errors in one file's values, as (offset, message), in document order within each
+    /// document, which ends with a count of any errors past [`MAX_ERRORS`].
     pub(crate) fn errors(&self, events: &[Event<'_>]) -> Vec<(usize, String)> {
         let mut errors = Vec::new();
         for document in documents(events) {
@@ -111,19 +116,32 @@ impl Schema {
                 ));
                 continue;
             }
-            let found: Vec<ValidationError<'_>> = self.0.iter_errors(&document.value).collect();
+            let mut all = self.0.iter_errors(&document.value);
+            let found: Vec<ValidationError<'_>> = all.by_ref().take(MAX_ERRORS).collect();
             if found.is_empty() {
                 continue;
             }
-            let offsets = locate(&events[document.events], &found);
-            for (error, offset) in found.iter().zip(offsets) {
-                let pointer = error.instance_path().as_str();
-                let at = if pointer.is_empty() { "/" } else { pointer };
-                errors.push((offset, format!("{} (at {at})", message(error))));
+            let events = &events[document.events];
+            let mut placed: Vec<(usize, String)> = locate(events, &found)
+                .into_iter()
+                .zip(&found)
+                .map(|(offset, error)| {
+                    let pointer = error.instance_path().as_str();
+                    let at = if pointer.is_empty() { "/" } else { pointer };
+                    (offset, format!("{} (at {at})", message(error)))
+                })
+                .collect();
+            // Stable, so errors at one value keep the schema's order.
+            placed.sort_by_key(|(offset, _)| *offset);
+            errors.append(&mut placed);
+            let more = all.count();
+            if more > 0 {
+                errors.push((
+                    events[0].offset,
+                    format!("... and {more} more schema errors in this document"),
+                ));
             }
         }
-        // Stable, so errors at one value keep the schema's order.
-        errors.sort_by_key(|(offset, _)| *offset);
         errors
     }
 }

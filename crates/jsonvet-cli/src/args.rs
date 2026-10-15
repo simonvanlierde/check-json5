@@ -29,7 +29,8 @@ Options:
       --schema FILE             Also check each file against the JSON Schema in FILE, reported
                                 under the rule schema at the value each error is about. Files
                                 with a syntax error are not checked. A $ref must stay inside
-                                FILE: nothing is fetched.
+                                FILE: nothing is fetched. At most 100 errors per document are
+                                listed, then a count of the rest.
       --config FILE             Read settings from FILE instead of searching for one.
       --no-config               Do not read a settings file.
   -h, --help                    Print this help.

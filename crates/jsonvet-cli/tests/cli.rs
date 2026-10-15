@@ -686,7 +686,13 @@ fn a_backtracking_pattern_is_cut_short_and_reported() {
     let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "r.json"]);
     assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
     assert_eq!(code, 1);
-    assert_eq!(out.lines().count(), 500);
+    // At most 100 errors per document, then a count of the rest.
+    assert_eq!(out.lines().count(), 101);
+    assert!(
+        out.ends_with(
+            "r.json:1:1: error[schema] ... and 400 more schema errors in this document\n"
+        )
+    );
     assert!(out.starts_with(
         "r.json:1:2: error[schema] Error executing regex: Max limit for backtracking count exceeded (at /0)\n"
     ));
@@ -740,7 +746,10 @@ fn keys_that_differ_only_in_lone_surrogates_skip_the_document() {
 fn a_message_listing_many_keys_is_cut_short() {
     let members: Vec<String> = (0..1_000).map(|i| format!("\"k{i}\": {i}")).collect();
     let dir = workdir(&[
-        ("schema.json", r#"{"properties": {"a": true}, "additionalProperties": false}"#),
+        (
+            "schema.json",
+            r#"{"properties": {"a": true}, "additionalProperties": false}"#,
+        ),
         ("many.json", &format!("{{{}}}", members.join(", "))),
     ]);
     let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "many.json"]);
