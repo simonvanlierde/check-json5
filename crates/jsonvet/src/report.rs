@@ -1,6 +1,6 @@
 use std::cell::{Cell, OnceCell};
 
-use crate::parse::line_separator_at;
+use crate::unicode::line_separator_at;
 use crate::{Problem, Severity};
 
 /// The problems found in one text, in document order.

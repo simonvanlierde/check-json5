@@ -21,6 +21,7 @@ mod path;
 mod problem;
 mod report;
 mod rule;
+mod unicode;
 
 pub use dialect::{Dialect, UnknownDialect};
 pub use problem::Problem;

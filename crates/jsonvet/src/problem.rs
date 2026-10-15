@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::parse::is_surrogate;
+use crate::unicode::is_surrogate;
 use crate::{Dialect, Rule, Severity};
 
 /// One problem in a file: what is wrong, where, and how much it matters.
