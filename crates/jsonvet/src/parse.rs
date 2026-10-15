@@ -189,6 +189,24 @@ impl<'a> Parser<'a> {
         self.bytes.get(self.pos).copied()
     }
 
+    /// In JSON Lines, the length of the line ending at the current position: 1 for `\n`, 2 for
+    /// `\r\n`. A CR before the LF belongs to the line ending, so positions do not depend on
+    /// which one a file uses.
+    fn line_end(&self) -> Option<usize> {
+        self.line_end_at(self.pos)
+    }
+
+    fn line_end_at(&self, at: usize) -> Option<usize> {
+        if !self.json_lines {
+            return None;
+        }
+        match self.bytes.get(at..)? {
+            [b'\n', ..] => Some(1),
+            [b'\r', b'\n', ..] => Some(2),
+            _ => None,
+        }
+    }
+
     fn char_at(&self, at: usize) -> char {
         self.text
             .get(at..)
@@ -208,7 +226,7 @@ impl<'a> Parser<'a> {
     fn unexpected_at(&self, at: usize, expected: &'static str) -> Fail {
         if at >= self.bytes.len() {
             Fail::at(at, SyntaxKind::UnexpectedEnd { expected })
-        } else if self.json_lines && self.bytes[at] == b'\n' {
+        } else if self.line_end_at(at).is_some() {
             Fail::at(at, SyntaxKind::UnexpectedLineEnd { expected })
         } else {
             Fail::at(
@@ -277,7 +295,7 @@ impl<'a> Parser<'a> {
                 State::Done => {
                     return match self.peek() {
                         None => Ok(()),
-                        Some(b'\n') if self.json_lines => Ok(()),
+                        Some(_) if self.line_end().is_some() => Ok(()),
                         Some(_) if self.json_lines => Err(self.unexpected("the end of the line")),
                         Some(_) => Err(self.unexpected("the end of the file")),
                     };
@@ -387,11 +405,14 @@ impl<'a> Parser<'a> {
             let line_start = self.pos;
             self.trivia()?;
             match self.peek() {
-                None | Some(b'\n') => return Err(Fail::at(line_start, SyntaxKind::BlankLine)),
+                None => return Err(Fail::at(line_start, SyntaxKind::BlankLine)),
+                Some(_) if self.line_end().is_some() => {
+                    return Err(Fail::at(line_start, SyntaxKind::BlankLine));
+                }
                 Some(_) => self.document()?,
             }
-            if self.peek() == Some(b'\n') {
-                self.pos += 1;
+            if let Some(len) = self.line_end() {
+                self.pos += len;
             } else {
                 self.report(len, final_newline, Detail::MissingFinalNewline);
             }
@@ -845,7 +866,7 @@ impl<'a> Parser<'a> {
         loop {
             let Some(b) = self.peek() else { return Ok(()) };
             match b {
-                b'\n' if self.json_lines => return Ok(()),
+                b'\n' | b'\r' if self.line_end().is_some() => return Ok(()),
                 b' ' | b'\t' | b'\r' | b'\n' => self.pos += 1,
                 b'/' => match self.bytes.get(self.pos + 1) {
                     Some(b'/' | b'*') if !self.dialect.comments() => {

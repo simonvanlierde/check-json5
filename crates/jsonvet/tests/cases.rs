@@ -196,6 +196,30 @@ fn i_json_and_json_lines() {
 }
 
 #[test]
+fn json_lines_positions_do_not_depend_on_the_line_ending() {
+    let problems = |text: &str| -> Vec<String> {
+        let report = check(text, &Config::new(Dialect::JsonLines));
+        report
+            .problems()
+            .iter()
+            .map(|p| {
+                let at = report.location(p.offset());
+                format!("{}:{} {p}", at.line, at.column)
+            })
+            .collect()
+    };
+    for lf in [
+        "[1,\n2]\n",
+        "{\"a\":\n1}\n",
+        "1 \n\n2\n",
+        "{\"a\": 1, \"a\": 2}\n[3 4]\n",
+    ] {
+        let crlf = lf.replace('\n', "\r\n");
+        assert_eq!(problems(&crlf), problems(lf), "{crlf:?}");
+    }
+}
+
+#[test]
 fn positions_follow_json5_line_terminators() {
     use Dialect::Json5;
     insta::assert_snapshot!(snapshot(&[
