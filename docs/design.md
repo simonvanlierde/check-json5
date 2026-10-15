@@ -199,7 +199,9 @@ Behind that interface:
   call stack's size. The frames also hold each object's keys for duplicate detection and give
   the JSONPath of any problem;
 - keys compared by their decoded value, borrowed from the input unless they contain an escape;
-- line starts found once with memchr, and only when the first location is asked for.
+- line starts found once with memchr, and only when the first location is asked for;
+- in text that is not all ASCII, a count of the code points before every 4 KiB, built only as
+  far as a lookup needs, so finding a column counts the characters of at most two chunks.
 
 ### Python packaging
 
