@@ -107,7 +107,13 @@ jobs:
         with:
           version: "0.13.0"
       - run: cargo build --release --locked -p jsonvet-cli
-      - run: uv run scripts/differential.py --cases 5000
+      # A new sample each run; rerun a failure locally with the seed printed here.
+      - name: Compare on 5,000 cases
+        env:
+          SEED: ${{ github.run_id }}
+        run: |
+          echo "seed: $SEED (uv run scripts/differential.py --cases 5000 --seed $SEED)"
+          uv run scripts/differential.py --cases 5000 --seed "$SEED"
 
   # The wheel, built the way the release does, and the hook and the action as users install them,
   # on every OS: pre-commit and prek install this repository, and its placeholder setup.py pins
