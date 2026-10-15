@@ -270,6 +270,36 @@ fn strict_globs_keep_their_1x_meaning() {
 }
 
 #[test]
+fn an_unknown_option_is_a_usage_error_unless_it_is_a_file() {
+    let dir = workdir(&[("bad.json", "[1,"), ("--x.json", "[1,")]);
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GITHUB_ACTIONS")
+            .output()
+            .expect("run jsonvet");
+        (
+            out.status.code().expect("an exit code"),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (code, out, err) = run(&["--strcit", "*.json", "bad.json"]);
+    assert_eq!((code, out.as_str()), (2, ""));
+    assert!(
+        err.starts_with("jsonvet: unknown option `--strcit`\n"),
+        "{err}"
+    );
+    let found = "--x.json:1:4: error[syntax] expected a value, found the end of the file\n";
+    assert_eq!(run(&["--x.json"]), (1, found.to_owned(), String::new()));
+    assert_eq!(
+        run(&["--", "--x.json"]),
+        (1, found.to_owned(), String::new())
+    );
+}
+
+#[test]
 fn help_and_version_letters_in_a_file_name_are_a_file() {
     let dir = workdir(&[("bad.json", "[1,"), ("-h.json", "{}"), ("-V.json", "{}")]);
     let (code, out) = jsonvet(&dir, &["bad.json", "-h.json", "-V.json"]);
