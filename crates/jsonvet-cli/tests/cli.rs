@@ -169,7 +169,7 @@ fn output_never_holds_a_bidi_control() {
         .expect("run jsonvet");
     assert_eq!(
         String::from_utf8(out.stdout).expect("UTF-8 output"),
-        "rtl\\u202e.json:1:2: error[syntax] expected a value, found `\\u2066`\n"
+        "rtl\\u202e.json:1:2: error[syntax] expected a value, found U+2066\n"
     );
 }
 

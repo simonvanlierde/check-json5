@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::unicode::is_surrogate;
+use crate::unicode::{is_bidi_control, is_surrogate};
 use crate::{Dialect, Rule, Severity};
 
 /// One problem in a file: what is wrong, where, and how much it matters.
@@ -260,13 +260,14 @@ impl fmt::Display for SyntaxError {
     }
 }
 
-/// A character as a message shows it: in backticks when printable, as U+XXXX otherwise.
+/// A character as a message shows it: in backticks when printable, as U+XXXX otherwise. Bidi
+/// controls show as U+XXXX too, since printed they would reorder the rest of the line.
 struct Shown(char);
 
 impl fmt::Display for Shown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let c = self.0;
-        if c.is_control() || c.is_whitespace() || c == '\u{FEFF}' {
+        if c.is_control() || c.is_whitespace() || c == '\u{FEFF}' || is_bidi_control(c) {
             write!(f, "U+{:04X}", u32::from(c))
         } else {
             write!(f, "`{c}`")

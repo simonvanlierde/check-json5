@@ -390,3 +390,24 @@ fn duplicate_key_paths_stay_short_however_deep_the_key() {
     let levels = "[0]".repeat(42);
     assert_eq!(message, format!("duplicate key ${levels}…{levels}.a"));
 }
+
+/// Printed as they are, bidi controls would reorder how the rest of the message displays.
+#[test]
+fn messages_show_bidi_controls_as_code_points() {
+    let config = Config::new(Dialect::Json);
+    for c in [
+        '\u{61C}', '\u{200E}', '\u{200F}', '\u{202A}', '\u{202E}', '\u{2066}', '\u{2069}',
+    ] {
+        let text = format!("[{c}]");
+        let report = check(&text, &config);
+        assert_eq!(
+            report.problems()[0].to_string(),
+            format!("expected a value, found U+{:04X}", u32::from(c))
+        );
+    }
+    let report = check("[\u{200D}]", &config);
+    assert_eq!(
+        report.problems()[0].to_string(),
+        "expected a value, found `\u{200D}`"
+    );
+}
