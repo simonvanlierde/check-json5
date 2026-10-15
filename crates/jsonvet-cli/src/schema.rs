@@ -398,7 +398,7 @@ fn number(text: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{documents, locate, number};
+    use super::{MAX_MESSAGE, documents, fits, locate, message, number};
     use jsonvet::{Config, Dialect};
     use proptest::prelude::*;
     use serde_json::{Value, json};
@@ -452,6 +452,53 @@ mod tests {
         assert_eq!(number("NaN"), None);
         assert_eq!(number("-Infinity"), None);
         assert_eq!(number("1e999"), None);
+    }
+
+    #[test]
+    fn a_large_nested_value_is_named_not_quoted() {
+        let validator = jsonschema::validator_for(&json!({"type": "string"})).expect("a schema");
+        let long = "x".repeat(300);
+        for instance in [
+            json!([{"a": [long.clone()]}]),
+            json!({"a": {"b": long.clone()}}),
+            json!({ long.clone(): 1 }),
+        ] {
+            let error = validator.iter_errors(&instance).next().expect("an error");
+            assert_eq!(message(&error), "value is not of type \"string\"");
+        }
+        let small = json!([{"a": [1]}]);
+        let error = validator.iter_errors(&small).next().expect("an error");
+        assert_eq!(message(&error), "[{\"a\":[1]}] is not of type \"string\"");
+    }
+
+    #[test]
+    fn sizes_are_estimated_for_every_kind_of_value() {
+        let long = "x".repeat(300);
+        assert!(fits(&json!([]), &mut 3));
+        assert!(fits(&json!({}), &mut 3));
+        assert!(fits(&json!("ab"), &mut 5));
+        for value in [
+            json!(long.clone()),
+            json!([long.clone()]),
+            json!({"a": long.clone()}),
+            json!({ long.clone(): 1 }),
+            json!(vec![0; 100]),
+        ] {
+            assert!(!fits(&value, &mut MAX_MESSAGE), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_long_message_is_cut_at_a_character_boundary() {
+        let schema = json!({"properties": {"a": true}, "additionalProperties": false});
+        let validator = jsonschema::validator_for(&schema).expect("a schema");
+        // `é` takes two bytes, and the one-byte `x` puts the cut inside one.
+        let instance = json!({ format!("x{}", "\u{e9}".repeat(200)): 1 });
+        let error = validator.iter_errors(&instance).next().expect("an error");
+        assert!(!error.masked().to_string().is_char_boundary(MAX_MESSAGE));
+        let message = message(&error);
+        assert_eq!(message.len(), MAX_MESSAGE - 1 + "...".len());
+        assert!(message.ends_with("\u{e9}..."), "{message}");
     }
 
     /// Any JSON value, with numbers `serde_json` reads exactly without its `float_roundtrip`
