@@ -373,8 +373,14 @@ impl<'a> Parser<'a> {
         let kind = match b {
             b'{' => return self.open(Container::Object),
             b'[' => return self.open(Container::Array),
-            b'"' => self.string_value(b'"')?,
-            b'\'' if self.json5 => self.string_value(b'\'')?,
+            b'"' | b'\'' if b == b'"' || self.json5 => {
+                // Decoded only when events are wanted; scanning is enough otherwise.
+                let value = self.string(b, self.events.is_some())?;
+                match value {
+                    Some(value) => EventKind::String(path::text(value)),
+                    None => return Ok(self.state_after_value()),
+                }
+            }
             b'\'' => return Err(self.not_allowed(self.pos, "single-quoted strings are")),
             b'-' | b'+' | b'.' | b'0'..=b'9' | b'I' | b'N' => {
                 self.number()?;
@@ -425,12 +431,16 @@ impl<'a> Parser<'a> {
         let key = self
             .read_key(track_keys || self.events.is_some())?
             .unwrap_or(Key::Borrowed(&[]));
+        // Only duplicate-key paths read a key after this, so without the check it moves into
+        // its event uncopied.
+        if !track_keys {
+            self.emit(start, EventKind::Key(path::text(key)));
+            return Ok(());
+        }
         if self.events.is_some() {
             self.emit(start, EventKind::Key(path::text(key.clone())));
         }
-        if track_keys {
-            self.check_duplicate(start, &key);
-        }
+        self.check_duplicate(start, &key);
         if let Some(frame) = self.stack.last_mut() {
             frame.current_key = key;
         }
@@ -526,14 +536,6 @@ impl<'a> Parser<'a> {
     }
 
     // --- strings ---------------------------------------------------------------------------
-
-    /// A string value, decoded only when events are wanted.
-    fn string_value(&mut self, quote: u8) -> Result<EventKind<'a>, Fail> {
-        let value = self.string(quote, self.events.is_some())?;
-        Ok(EventKind::String(
-            value.map_or(Cow::Borrowed(""), path::text),
-        ))
-    }
 
     /// Scan a string starting at its quote. With `decode`, return its value; without, `None`.
     fn string(&mut self, quote: u8, decode: bool) -> Result<Option<Key<'a>>, Fail> {
