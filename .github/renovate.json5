@@ -13,10 +13,11 @@
   "pre-commit": { enabled: true },
   customManagers: [
     {
-      // Python tools run with uvx in CI: ruff, and the pre-commit and prek the hook is tested with.
+      // Python tools run with uvx in CI: the pre-commit and prek the hook is tested with. ruff's
+      // pin is the hook rev in .pre-commit-config.yaml, which CI runs.
       customType: "regex",
       managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
-      matchStrings: ["(?<depName>ruff|pre-commit|prek)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      matchStrings: ["(?<depName>pre-commit|prek)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
       datasourceTemplate: "pypi",
     },
     {
