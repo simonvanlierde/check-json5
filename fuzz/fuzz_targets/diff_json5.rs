@@ -1,5 +1,5 @@
-//! jsonvet and the json5 crate (1.3.2) agree on what is JSON5, both ways, apart from json5's own
-//! limits.
+//! jsonvet and the json5 crate (the version pinned in fuzz/Cargo.toml) agree on what is JSON5, both
+//! ways, apart from json5's own limits.
 #![no_main]
 
 use jsonvet::{Config, Dialect, Rule, Severity, check};
@@ -15,15 +15,23 @@ fn has_surrogate_escape(text: &str) -> bool {
     })
 }
 
+/// Whether the text has a run of 20 or more digits (hex included): json5 deserializes integers
+/// into 64 bits, though JSON5 numbers have no size limit.
+fn has_long_digit_run(text: &str) -> bool {
+    text.as_bytes()
+        .split(|b| !b.is_ascii_hexdigit())
+        .any(|run| run.len() >= 20)
+}
+
 /// Whether the text has a character, literal or escaped, that jsonvet's Unicode tables call a
 /// letter, mark, digit or connector and json5's tables do not, as when one crate moves to a newer
 /// Unicode version first. json5 then rejects it anywhere in a key, even after a first letter.
 fn has_newer_identifier_char(text: &str) -> bool {
-    use unicode_properties::UnicodeGeneralCategory;
     use unicode_properties::GeneralCategory::{
         ConnectorPunctuation, DecimalNumber, LetterNumber, LowercaseLetter, ModifierLetter,
         NonspacingMark, OtherLetter, SpacingMark, TitlecaseLetter, UppercaseLetter,
     };
+    use unicode_properties::UnicodeGeneralCategory;
     let escaped = text.match_indices("\\u").filter_map(|(at, _)| {
         let hex = text.get(at + 2..at + 6)?;
         char::from_u32(u32::from_str_radix(hex, 16).ok()?)
@@ -59,15 +67,20 @@ fuzz_target!(|text: &str| {
             report.problems()
         ),
         Err(e) if report.passed() => {
-            // json5 counts U+2028 and U+2029 in strings as errors, which the spec allows. JSON5
-            // numbers have no size limit, but json5's serde path needs integers to fit 64 bits.
+            // Each excuse names json5's error and the input feature that causes it, so a
+            // different failure on the same input still fails the run.
             let message = e.to_string();
-            let limit = text.contains(['\u{2028}', '\u{2029}'])
-                || has_surrogate_escape(text)
+            let limit = (message.starts_with("invalid escape sequence")
+                || message.starts_with("unpaired surrogate"))
+                && has_surrogate_escape(text)
                 || has_newer_identifier_char(text)
-                || message.contains("to fit in target type")
-                || message.starts_with("overflow parsing number");
-            assert!(limit, "jsonvet accepts {text:?} as JSON5, json5 rejects it: {e}");
+                || ((message.starts_with("number too ")
+                    || message.starts_with("overflow parsing number"))
+                    && has_long_digit_run(text));
+            assert!(
+                limit,
+                "jsonvet accepts {text:?} as JSON5, json5 rejects it: {e}"
+            );
         }
         Err(_) => {}
     }
