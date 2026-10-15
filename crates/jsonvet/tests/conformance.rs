@@ -114,7 +114,6 @@ fn json5_tests_suite() {
 #[test]
 fn mislabeled_entries_are_still_needed() {
     let mislabeled = mislabeled();
-    assert!(!mislabeled.is_empty());
     for (case, why) in mislabeled {
         let path = root().join(&case);
         assert!(

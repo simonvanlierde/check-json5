@@ -7,7 +7,7 @@
 use jsonvet::{Config, Dialect, Rule, Severity, check};
 
 /// Line and column the slow way: count terminators and characters from the start.
-pub fn recount(text: &str, offset: usize) -> (usize, usize) {
+pub(crate) fn recount(text: &str, offset: usize) -> (usize, usize) {
     let (mut line, mut column) = (1, 1);
     // A CR followed by LF is one line end, even when the offset points at the LF.
     for (i, c) in text.char_indices().take_while(|&(i, _)| i < offset) {
@@ -37,7 +37,7 @@ fn passes(text: &str, dialect: Dialect) -> bool {
 /// and U+2029. A comment can swallow different text in each, so the chain between the comment
 /// dialects is only checked on texts without those characters. JSON has no comments, so it is
 /// below every dialect either way.
-pub fn nesting_violations(text: &str) -> Vec<String> {
+pub(crate) fn nesting_violations(text: &str) -> Vec<String> {
     let mut pairs = vec![
         (Dialect::IJson, Dialect::Json),
         (Dialect::Json, Dialect::Jsonc),
