@@ -1,7 +1,8 @@
 """Placeholder that pre-commit installs for the hook: it pins the prebuilt jsonvet wheel.
 
 pre-commit runs `pip install .` on a hook repository. Without this file that would build the
-Rust project from source. The release workflow keeps the pinned version equal to the tag.
+Rust project from source. A release commit sets the pinned version by hand, and the release
+workflow checks that it equals the tag.
 """
 
 # pip's isolated build provides setuptools when it installs the hook; the dev environment has none.
