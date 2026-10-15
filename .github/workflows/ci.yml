@@ -297,3 +297,36 @@ jobs:
           assert uris == ["nested/deep/dup.json"], uris
           '
 
+  # What the release publishes besides the wheels: the sdist, built and installed from source;
+  # the check-json5 package; and the crates, packaged and built as crates.io will see them.
+  packaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: v1.15.0
+          working-directory: crates/jsonvet-cli
+          command: sdist
+          args: --out ../../dist
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.0"
+      - name: Install the sdist and the check-json5 package, and run them
+        run: |
+          printf '{"a": 1, "a": 2}\n' > dup.json
+          uv run --isolated --no-project --with dist/*.tar.gz jsonvet dup.json && exit 1
+          uv build --out-dir compat-dist compat/check-json5
+          # Its jsonvet pin may not be on PyPI yet; the sdist stands in.
+          uv run --isolated --no-project --find-links dist --with compat-dist/*.whl check-json5 --version
+      # Both crates, with jsonvet-cli built against the packaged jsonvet even when its `=x.y.z`
+      # version is not on crates.io yet. The release job skips this with --no-verify.
+      - run: cargo publish --dry-run --locked --workspace
+
