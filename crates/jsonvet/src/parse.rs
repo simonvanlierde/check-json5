@@ -208,6 +208,8 @@ impl<'a> Parser<'a> {
     fn unexpected_at(&self, at: usize, expected: &'static str) -> Fail {
         if at >= self.bytes.len() {
             Fail::at(at, SyntaxKind::UnexpectedEnd { expected })
+        } else if self.json_lines && self.bytes[at] == b'\n' {
+            Fail::at(at, SyntaxKind::UnexpectedLineEnd { expected })
         } else {
             Fail::at(
                 at,

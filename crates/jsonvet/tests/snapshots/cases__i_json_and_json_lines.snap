@@ -30,7 +30,7 @@ jsonl "{\"a\": 1}\n\n[2]\n"
 jsonl "{\"a\": 1}\n   \n"
        2:1 error[syntax] blank line; JSON Lines needs a value on every line
 jsonl "{\"a\":\n1}\n"
-       1:6 error[syntax] expected a value, found U+000A
+       1:6 error[syntax] expected a value, found the end of the line
 jsonl "1 2\n"
        1:3 error[syntax] expected the end of the line, found `2`
 jsonl "{\"a\": 1, \"a\": 2}\r\n[3]\r\n"

@@ -161,6 +161,11 @@ pub(crate) enum SyntaxKind {
         /// What was needed, as the message names it: "a value", "`:`".
         expected: &'static str,
     },
+    /// A JSON Lines line ended where something else was needed.
+    UnexpectedLineEnd {
+        /// What was needed, as for `UnexpectedEnd`.
+        expected: &'static str,
+    },
     /// A character that cannot continue the document here.
     Unexpected {
         /// The character found.
@@ -216,6 +221,9 @@ impl fmt::Display for SyntaxError {
         match &self.kind {
             SyntaxKind::UnexpectedEnd { expected } => {
                 write!(f, "expected {expected}, found the end of the file")
+            }
+            SyntaxKind::UnexpectedLineEnd { expected } => {
+                write!(f, "expected {expected}, found the end of the line")
             }
             SyntaxKind::Unexpected { found, expected } => {
                 write!(f, "expected {expected}, found {}", Shown(*found))
