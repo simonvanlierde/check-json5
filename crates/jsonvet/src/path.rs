@@ -211,5 +211,14 @@ mod tests {
         let wide = format!(".{}", "é".repeat(MAX_PATH));
         let wide = path(&["$", &wide]);
         assert!(wide.len() <= MAX_PATH + '…'.len_utf8());
+        // A segment of exactly half the room is dropped whole at either end, not cut.
+        let half = MAX_PATH / 2;
+        let x = format!(".{}", "x".repeat(half - 1));
+        let y = format!(".{}", "y".repeat(half - 1));
+        assert_eq!(path(&["$", &x, &y, ".z"]), "$….z");
+        // A cut never lands inside a character: the head's moves back, the tail's forward.
+        let s = format!(".a{}", "é".repeat(200));
+        let cut = "é".repeat(62);
+        assert_eq!(path(&["$", &s, &s, ".zz"]), format!("$.a{cut}…{cut}.zz"));
     }
 }

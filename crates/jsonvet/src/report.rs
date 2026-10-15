@@ -181,6 +181,24 @@ mod tests {
     }
 
     #[test]
+    fn checkpoints_land_on_character_boundaries() {
+        // Byte 4096 falls inside an `é`, so the first checkpoint moves to the next character.
+        let text = format!("a{}", "\u{e9}".repeat(5000));
+        let report = Report::new(&text, Vec::new());
+        for k in (0..5000).rev().step_by(97) {
+            let at = report.location(1 + 2 * k);
+            assert_eq!(
+                at,
+                Location {
+                    line: 1,
+                    column: 2 + k
+                },
+                "character {k}"
+            );
+        }
+    }
+
+    #[test]
     fn ascii_columns_need_no_counting() {
         // One line with every key repeated far from its first occurrence, located in the order
         // the command does: each duplicate, then its first occurrence.
