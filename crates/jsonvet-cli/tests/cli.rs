@@ -314,6 +314,39 @@ fn config_file_and_its_search() {
 }
 
 #[test]
+fn config_globs_are_relative_to_the_config_file() {
+    let toml = "dialects = [{ files = \"data/*.json\", dialect = \"json\" }]\n";
+    let pyproject = format!("[tool.jsonvet]\n{toml}");
+    let unquoted = "data/x.json:1:2: error[syntax] unquoted keys are not allowed in json\n";
+    for config in [
+        ("jsonvet.toml", toml),
+        ("pyproject.toml", pyproject.as_str()),
+    ] {
+        let dir = workdir(&[
+            config,
+            ("data/x.json", "{a: 1}"),
+            ("outside/x.json", "{a: 1}"),
+            (
+                "outside/c.toml",
+                "dialects = [{ files = \"*.json\", dialect = \"json\" }]\n",
+            ),
+        ]);
+        assert_eq!(jsonvet(&dir, &["data/x.json"]), (1, unquoted.to_owned()));
+        let absolute = dir.join("data/x.json");
+        let absolute = absolute.to_str().expect("a UTF-8 path");
+        assert_eq!(jsonvet(&dir, &[absolute]).0, 1, "{absolute}");
+        assert_eq!(jsonvet(&dir.join("data"), &["x.json"]).0, 1);
+        assert_eq!(jsonvet(&dir.join("outside"), &["../data/x.json"]).0, 1);
+        // The command line still matches the path as given.
+        let cli = ["--no-config", "--dialect", "json:data/*.json", "x.json"];
+        assert_eq!(jsonvet(&dir.join("data"), &cli), (0, String::new()));
+        // A file outside the config file's directory matches none of its patterns.
+        let other = ["--config", "outside/c.toml", "data/x.json"];
+        assert_eq!(jsonvet(&dir, &other), (0, String::new()));
+    }
+}
+
+#[test]
 fn config_search_stops_at_the_repository_root() {
     let outer = workdir(&[("jsonvet.toml", "rules = { duplicate-key = \"ignore\" }\n")]);
     let repo = outer.join("repo");
