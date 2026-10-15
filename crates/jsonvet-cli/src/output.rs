@@ -20,7 +20,8 @@ pub(crate) enum Format {
 /// A file name or message with control characters made visible: a newline would start a line
 /// of its own, which GitHub Actions reads as a workflow command when it starts with `::`, and
 /// an escape character would reach the terminal. CR and LF show as `\r` and `\n`, the rest as
-/// `\u001b`, as JSONPaths in messages show them.
+/// `\u001b`, as JSONPaths in messages show them. The runner also reads its older `##[command]`
+/// form anywhere in a line, so the `[` of `##[` shows as `\u005b`.
 fn printable(value: &str) -> String {
     let mut shown = String::with_capacity(value.len());
     for c in value.chars() {
@@ -30,6 +31,7 @@ fn printable(value: &str) -> String {
             c if c.is_control() => {
                 let _ = write!(shown, "\\u{:04x}", u32::from(c));
             }
+            '[' if shown.ends_with("##") => shown.push_str("\\u005b"),
             c => shown.push(c),
         }
     }
@@ -194,6 +196,7 @@ mod tests {
             printable("a\u{1b}]8;;x\u{7}\u{9b}b"),
             "a\\u001b]8;;x\\u0007\\u009bb"
         );
+        assert_eq!(printable("a##[add-mask]b#[c"), "a##\\u005badd-mask]b#[c");
         assert_eq!(printable("C:\\x\te.json"), "C:\\x\\u0009e.json");
         assert_eq!(escape("50% a\r\nb", false), "50%25 a%0D%0Ab");
         assert_eq!(escape("a:b,c", true), "a%3Ab%2Cc");

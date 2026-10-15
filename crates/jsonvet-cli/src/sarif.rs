@@ -150,6 +150,9 @@ fn string(value: &str) -> String {
         match c {
             '"' => json.push_str("\\\""),
             '\\' => json.push_str("\\\\"),
+            // GitHub Actions reads `##[command]` anywhere in a log line, the SARIF printed
+            // there included; `\u005b` keeps the value and breaks the match.
+            '[' if json.ends_with("##") => json.push_str("\\u005b"),
             c if c < ' ' => {
                 let _ = write!(json, "\\u{:04x}", u32::from(c));
             }
@@ -173,6 +176,7 @@ mod tests {
             "\"a\\\"b\\\\c\\u000a\\u0001\u{7f}\u{e9}\""
         );
         assert_eq!(string("a b"), "\"a b\"");
+        assert_eq!(string("##[add-mask]"), "\"##\\u005badd-mask]\"");
     }
 
     #[test]

@@ -152,6 +152,37 @@ fn a_file_name_cannot_start_a_workflow_command_or_send_escapes() {
     );
 }
 
+/// GitHub Actions also runs the older `##[command]` form found anywhere in a line, so neither a
+/// file name nor a key in a message may print one, in text, annotations or SARIF.
+#[test]
+fn output_never_holds_a_legacy_workflow_command() {
+    let dir = workdir(&[(
+        "##[add-mask]a.json",
+        "{\"##[add-mask]s\": 1, \"##[add-mask]s\": 2}",
+    )]);
+    let run = |format: &str| {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(["--format", format, "##[add-mask]a.json"])
+            .current_dir(&dir)
+            .env("GITHUB_ACTIONS", "true")
+            .output()
+            .expect("run jsonvet");
+        String::from_utf8(out.stdout).expect("UTF-8 output")
+    };
+    assert_eq!(
+        run("text"),
+        "##\\u005badd-mask]a.json:1:22: error[duplicate-key] duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n\
+         ::error file=##[add-mask]a.json,line=1,col=22,title=jsonvet (duplicate-key)::duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n"
+    );
+    let sarif = run("sarif");
+    assert!(!sarif.contains("##["), "{sarif}");
+    let sarif: serde_json::Value = serde_json::from_str(&sarif).expect("JSON output");
+    assert_eq!(
+        sarif["runs"][0]["results"][0]["message"]["text"],
+        "duplicate key $[\"##[add-mask]s\"] (first at 1:2)"
+    );
+}
+
 /// A reader that stops early, as `| head -1` does, ends the run quietly with the verdict so far.
 #[test]
 fn a_closed_pipe_keeps_the_verdict() {
