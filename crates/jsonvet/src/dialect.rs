@@ -72,6 +72,11 @@ impl Dialect {
         matches!(self, Dialect::Jwcc | Dialect::Json5)
     }
 
+    /// Whether a `//` comment ends only at `\n`. JWCC's text says `\r` bytes are irrelevant.
+    pub(crate) fn line_comment_ends_only_at_lf(self) -> bool {
+        self == Dialect::Jwcc
+    }
+
     pub(crate) fn json5(self) -> bool {
         self == Dialect::Json5
     }
