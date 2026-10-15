@@ -224,6 +224,23 @@ fn a_closed_pipe_keeps_the_verdict() {
     assert_eq!(out.status.code(), Some(1));
 }
 
+/// `--help` and `--version` into a pipe nobody reads still succeed.
+#[cfg(unix)]
+#[test]
+fn help_into_a_closed_pipe_succeeds() {
+    for flag in ["--help", "--version"] {
+        let (reader, writer) = std::io::pipe().expect("a pipe");
+        drop(reader);
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .arg(flag)
+            .stdout(writer)
+            .output()
+            .expect("run jsonvet");
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "", "{flag}");
+        assert_eq!(out.status.code(), Some(0), "{flag}");
+    }
+}
+
 #[test]
 fn help_version_and_the_check_json5_name() {
     let dir = workdir(&[("dup.json", "{\"a\":1,\"a\":2}"), ("sub.json", "{}")]);
