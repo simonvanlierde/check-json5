@@ -6,7 +6,10 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|text: &str| {
     // serde_json keeps the last of a duplicate key, so duplicates are not a syntax question.
-    let config = Config::new(Dialect::Json).rule(Rule::DuplicateKey, Severity::Off);
+    // NOTE: serde_json has no depth limit when it skips a value, so neither does jsonvet here.
+    let config = Config::new(Dialect::Json)
+        .rule(Rule::DuplicateKey, Severity::Off)
+        .max_depth(usize::MAX);
     let report = check(text, &config);
     match serde_json::from_str::<serde::de::IgnoredAny>(text) {
         Ok(_) => assert!(

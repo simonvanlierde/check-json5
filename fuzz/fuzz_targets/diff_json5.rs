@@ -58,7 +58,10 @@ fn has_newer_identifier_char(text: &str) -> bool {
 }
 
 fuzz_target!(|text: &str| {
-    let config = Config::new(Dialect::Json5).rule(Rule::DuplicateKey, Severity::Off);
+    // NOTE: json5 sets no depth limit, so neither does jsonvet here.
+    let config = Config::new(Dialect::Json5)
+        .rule(Rule::DuplicateKey, Severity::Off)
+        .max_depth(usize::MAX);
     let report = check(text, &config);
     match json5::from_str::<serde::de::IgnoredAny>(text) {
         Ok(_) => assert!(
