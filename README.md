@@ -219,6 +219,7 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 - property tests: no input makes it panic, every position lies on a character boundary and
   matches a naive recount;
 - fuzzing with cargo-fuzz, against serde_json and the json5 crate as references;
+- mutation testing with cargo-mutants: every surviving mutant is one that changes no behaviour;
 - the file-by-file comparison with check-json5 1.4.1 above, in CI;
 - CI on Linux, macOS and Windows, plus the oldest supported Rust (1.88).
 
