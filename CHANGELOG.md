@@ -38,6 +38,8 @@ Hook and command users who do neither of the first two need no other change.
 - Library: `Rule::description()`, `Problem::related()` with `Related` and `RelatedKind` (what the
   second position points at), `Problem::path()` (a duplicate key's JSONPath),
   `Dialect::EXTENSIONS`, `Dialect::FILE_NAMES` and `Location::START`.
+- A `CITATION.cff`, and a Zenodo DOI for each release from this one on, so jsonvet and its
+  conformance matrix can be cited.
 
 ### Changed
 
