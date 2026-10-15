@@ -393,7 +393,7 @@ def write_readme_summary(scores: dict, date: str) -> None:
     for (title, files), row in scores.items():
         ranked = sorted(row, key=lambda r: (-r[1], r[0]))
         lines.append(f"| {title} | {files} | " + ", ".join(f"`{c}` {pct:.0f}%" for c, pct in ranked) + " |")
-    grid = "[docs/conformance.md](docs/conformance.md)"
+    grid = "[docs/conformance.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/conformance.md)"
     lines += ["", f"Run on {date}. The full grid, and where each expected verdict comes from: {grid}.", "", end]
     text = README.read_text()
     before, rest = text.split(start, 1)
