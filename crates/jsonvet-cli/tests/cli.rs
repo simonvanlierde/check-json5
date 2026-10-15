@@ -509,6 +509,7 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
         ("dup.json", "{\n  \"a\": 1,\n  \"a\": 2\n}"),
         ("bom.json", "\u{FEFF}{}"),
         ("ok.json", "{}"),
+        ("open.json", "[1, /* x"),
     ]);
     let run = |args: &[&str]| {
         let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
@@ -592,6 +593,17 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
     let (code, sarif) = run(&["--format", "sarif", "ok.json"]);
     assert_eq!(code, 0);
     assert_eq!(sarif["runs"][0]["results"], serde_json::json!([]));
+
+    // A syntax error's related location is where the unterminated comment starts.
+    let (_, sarif) = run(&["--format", "sarif", "open.json"]);
+    let open = &sarif["runs"][0]["results"][0];
+    assert_eq!(
+        open["message"]["text"],
+        "unterminated block comment (started at 1:5)"
+    );
+    let start = &open["relatedLocations"][0];
+    assert_eq!(start["message"]["text"], "starts here");
+    assert_eq!(start["physicalLocation"]["region"]["startColumn"], 5);
 }
 
 #[test]

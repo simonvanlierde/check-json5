@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
-use jsonvet::{Location, Problem, Report, Rule, Severity};
+use jsonvet::{Location, Problem, RelatedKind, Report, Severity};
 
 use crate::sarif;
 
@@ -89,27 +89,23 @@ impl<W: Write> Printer<W> {
         problem: &Problem,
     ) -> io::Result<()> {
         let at = report.location(problem.offset());
-        let mut message = problem.to_string();
-        if let Some(related) = problem.related_offset() {
-            let first = report.location(related);
-            let what = if problem.rule() == Rule::DuplicateKey {
-                "first at"
-            } else {
-                "started at"
+        // Where the related offset is, and its labels in the text message and in SARIF.
+        let related = problem.related().map(|related| {
+            let labels = match related.kind {
+                RelatedKind::FirstOccurrence => ("first at", "first copy"),
+                // NOTE: `RelatedKind` is non-exhaustive; `Start` is the only other kind so far.
+                _ => ("started at", "starts here"),
             };
+            (report.location(related.offset), labels)
+        });
+        let mut message = problem.to_string();
+        if let Some((first, (what, _))) = related {
             let _ = write!(message, " ({what} {}:{})", first.line, first.column);
         }
         let severity = problem.severity();
         let rule = problem.rule();
         if let Some(results) = &mut self.sarif {
-            let related = problem.related_offset().map(|offset| {
-                let what = if rule == Rule::DuplicateKey {
-                    "first copy"
-                } else {
-                    "starts here"
-                };
-                (report.location(offset), what)
-            });
+            let related = related.map(|(first, (_, what))| (first, what));
             results.push(sarif::result(
                 file,
                 rule.id(),
