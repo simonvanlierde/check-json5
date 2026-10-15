@@ -49,6 +49,25 @@ pub(crate) fn push_key(path: &mut String, key: &[u8]) {
     }
 }
 
+/// A decoded string or key as text, with U+FFFD for each lone surrogate.
+pub(crate) fn text(key: Cow<'_, [u8]>) -> Cow<'_, str> {
+    let lossy = |bytes: &[u8]| -> String {
+        decode(bytes)
+            .into_iter()
+            .map(|c| c.unwrap_or('\u{FFFD}'))
+            .collect()
+    };
+    match key {
+        Cow::Borrowed(bytes) => match std::str::from_utf8(bytes) {
+            Ok(text) => Cow::Borrowed(text),
+            Err(_) => Cow::Owned(lossy(bytes)),
+        },
+        Cow::Owned(bytes) => {
+            Cow::Owned(String::from_utf8(bytes).unwrap_or_else(|e| lossy(e.as_bytes())))
+        }
+    }
+}
+
 /// A key's characters, with each lone surrogate as `Err(unit)`.
 fn decode(mut key: &[u8]) -> Vec<Result<char, u32>> {
     let mut chars = Vec::new();

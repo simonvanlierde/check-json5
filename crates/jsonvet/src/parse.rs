@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
+use crate::event::{Event, EventKind};
 use crate::path::{self, Segment};
 use crate::problem::{Detail, SyntaxError, SyntaxKind};
 use crate::{Config, Dialect, Problem, Rule, Severity};
@@ -26,7 +27,12 @@ const SAFE_HEX_DIGITS: usize = 14;
 /// with thirteen `F`s and a digit from `C` up.
 const DOUBLE_HEX_DIGITS: usize = 256;
 
-pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
+/// Check `text`; with `events`, also list its values (see [`Event`]) up to any syntax error.
+pub(crate) fn check<'a>(
+    text: &'a str,
+    config: &Config,
+    events: bool,
+) -> (Vec<Problem>, Vec<Event<'a>>) {
     let dialect = config.dialect();
     let mut parser = Parser {
         text,
@@ -41,6 +47,7 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
         max_depth: config.max_depth,
         problems: Vec::new(),
         stack: Vec::new(),
+        events: events.then(Vec::new),
     };
     parser.byte_order_mark(config.severity(Rule::ByteOrderMark));
     let outcome = if parser.json_lines {
@@ -58,7 +65,7 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
             }),
         });
     }
-    parser.problems
+    (parser.problems, parser.events.unwrap_or_default())
 }
 
 /// A decoded key as WTF-8: UTF-8, except that a lone surrogate escape such as `\\uD800` is kept
@@ -106,6 +113,8 @@ struct Parser<'a> {
     max_depth: usize,
     problems: Vec<Problem>,
     stack: Vec<Frame<'a>>,
+    /// The values seen so far, when the caller asked for them.
+    events: Option<Vec<Event<'a>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -218,6 +227,12 @@ impl<'a> Parser<'a> {
         )
     }
 
+    fn emit(&mut self, offset: usize, kind: EventKind<'a>) {
+        if let Some(events) = &mut self.events {
+            events.push(Event { offset, kind });
+        }
+    }
+
     fn report(&mut self, offset: usize, severity: Severity, detail: Detail) {
         if severity.is_on() {
             self.problems.push(Problem {
@@ -312,6 +327,7 @@ impl<'a> Parser<'a> {
                 dialect: self.dialect,
             }));
         }
+        self.emit(self.pos, EventKind::End);
         self.pos += 1;
         self.stack.pop();
         Ok(self.state_after_value())
@@ -337,6 +353,11 @@ impl<'a> Parser<'a> {
             current_key: Key::Borrowed(&[]),
             element_index: 0,
         });
+        let kind = match container {
+            Container::Object => EventKind::ObjectStart,
+            Container::Array => EventKind::ArrayStart,
+        };
+        self.emit(self.pos, kind);
         self.pos += 1;
         Ok(match container {
             Container::Object => State::ObjectFirst,
@@ -345,25 +366,35 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self) -> Result<State, Fail> {
+        let start = self.pos;
         let Some(b) = self.peek() else {
             return Err(self.unexpected("a value"));
         };
-        match b {
+        let kind = match b {
             b'{' => return self.open(Container::Object),
             b'[' => return self.open(Container::Array),
-            b'"' => {
-                self.string(b'"', false)?;
-            }
-            b'\'' if self.json5 => {
-                self.string(b'\'', false)?;
-            }
+            b'"' => self.string_value(b'"')?,
+            b'\'' if self.json5 => self.string_value(b'\'')?,
             b'\'' => return Err(self.not_allowed(self.pos, "single-quoted strings are")),
-            b'-' | b'+' | b'.' | b'0'..=b'9' | b'I' | b'N' => self.number()?,
-            b't' => self.literal("`true`")?,
-            b'f' => self.literal("`false`")?,
-            b'n' => self.literal("`null`")?,
+            b'-' | b'+' | b'.' | b'0'..=b'9' | b'I' | b'N' => {
+                self.number()?;
+                EventKind::Number(&self.text[start..self.pos])
+            }
+            b't' => {
+                self.literal("`true`")?;
+                EventKind::Bool(true)
+            }
+            b'f' => {
+                self.literal("`false`")?;
+                EventKind::Bool(false)
+            }
+            b'n' => {
+                self.literal("`null`")?;
+                EventKind::Null
+            }
             _ => return Err(self.unexpected("a value")),
-        }
+        };
+        self.emit(start, kind);
         Ok(self.state_after_value())
     }
 
@@ -391,7 +422,12 @@ impl<'a> Parser<'a> {
         let start = self.pos;
         // Without the duplicate check, quoted keys are only scanned: nothing reads their value.
         let track_keys = self.duplicate_key.is_on();
-        let key = self.read_key(track_keys)?.unwrap_or(Key::Borrowed(&[]));
+        let key = self
+            .read_key(track_keys || self.events.is_some())?
+            .unwrap_or(Key::Borrowed(&[]));
+        if self.events.is_some() {
+            self.emit(start, EventKind::Key(path::text(key.clone())));
+        }
         if track_keys {
             self.check_duplicate(start, &key);
         }
@@ -490,6 +526,14 @@ impl<'a> Parser<'a> {
     }
 
     // --- strings ---------------------------------------------------------------------------
+
+    /// A string value, decoded only when events are wanted.
+    fn string_value(&mut self, quote: u8) -> Result<EventKind<'a>, Fail> {
+        let value = self.string(quote, self.events.is_some())?;
+        Ok(EventKind::String(
+            value.map_or(Cow::Borrowed(""), path::text),
+        ))
+    }
 
     /// Scan a string starting at its quote. With `decode`, return its value; without, `None`.
     fn string(&mut self, quote: u8, decode: bool) -> Result<Option<Key<'a>>, Fail> {

@@ -1,7 +1,7 @@
 //! Properties that hold for every input in every dialect: no panic, every offset inside the
 //! text and on a character boundary, and every location equal to a naive recount.
 
-use jsonvet::{Config, Dialect, check};
+use jsonvet::{Config, Dialect, EventKind, Rule, check, parse};
 use proptest::prelude::*;
 
 /// JSON-ish token soup, so most inputs get past the first byte.
@@ -81,6 +81,26 @@ proptest! {
             let at = report.location(problem.offset());
             prop_assert_eq!((at.line, at.column), recount(&text, problem.offset()));
         }
+    }
+
+    #[test]
+    fn parse_reports_as_check_does_and_its_events_balance(text in soup(), dialect in prop::sample::select(Dialect::ALL.to_vec())) {
+        let config = Config::new(dialect);
+        let (report, events) = parse(&text, &config);
+        let checked = check(&text, &config);
+        prop_assert_eq!(report.problems(), checked.problems());
+        let syntax_error = report.problems().iter().any(|p| p.rule() == Rule::Syntax);
+        prop_assert_eq!(events.is_none(), syntax_error);
+        let mut depth = 0usize;
+        for event in events.unwrap_or_default() {
+            prop_assert!(text.is_char_boundary(event.offset) && event.offset < text.len());
+            match event.kind {
+                EventKind::ObjectStart | EventKind::ArrayStart => depth += 1,
+                EventKind::End => depth -= 1,
+                _ => {}
+            }
+        }
+        prop_assert_eq!(depth, 0);
     }
 
     #[test]
