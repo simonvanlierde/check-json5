@@ -73,15 +73,18 @@ impl Settings {
     /// The checking config for one file: the last matching dialect pattern wins.
     pub(crate) fn config_for(&self, path: &str) -> Config {
         let auto = || Dialect::for_path(Path::new(path)).unwrap_or(Dialect::Json5);
-        let absolute = std::path::absolute(path).ok();
-        let absolute = absolute.as_deref().map(Path::to_string_lossy);
+        // Found only when a config file's pattern needs it: it asks the system for the working
+        // directory each time.
+        let absolute = std::cell::OnceCell::new();
         let matches = |rule: &DialectPattern| match (&rule.files, &rule.base) {
             (None, _) => true,
             (Some(pattern), None) => glob::matches(pattern, path),
             // A file outside the config file's directory matches none of its patterns.
             (Some(pattern), Some(base)) => absolute
+                .get_or_init(|| std::path::absolute(path).ok())
                 .as_deref()
-                .and_then(|absolute| glob::relative(absolute, base))
+                .map(Path::to_string_lossy)
+                .and_then(|absolute| glob::relative(&absolute, base))
                 .is_some_and(|relative| glob::matches(pattern, &relative)),
         };
         let dialect = self
