@@ -11,6 +11,6 @@ coverage:
       default:
         informational: true
 
-# Comment only when the project check fails: coverage_drop honours its 2-point threshold.
-comment:
-  require_changes: "coverage_drop"
+# No pull request comments: Codecov posts an "all lines covered" note even with
+# require_changes set. A failing project check is the notice.
+comment: false
