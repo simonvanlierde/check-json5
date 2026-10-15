@@ -15,17 +15,21 @@ setup:
 # ci.yml `lint`, apart from the generated-page diff (see `matrix-check`).
 lint:
     cargo fmt --all --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+    cargo clippy --workspace --all-targets --locked -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
     cargo deny check
-    prek run --all-files ruff-check
-    prek run --all-files ruff-format
+    prek run ruff-check ruff-format --all-files --show-diff-on-failure
     uv run conformance/run.py --check
 
 # ci.yml `test`. nextest skips doctests, so they run on their own.
 test:
-    cargo nextest run --workspace
-    cargo test --workspace --doc
+    cargo nextest run --workspace --locked
+    cargo test --workspace --doc --locked
+
+# ci.yml `differential`: jsonvet against check-json5 1.4.1 on generated files (CI samples 5,000).
+differential CASES="5000" SEED="7":
+    cargo build --release --locked -p jsonvet-cli
+    uv run scripts/differential.py --cases {{ CASES }} --seed {{ SEED }} --jsonvet {{ target }}/release/jsonvet
 
 # Everything a pull request needs to pass, except the other operating systems.
 check: lint test
@@ -54,9 +58,9 @@ matrix-check:
 fuzz TARGET:
     cd fuzz && cargo +nightly fuzz run -O {{ TARGET }} -- -max_total_time=1200 -print_final_stats=1
 
-# Mutation testing over both crates; about 8 minutes.
+# Mutation testing over both crates, as mutants.yml runs it; about 8 minutes.
 mutants:
-    cargo mutants --test-workspace=true
+    cargo mutants --workspace --test-workspace=true --no-shuffle
 
 # Time jsonvet against check-json5 1.4.1 (needs hyperfine).
 bench:
