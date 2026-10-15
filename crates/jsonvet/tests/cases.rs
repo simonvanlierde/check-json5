@@ -341,3 +341,28 @@ fn related_offsets_say_what_they_point_at() {
     );
     assert_eq!(related(Dialect::Json, "[1 2]"), None);
 }
+
+#[test]
+fn duplicate_key_paths_stay_short_however_deep_the_key() {
+    let depth = 9_000;
+    let members = vec![r#""a":0"#; 20_000].join(",");
+    let deep = format!("{}{{{members}}}{}", "[".repeat(depth), "]".repeat(depth));
+    let every_level = format!(
+        "{}1{}",
+        r#"{"abc":1,"abc":"#.repeat(depth),
+        "}".repeat(depth)
+    );
+    for text in [deep, every_level] {
+        let report = check(&text, &Config::new(Dialect::Json));
+        assert!(report.problems().len() >= depth);
+        for problem in report.problems() {
+            let message = problem.to_string();
+            assert!(message.len() <= 300, "{} bytes", message.len());
+        }
+    }
+    let text = format!("{}{{\"a\":0,\"a\":0}}{}", "[".repeat(100), "]".repeat(100));
+    let report = check(&text, &Config::new(Dialect::Json));
+    let message = report.problems()[0].to_string();
+    let levels = "[0]".repeat(42);
+    assert_eq!(message, format!("duplicate key ${levels}…{levels}.a"));
+}

@@ -2,6 +2,7 @@
 //! each dialect rule applied where the syntax it governs appears.
 
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::HashMap;
 
 use crate::path::{self, Segment};
@@ -123,6 +124,8 @@ struct Frame<'a> {
     container: Container,
     /// How this container is reached from its parent.
     segment: Segment<'a>,
+    /// `segment` as a path shows it, made on the first duplicate inside the container.
+    rendered: OnceCell<String>,
     /// The keys seen so far with the offset of each, for objects.
     seen_keys: Vec<(Key<'a>, usize)>,
     /// The same keys, indexed once the object grows past `LINEAR_KEYS`.
@@ -134,6 +137,10 @@ struct Frame<'a> {
 }
 
 impl<'a> Frame<'a> {
+    fn rendered(&self) -> &str {
+        self.rendered.get_or_init(|| path::rendered(&self.segment))
+    }
+
     fn first_offset(&self, key: &[u8]) -> Option<usize> {
         match &self.seen_index {
             Some(index) => index.get(key).copied(),
@@ -336,6 +343,7 @@ impl<'a> Parser<'a> {
         self.stack.push(Frame {
             container,
             segment,
+            rendered: OnceCell::new(),
             seen_keys: Vec::new(),
             seen_index: None,
             current_key: Key::Borrowed(&[]),
@@ -431,7 +439,12 @@ impl<'a> Parser<'a> {
         match frame.first_offset(key) {
             None => frame.insert(key.clone(), start),
             Some(first) => {
-                let path = path::render(self.stack.iter().map(|f| &f.segment), key);
+                let mut last = String::new();
+                path::push_key(&mut last, key);
+                let stack = &self.stack;
+                let path = path::bounded(stack.len() + 1, |i| {
+                    stack.get(i).map_or(last.as_str(), Frame::rendered)
+                });
                 self.report(
                     start,
                     self.duplicate_key,
