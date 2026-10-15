@@ -3,7 +3,7 @@
 [![CI](https://github.com/simonvanlierde/jsonvet/actions/workflows/ci.yml/badge.svg)](https://github.com/simonvanlierde/jsonvet/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/simonvanlierde/jsonvet/branch/main/graph/badge.svg)](https://codecov.io/gh/simonvanlierde/jsonvet)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/simonvanlierde/jsonvet/blob/main/LICENSE)
 [![release](https://img.shields.io/github/v/release/simonvanlierde/jsonvet)](https://github.com/simonvanlierde/jsonvet/releases/latest)
 
 jsonvet checks JSON, I-JSON, JSONC, HuJSON (JWCC), JSON5 and JSON Lines files for syntax errors,
@@ -12,12 +12,12 @@ rule, and a duplicate key with the JSONPath and position of both copies:
 
 ```text
 config.json:4:5: error[duplicate-key] duplicate key $.server.port (first at 2:5)
-package.json:3:1: error[syntax] comments are not allowed in json
+package.json:3:3: error[syntax] expected `,` or `}`, found `"`
 events.jsonl:12:1: error[syntax] blank line; JSON Lines needs a value on every line
 ```
 
 It is a pre-commit and prek hook, a command, and a Rust library. Until 2.0 it was check-json5, a
-Python hook; 2.0 is a rewrite in Rust that keeps its verdicts (see
+Python hook; 2.0 is a rewrite in Rust that keeps its verdicts for JSON5 and strict JSON (see
 [Coming from check-json5](#coming-from-check-json5)).
 
 ## Use it as a hook
@@ -29,6 +29,14 @@ In `.pre-commit-config.yaml` (pre-commit or [prek](https://github.com/j178/prek)
   rev: v2.0.0
   hooks:
     - id: jsonvet
+```
+
+Options go in `args`. For example, to hold `package.json` to strict JSON and check `.vscode`
+files as JSONC:
+
+```yaml
+    - id: jsonvet
+      args: [--strict, package.json, --dialect, "jsonc:.vscode/*.json"]
 ```
 
 The hook installs a prebuilt binary from PyPI, so it needs no Rust. It checks files by name:
@@ -51,11 +59,12 @@ optional:
 | `files`   | paths or globs to check, separated by spaces; by default every tracked file the hook would check |
 | `args`    | extra options, separated by spaces, such as `--strict package.json`                  |
 | `sarif`   | also write a SARIF file to this path (see [GitHub code scanning](#github-code-scanning)) |
-| `version` | the jsonvet version to install, or `latest`                                          |
+| `version` | the jsonvet version to install: an exact version such as `2.1.0`, a prefix such as `2.*`, or `latest` |
 
 Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
 installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
-to a commit SHA, it installs the version in that commit, so the pin covers jsonvet too.
+to a commit SHA, it installs the version in that commit's `Cargo.toml`. That is the release you
+mean only when the SHA is a release commit; on any other commit it is the last release before it.
 
 ## Dialects
 
@@ -70,6 +79,9 @@ choose another. Each step in JSON, JSONC, JWCC, JSON5 only adds syntax to the on
 | `jwcc`   | comments and trailing commas ([HuJSON](https://github.com/tailscale/hujson)) | `.hujson`, `.jwcc`                                                 |
 | `json5`  | the [JSON5 1.0.0](https://spec.json5.org/) grammar                            | `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest`, `.babelrc` |
 | `jsonl`  | one JSON value per line ([JSON Lines](https://jsonlines.org/))               | `.jsonl`, `.ndjson`                                                |
+
+A file with any other extension is checked as JSON5. Extensions match in lower case only:
+`A.JSONC` is JSON5, and so is `A.JSON`.
 
 `.json` files default to JSON5, because most `.json` files that fail as JSON are config files
 with comments. Hold the ones a strict parser reads, such as `package.json`, to JSON with
@@ -118,7 +130,13 @@ dialects = [
 ]
 ```
 
-Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.
+A key other than `rules` and `dialects`, in the file or in a `dialects` entry, is an error
+(exit status 2), so a typo is never ignored. A severity is `error`, `warning` (or `warn`), or
+`ignore` (or `off`).
+
+Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error. A file jsonvet
+cannot read, or that does not exist, prints `name: error: <reason>` with no line or column and
+makes the run exit 1. With no files, it exits 0.
 
 ## GitHub code scanning
 
@@ -182,14 +200,19 @@ for problem in report.problems() {
 Bump `rev` to `v2.0.0`. The `check-json5` hook id, the `check-json5` command and `--strict` keep
 working until 3.0, and the `check-json5` package on PyPI now installs jsonvet.
 
-2.0 gives the same pass or fail as 1.4.1 for every file, the same exit codes and the same
-duplicate-key paths. Comparing both on 20,114 generated files in JSON5 and in strict mode, 40,228
-runs in all, they agree on every one. What changes, and why, is listed in the
-[CHANGELOG](CHANGELOG.md) and in [docs/design.md](docs/design.md):
+For `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and in strict
+mode, 2.0 gives the same pass or fail as 1.4.1, the same exit codes and the same duplicate-key
+paths. Comparing both on 20,114 generated files in JSON5 and in strict mode, 40,228 runs in all,
+they agree on every one. What changes, and why, is listed in the
+[CHANGELOG](https://github.com/simonvanlierde/jsonvet/blob/main/CHANGELOG.md) and in [docs/design.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/design.md):
 
 - each line gains the severity and rule, as in `error[duplicate-key]`, and syntax errors use
   jsonvet's own wording;
 - the hook also checks `.jsonl` and `.ndjson` files;
+- `.jsonc`, `.code-workspace` and `.code-snippets` files are now checked as JSONC, and `.hujson`
+  and `.jwcc` files as JWCC. 1.4.1 read every file as JSON5, so JSON5-only syntax such as
+  `{'a': 1, b: 2}` passed there and fails now. To keep the old verdict for such a file, pass
+  `--dialect json5:GLOB` (or add a `dialects` entry to the config file); see [Dialects](#dialects);
 - lines end at every JSON5 line terminator (LF, CR, CRLF, U+2028, U+2029), so positions after a
   lone CR or U+2028 differ;
 - the importable Python module is gone; the wheel brings the `jsonvet` and `check-json5` commands.
@@ -215,7 +238,7 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 
 - the [json5-tests](https://github.com/json5/json5-tests) suite, all 114 cases;
 - a reviewed snapshot of edge cases in every dialect;
-- a [conformance matrix](docs/conformance.md) against 16 other parsers in four languages;
+- a [conformance matrix](https://github.com/simonvanlierde/jsonvet/blob/main/docs/conformance.md) against 16 other parsers in four languages;
 - property tests: no input makes it panic, every position lies on a character boundary and
   matches a naive recount;
 - fuzzing with cargo-fuzz, against serde_json and the json5 crate as references;
@@ -241,16 +264,9 @@ Run on 2026-10-14. The full grid, and where each expected verdict comes from: [d
 
 ## Development
 
-```bash
-cargo test --workspace                         # tests, including json5-tests (git submodule)
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all
-uv run scripts/differential.py                 # compare with check-json5 1.4.1
-uv run scripts/bench.py                        # time against check-json5 1.4.1
-cargo +nightly fuzz run check                  # fuzzing, from fuzz/
-```
-
-Clone with `--recurse-submodules`, or run `git submodule update --init` for the test suite.
+See [CONTRIBUTING.md](https://github.com/simonvanlierde/jsonvet/blob/main/CONTRIBUTING.md) for
+setup, the checks, snapshots, the conformance matrix, fuzzing and releases. In short: clone with
+`--recurse-submodules`, run `just setup` once, and `just check` before a pull request.
 
 ## Credits
 
@@ -260,6 +276,6 @@ repository by Anthony Sottile and contributors. 2.0 is a rewrite in Rust.
 
 ## License
 
-[MIT](LICENSE), like the projects it started from
+[MIT](https://github.com/simonvanlierde/jsonvet/blob/main/LICENSE), like the projects it started from
 ([Ben Mares](https://gitlab.com/bmares/check-json5/-/blob/main/LICENSE),
 [pre-commit-hooks](https://github.com/pre-commit/pre-commit-hooks/blob/main/LICENSE)).
