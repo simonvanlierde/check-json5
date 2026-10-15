@@ -691,3 +691,47 @@ fn a_backtracking_pattern_is_cut_short_and_reported() {
         "r.json:1:2: error[schema] Error executing regex: Max limit for backtracking count exceeded (at /0)\n"
     ));
 }
+
+#[test]
+fn a_schema_value_json_schema_cannot_hold_is_a_usage_error() {
+    let dir = workdir(&[
+        ("nan.json5", "{enum: [NaN, 1]}"),
+        (
+            "keys.json",
+            r#"{"properties": {"\ud800": true, "\ud801": false}}"#,
+        ),
+        ("null.json", "null"),
+    ]);
+    let cases = [
+        (
+            "nan.json5",
+            "jsonvet: the schema nan.json5:1:9: NaN, Infinity and numbers beyond a double's range have no JSON Schema value\n",
+        ),
+        (
+            "keys.json",
+            "jsonvet: the schema keys.json:1:33: this key and an earlier one in the object are the same once lone surrogates become U+FFFD\n",
+        ),
+    ];
+    for (schema, message) in cases {
+        let (code, out, err) = jsonvet_stderr(&dir, &["--schema", schema, "null.json"]);
+        assert_eq!((code, out.as_str(), err.as_str()), (2, "", message));
+    }
+}
+
+#[test]
+fn keys_that_differ_only_in_lone_surrogates_skip_the_document() {
+    let dir = workdir(&[
+        (
+            "schema.json",
+            r#"{"additionalProperties": {"type": "string"}}"#,
+        ),
+        ("s.json", r#"{"\ud800": 1, "\ud801": "s"}"#),
+    ]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "s.json"]);
+    assert_eq!(code, 1);
+    assert_eq!(
+        out,
+        "s.json:1:15: error[schema] this key and an earlier one in the object are the same once \
+         lone surrogates become U+FFFD, so this document is not checked against the schema\n"
+    );
+}

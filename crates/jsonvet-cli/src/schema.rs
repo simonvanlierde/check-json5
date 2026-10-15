@@ -16,9 +16,16 @@ use crate::settings::Settings;
 struct Document {
     value: Value,
     events: Range<usize>,
-    /// The first number JSON Schema has no value for: `NaN`, `Infinity` or one past a double.
-    not_a_number: Option<usize>,
+    /// Why the values are not the text's, and where: the first such number or key.
+    unchecked: Option<(usize, &'static str)>,
 }
+
+const NOT_A_NUMBER: &str =
+    "NaN, Infinity and numbers beyond a double's range have no JSON Schema value";
+// shortcut: two copies of one key holding U+FFFD or a lone surrogate also land here, though they
+// were already the same; tell them apart by the key's source text if that is ever reported.
+const SAME_KEYS: &str =
+    "this key and an earlier one in the object are the same once lone surrogates become U+FFFD";
 
 /// Past this many bytes, a message says "value" instead of quoting the value.
 const MAX_MESSAGE: usize = 200;
@@ -60,6 +67,13 @@ impl Schema {
             return Err(format!("the schema {name} must hold one value"));
         }
         let document = documents.swap_remove(0);
+        if let Some((offset, reason)) = document.unchecked {
+            let at = report.location(offset);
+            return Err(format!(
+                "the schema {name}:{}:{}: {reason}",
+                at.line, at.column
+            ));
+        }
         // Offline: a `$ref` to anything outside the schema file fails here.
         let options = jsonschema::options()
             .offline()
@@ -90,12 +104,10 @@ impl Schema {
     pub(crate) fn errors(&self, events: &[Event<'_>]) -> Vec<(usize, String)> {
         let mut errors = Vec::new();
         for document in documents(events) {
-            if let Some(offset) = document.not_a_number {
+            if let Some((offset, reason)) = document.unchecked {
                 errors.push((
                     offset,
-                    "NaN, Infinity and numbers beyond a double's range have no JSON Schema \
-                     value, so this document is not checked against the schema"
-                        .to_owned(),
+                    format!("{reason}, so this document is not checked against the schema"),
                 ));
                 continue;
             }
@@ -233,7 +245,7 @@ fn locate(events: &[Event<'_>], errors: &[&ValidationError<'_>]) -> Vec<usize> {
 /// An open container while the events are folded into values, with an object's current key.
 enum Open {
     Array(Vec<Value>),
-    Object(Map<String, Value>, String),
+    Object(Map<String, Value>, (String, usize)),
 }
 
 /// Fold events into documents: one, or one per line in JSON Lines.
@@ -241,17 +253,17 @@ fn documents(events: &[Event<'_>]) -> Vec<Document> {
     let mut documents = Vec::new();
     let mut first_event = 0;
     let mut stack: Vec<Open> = Vec::new();
-    let mut not_a_number = None;
+    let mut unchecked = None;
     for (i, event) in events.iter().enumerate() {
         let value = match &event.kind {
             EventKind::Key(key) => {
                 if let Some(Open::Object(_, current)) = stack.last_mut() {
-                    key.as_ref().clone_into(current);
+                    *current = (key.to_string(), event.offset);
                 }
                 continue;
             }
             EventKind::ObjectStart => {
-                stack.push(Open::Object(Map::new(), String::new()));
+                stack.push(Open::Object(Map::new(), (String::new(), 0)));
                 continue;
             }
             EventKind::ArrayStart => {
@@ -267,7 +279,7 @@ fn documents(events: &[Event<'_>]) -> Vec<Document> {
             EventKind::Bool(b) => Value::Bool(*b),
             EventKind::String(s) => Value::String(s.to_string()),
             EventKind::Number(text) => number(text).unwrap_or_else(|| {
-                not_a_number.get_or_insert(event.offset);
+                unchecked.get_or_insert((event.offset, NOT_A_NUMBER));
                 Value::Null
             }),
             _ => continue,
@@ -276,11 +288,16 @@ fn documents(events: &[Event<'_>]) -> Vec<Document> {
             None => documents.push(Document {
                 value,
                 events: std::mem::replace(&mut first_event, i + 1)..i + 1,
-                not_a_number: not_a_number.take(),
+                unchecked: unchecked.take(),
             }),
             Some(Open::Array(items)) => items.push(value),
-            Some(Open::Object(members, key)) => {
-                members.insert(std::mem::take(key), value);
+            Some(Open::Object(members, (key, offset))) => {
+                let key = std::mem::take(key);
+                // Real duplicates are the duplicate-key rule's; lone surrogates are not.
+                if key.contains('\u{FFFD}') && members.contains_key(&key) {
+                    unchecked.get_or_insert((*offset, SAME_KEYS));
+                }
+                members.insert(key, value);
             }
         }
     }

@@ -136,7 +136,9 @@ The errors come under the rule `schema` and are errors, in text, GitHub annotati
 alike. A message quotes the value unless that would make it long; then it says `value`. A file
 with a syntax error gets no schema errors. Each line of a JSON Lines file is checked
 on its own. `NaN`, `Infinity` and numbers past a double's range have no JSON Schema value, so a
-document holding one is reported once and not checked.
+document holding one is reported once and not checked. So is a document with two keys in one
+object that differ only in lone surrogates such as `"\ud800"`, which both become U+FFFD. In the
+schema file, either is a usage error.
 
 A pattern with a back-reference or lookaround may backtrack 5,000 times per string. Past that,
 `pattern` reports an error, but `patternProperties` and an `additionalProperties` next to it
