@@ -62,10 +62,11 @@ fn run_with(
         }
     };
     let settings = from_file.overridden_by(args.settings);
-    let schema = match &args.schema {
-        Some(path) => Some(Schema::load(path, &settings)?),
-        None => None,
-    };
+    let schema = args
+        .schema
+        .as_deref()
+        .map(|path| Schema::load(path, &settings))
+        .transpose()?;
 
     let mut printer = Printer::new(out, args.format, annotate);
     let (mut failed, mut warnings) = (false, 0usize);
