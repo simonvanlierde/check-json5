@@ -558,6 +558,7 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
         "the first syntax error; checking stops there"
     );
     assert_eq!(run0["columnKind"], "unicodeCodePoints");
+    assert!(run0["originalUriBaseIds"]["%SRCROOT%"]["description"]["text"].is_string());
     let results = run0["results"].as_array().expect("results");
     assert_eq!(results.len(), 2);
     let dup = &results[0];

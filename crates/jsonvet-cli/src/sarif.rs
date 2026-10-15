@@ -72,6 +72,11 @@ pub(crate) fn document(results: &[String]) -> String {
             r#"{{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","#,
             r#""runs":[{{"tool":{{"driver":{{"name":"jsonvet","version":"{}","#,
             r#""informationUri":"https://github.com/simonvanlierde/jsonvet","rules":[{}]}}}},"#,
+            // Relative URIs name `%SRCROOT%`, which SARIF wants declared. It has no `uri`: the
+            // working directory's absolute path would make the output differ by machine, and
+            // GitHub code scanning resolves it against the checkout.
+            r#""originalUriBaseIds":{{"%SRCROOT%":{{"description":{{"text":"#,
+            r#""the working directory jsonvet ran in"}}}}}},"#,
             // jsonvet counts columns in code points; SARIF's default is UTF-16 code units.
             r#""columnKind":"unicodeCodePoints","results":[{}]}}]}}"#
         ),
