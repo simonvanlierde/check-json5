@@ -31,7 +31,8 @@ const SAME_KEYS: &str =
 /// line counts the rest.
 const MAX_ERRORS: usize = 100;
 
-/// Past this many bytes, a message says "value" instead of quoting the value.
+/// Past this many bytes, a message says "value" instead of quoting the value, and past it
+/// still, it is cut short.
 const MAX_MESSAGE: usize = 200;
 
 /// How deep a schema may nest; real schemas stay well under it.
@@ -97,15 +98,16 @@ impl Schema {
                  schemas"
             ));
         }
-        let at = report.location(locate(&events[document.events], std::slice::from_ref(&error))[0]);
+        let offset = locate(&events[document.events], std::slice::from_ref(&error))[0];
+        let at = report.location(offset);
         Err(format!(
             "the schema {name}:{}:{}: {error}",
             at.line, at.column
         ))
     }
 
-    /// The schema errors in one file's values, as (offset, message), in document order within each
-    /// document, which ends with a count of any errors past [`MAX_ERRORS`].
+    /// The schema errors in one file's values, as (offset, message): each document's in order,
+    /// then a count of any past [`MAX_ERRORS`].
     pub(crate) fn errors(&self, events: &[Event<'_>]) -> Vec<(usize, String)> {
         let mut errors = Vec::new();
         for document in documents(events) {
@@ -168,8 +170,8 @@ fn message(error: &ValidationError<'_>) -> String {
     message
 }
 
-/// Whether `value` as JSON takes about `budget` bytes or fewer, without writing it out. Each level
-/// costs at least one byte, so this recurses no deeper than the budget.
+/// Whether `value` as JSON takes about `budget` bytes or fewer, without writing it out. Each
+/// level costs bytes, so this recurses no deeper than the budget.
 fn fits(value: &Value, budget: &mut usize) -> bool {
     let cost = match value {
         Value::String(s) => s.len() + 2,
@@ -190,7 +192,6 @@ fn fits(value: &Value, budget: &mut usize) -> bool {
 
 /// The values some errors are about, as a tree of JSON Pointer segments, with the offset of
 /// each value and, for an object member, of its key.
-#[derive(Default)]
 struct Wanted(Vec<Node>);
 
 #[derive(Default)]
@@ -453,7 +454,7 @@ mod tests {
         assert_eq!(number("1e999"), None);
     }
 
-    /// Any JSON value, with numbers serde_json reads exactly without its `float_roundtrip`
+    /// Any JSON value, with numbers `serde_json` reads exactly without its `float_roundtrip`
     /// feature, and strings that need escapes.
     fn any_json() -> impl Strategy<Value = Value> {
         let leaf = prop_oneof![

@@ -1,6 +1,8 @@
 //! Properties that hold for every input in every dialect: no panic, every offset inside the
 //! text and on a character boundary, and every location equal to a naive recount.
 
+use std::fmt::Write as _;
+
 use jsonvet::{Config, Dialect, EventKind, Rule, check, parse};
 use proptest::prelude::*;
 
@@ -50,33 +52,34 @@ type Piece = (String, Vec<String>);
 
 /// What a dialect adds to JSON, for [`well_formed`].
 #[derive(Clone, Copy)]
-struct Syntax {
-    comments: bool,
-    trailing_commas: bool,
-    json5: bool,
-    /// JSON Lines: no line breaks inside a document.
-    one_line: bool,
-}
+struct Syntax(Dialect);
 
 impl Syntax {
-    fn of(dialect: Dialect) -> Syntax {
-        let at_least = |d: &[Dialect]| d.contains(&dialect);
-        Syntax {
-            comments: at_least(&[Dialect::Jsonc, Dialect::Jwcc, Dialect::Json5]),
-            trailing_commas: at_least(&[Dialect::Jwcc, Dialect::Json5]),
-            json5: dialect == Dialect::Json5,
-            one_line: dialect == Dialect::JsonLines,
-        }
+    fn comments(self) -> bool {
+        matches!(self.0, Dialect::Jsonc | Dialect::Jwcc | Dialect::Json5)
+    }
+
+    fn trailing_commas(self) -> bool {
+        matches!(self.0, Dialect::Jwcc | Dialect::Json5)
+    }
+
+    fn json5(self) -> bool {
+        self.0 == Dialect::Json5
+    }
+
+    /// JSON Lines: no line breaks inside a document.
+    fn one_line(self) -> bool {
+        self.0 == Dialect::JsonLines
     }
 }
 
 /// Space between tokens: whitespace, and comments where the dialect allows them.
 fn gap(syntax: Syntax) -> BoxedStrategy<&'static str> {
     let mut gaps = vec!["", " "];
-    if !syntax.one_line {
+    if !syntax.one_line() {
         gaps.push("\n\t");
     }
-    if syntax.comments {
+    if syntax.comments() {
         gaps.extend(["/* c */", "// c\n"]);
     }
     prop::sample::select(gaps).boxed()
@@ -93,14 +96,14 @@ fn value(syntax: Syntax) -> BoxedStrategy<Piece> {
         ("\"é\\\"\"", "é\""),
         ("\"\\ud83d\\ude00\"", "\u{1F600}"),
     ];
-    if syntax.json5 {
+    if syntax.json5() {
         numbers.extend(["+1", "0x1F", "-0XaB", ".5", "5.", "Infinity", "-NaN"]);
         strings.extend([("'q\"'", "q\""), ("'\\x41'", "A")]);
     }
     let mut keys = strings.clone();
     // Repeated keys, one of them spelled with an escape.
     keys.extend([("\"a\"", "a"), ("\"\\u0061\"", "a")]);
-    if syntax.json5 {
+    if syntax.json5() {
         keys.extend([("id", "id"), ("$a\\u0062", "$ab")]);
     }
     let leaf = prop_oneof![
@@ -128,7 +131,7 @@ fn value(syntax: Syntax) -> BoxedStrategy<Piece> {
                 close(
                     &mut piece,
                     "]",
-                    syntax.trailing_commas && trailing && !items.is_empty(),
+                    syntax.trailing_commas() && trailing && !items.is_empty(),
                 );
                 piece
             });
@@ -152,16 +155,14 @@ fn value(syntax: Syntax) -> BoxedStrategy<Piece> {
                     if i > 0 {
                         piece.0.push(',');
                     }
-                    piece
-                        .0
-                        .push_str(&format!("{before}{key}{after}:{after}{text}"));
+                    let _ = write!(piece.0, "{before}{key}{after}:{after}{text}");
                     piece.1.push(format!("k:{decoded}"));
                     piece.1.extend(tokens.iter().cloned());
                 }
                 close(
                     &mut piece,
                     "}",
-                    syntax.trailing_commas && trailing && !members.is_empty(),
+                    syntax.trailing_commas() && trailing && !members.is_empty(),
                 );
                 piece
             });
@@ -182,8 +183,8 @@ fn close(piece: &mut Piece, bracket: &str, trailing_comma: bool) {
 /// JSON Lines.
 fn well_formed() -> impl Strategy<Value = (Dialect, String, Vec<String>)> {
     prop::sample::select(Dialect::ALL.to_vec()).prop_flat_map(|dialect| {
-        let syntax = Syntax::of(dialect);
-        let count = if syntax.one_line { 1..4 } else { 1..2 };
+        let syntax = Syntax(dialect);
+        let count = if syntax.one_line() { 1..4 } else { 1..2 };
         (
             prop::collection::vec((gap(syntax), value(syntax), gap(syntax)), count),
             Just(dialect),
