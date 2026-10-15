@@ -28,18 +28,23 @@ cargo deny.
   the hooks skip it, so do not let an editor reformat those files.
 - **`\uXXXX` escapes.** Tests and snapshots contain them. Edit those files with a script, not an
   editor that unescapes them, and check the diff.
-- **Conformance matrix.** `just matrix` runs one set of inputs through 16 other parsers in docker
+- **Conformance matrix.** `just matrix` runs one set of inputs through 17 other parsers in docker
   containers (never on the host), then renders `docs/conformance.md` and the block in the README.
   Commit `conformance/results/` and both rendered files. CI fails when the report is stale, and when
   `conformance/results/versions.json` disagrees with the pinned parsers (`run.py --check`), which
   happens after a pin bump until someone re-runs the matrix. After a pin change, run
   `just matrix-lock` first. Details: [conformance/README.md](conformance/README.md).
 - **Fuzzing.** `just fuzz check` (or `diff_serde_json`, `diff_json5`) runs a target for 20
-  minutes. It needs a nightly toolchain and cargo-fuzz. Coverage stops growing within about two
+  minutes. CI runs each target for 30 seconds on a pull request that touches the library, and for
+  20 minutes after a parser change on `main` and once a week. It needs a nightly toolchain and cargo-fuzz. Coverage stops growing within about two
   hours per target. A new json5 version in `fuzz/` can need new skips in `diff_json5`: read its skip
   list before calling a divergence a jsonvet bug.
-- **Mutation testing.** `just mutants` runs cargo-mutants over both crates in about 8 minutes. The
-  mutants that survive change no behaviour.
+- **Mutation testing.** `just mutants` runs cargo-mutants over both crates in about 8 minutes, and
+  `mutants.yml` runs it weekly. The mutants that survive change no behaviour.
+- **Differential.** `just differential` compares jsonvet with check-json5 1.4.1 on generated
+  files; CI runs 5,000 cases with a new seed each run.
+- **Public API.** `cargo semver-checks` reports library API changes on a pull request. It does not
+  block the merge.
 - **Speed claims.** Measure with `just bench`: hyperfine without a shell, warm, 20 runs.
 
 ## Releasing
@@ -59,5 +64,7 @@ heading for the version. Renovate owns the dependency pins, so do not bump those
 After the pull request merges, publish a GitHub release for the tag `vX.Y.Z`. That runs
 `release.yml`: it checks the tag against the versions, builds the wheels, publishes them to PyPI,
 then publishes the `check-json5` package and the crates to crates.io, all by trusted publishing.
-Once PyPI has the release, the workflow moves the `v<major>` tag (`v2`) to it, which is what
-`uses: simonvanlierde/jsonvet@v2` follows.
+After `publish-jsonvet` has put the wheels on PyPI, the `major-tag` job moves the `v<major>` tag
+(`v2`) to the release, which is what `uses: simonvanlierde/jsonvet@v2` follows. It moves the tag
+only when the new tag is the newest `vX.*.*`, so a patch to an older minor leaves it alone, and
+it skips pre-releases.
