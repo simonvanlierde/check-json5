@@ -152,6 +152,26 @@ fn a_file_name_cannot_start_a_workflow_command_or_send_escapes() {
     );
 }
 
+/// A reader that stops early, as `| head -1` does, ends the run quietly with the verdict so far.
+#[test]
+fn a_closed_pipe_keeps_the_verdict() {
+    let dir = workdir(&[("bad.json", "[1,")]);
+    // Far more than a pipe holds, so jsonvet blocks writing until the reader closes.
+    let files = vec!["bad.json"; 5000];
+    let mut child = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(&files)
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run jsonvet");
+    drop(child.stdout.take());
+    let out = child.wait_with_output().expect("wait for jsonvet");
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    assert_eq!(out.status.code(), Some(1));
+}
+
 #[test]
 fn help_version_and_the_check_json5_name() {
     let dir = workdir(&[("dup.json", "{\"a\":1,\"a\":2}"), ("sub.json", "{}")]);

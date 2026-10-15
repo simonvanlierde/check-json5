@@ -62,18 +62,21 @@ fn run_with(
     let settings = from_file.overridden_by(args.settings);
 
     let mut printer = Printer::new(out, args.format, annotate);
-    let (mut failed, mut warnings) = (false, 0usize);
-    for file in &args.files {
-        let result = check_file(file, &settings, &mut printer)
-            .map_err(|e| format!("cannot write output: {e}"))?;
-        failed |= result.errors > 0;
-        warnings += result.warnings;
+    let mut counts = Counts::default();
+    let written = args
+        .files
+        .iter()
+        .try_for_each(|file| check_file(file, &settings, &mut printer, &mut counts))
+        .and_then(|()| printer.finish());
+    // A reader that has gone, as with `| head`, wants no more output: the verdict so far stands.
+    match written {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
+            return Err(format!("cannot write output: {e}"));
+        }
+        _ => {}
     }
-    printer
-        .finish()
-        .map_err(|e| format!("cannot write output: {e}"))?;
-    let too_many_warnings = args.max_warnings.is_some_and(|max| warnings > max);
-    Ok(u8::from(failed || too_many_warnings))
+    let too_many_warnings = args.max_warnings.is_some_and(|max| counts.warnings > max);
+    Ok(u8::from(counts.errors > 0 || too_many_warnings))
 }
 
 #[derive(Default)]
@@ -82,36 +85,34 @@ struct Counts {
     warnings: usize,
 }
 
-/// Check one file. The name is opened as given; its lossy UTF-8 form is only for output and
-/// glob matching.
+/// Check one file and add its problems to `counts`, each before it is printed, so a failed
+/// write still leaves the verdict. The name is opened as given; its lossy UTF-8 form is only
+/// for output and glob matching.
 fn check_file(
     file: &OsStr,
     settings: &Settings,
     printer: &mut Printer<impl Write>,
-) -> io::Result<Counts> {
+    counts: &mut Counts,
+) -> io::Result<()> {
     let text = read(Path::new(file));
     let name = file.to_string_lossy();
     let text = match text {
         Ok(text) => text,
         Err(message) => {
-            printer.unreadable(file, &message)?;
-            return Ok(Counts {
-                errors: 1,
-                warnings: 0,
-            });
+            counts.errors += 1;
+            return printer.unreadable(file, &message);
         }
     };
     let report = jsonvet::check(&text, &settings.config_for(&name));
-    let mut counts = Counts::default();
     for problem in report.problems() {
-        printer.problem(file, &report, problem)?;
         match problem.severity() {
             Severity::Error => counts.errors += 1,
             Severity::Warning => counts.warnings += 1,
             Severity::Off => {}
         }
+        printer.problem(file, &report, problem)?;
     }
-    Ok(counts)
+    Ok(())
 }
 
 /// A file's text, or why it has none. Only regular files are read, so a FIFO cannot hang the
@@ -135,6 +136,8 @@ fn read(path: &Path) -> Result<String, String> {
 }
 
 fn print(mut out: impl Write, text: &str) -> Result<u8, String> {
-    writeln!(out, "{text}").map_err(|e| format!("cannot write output: {e}"))?;
-    Ok(0)
+    match writeln!(out, "{text}").and_then(|()| out.flush()) {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => Err(format!("cannot write output: {e}")),
+        _ => Ok(0),
+    }
 }
