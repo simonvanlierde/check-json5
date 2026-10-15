@@ -120,7 +120,11 @@ fn github_annotations_follow_each_problem() {
          dup.json:1:8: error[duplicate-key] duplicate key $.a (first at 1:2)\n\
          ::error file=dup.json,line=1,col=8,title=jsonvet (duplicate-key)::duplicate key $.a (first at 1:2)\n"
     );
-    assert!(!run("false").contains("::"));
+    assert_eq!(
+        run("false"),
+        "bom.json:1:1: warning[byte-order-mark] byte order mark at the start of the file\n\
+         dup.json:1:8: error[duplicate-key] duplicate key $.a (first at 1:2)\n"
+    );
 }
 
 // Unix only: Windows refuses `:` in a file name.
@@ -588,4 +592,134 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
     let (code, sarif) = run(&["--format", "sarif", "ok.json"]);
     assert_eq!(code, 0);
     assert_eq!(sarif["runs"][0]["results"], serde_json::json!([]));
+}
+
+#[test]
+fn sarif_columns_count_code_points() {
+    // CRLF ends line 1; the emoji is one code point but two UTF-16 code units.
+    let dir = workdir(&[("e.jsonc", "{\r\n\"\u{1F600}\": x}\r\n")]);
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(["--format", "sarif", "e.jsonc"])
+        .current_dir(&dir)
+        .output()
+        .expect("run jsonvet");
+    assert_eq!(out.status.code(), Some(1));
+    let sarif: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON output");
+    let run = &sarif["runs"][0];
+    assert_eq!(run["columnKind"], "unicodeCodePoints");
+    let result = &run["results"][0];
+    assert_eq!(result["ruleId"], "syntax");
+    let region = &result["locations"][0]["physicalLocation"]["region"];
+    assert_eq!(
+        (&region["startLine"], &region["startColumn"]),
+        (&2.into(), &6.into())
+    );
+}
+
+#[test]
+fn the_last_matching_dialect_wins_and_auto_means_the_extension() {
+    let dir = workdir(&[
+        ("x.cfg", "{'a': 1}"),
+        ("y.cfg", "{'a': 1}"),
+        ("c.jsonc", "{// c\n}"),
+    ]);
+    let jsonc = |name: &str| {
+        format!("{name}:1:2: error[syntax] single-quoted strings are not allowed in jsonc\n")
+    };
+    let args = [
+        "--dialect",
+        "jsonc:*.cfg",
+        "--dialect",
+        "auto:x.cfg",
+        "x.cfg",
+        "y.cfg",
+    ];
+    assert_eq!(jsonvet(&dir, &args), (1, jsonc("y.cfg")));
+    let args = [
+        "--dialect",
+        "auto:x.cfg",
+        "--dialect",
+        "jsonc:*.cfg",
+        "x.cfg",
+        "y.cfg",
+    ];
+    assert_eq!(jsonvet(&dir, &args), (1, jsonc("x.cfg") + &jsonc("y.cfg")));
+    // `auto` without a pattern undoes an earlier `json` for every file.
+    let args = ["--dialect", "json", "--dialect", "auto", "c.jsonc"];
+    assert_eq!(jsonvet(&dir, &args), (0, String::new()));
+    assert_eq!(jsonvet(&dir, &["--dialect", "json", "c.jsonc"]).0, 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_backslash_path_matches_a_slash_pattern() {
+    let dir = workdir(&[("sub/a.json", "{a: 1}")]);
+    let (code, out) = jsonvet(&dir, &["--dialect", "json:sub/*.json", "sub\\a.json"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (
+            1,
+            "sub\\a.json:1:2: error[syntax] unquoted keys are not allowed in json\n"
+        )
+    );
+}
+
+#[test]
+fn each_extension_has_its_dialect() {
+    let single = "{'a': 1}";
+    let mut files = vec![(".babelrc".to_owned(), single)];
+    let extensions = [
+        ("jsonc", "jsonc"),
+        ("code-workspace", "jsonc"),
+        ("code-snippets", "jsonc"),
+        ("hujson", "jwcc"),
+        ("jwcc", "jwcc"),
+    ];
+    let json5 = [
+        "json",
+        "json5",
+        "geojson",
+        "jsonld",
+        "webmanifest",
+        "cfg",
+        "JSONC",
+    ];
+    for (ext, _) in extensions {
+        files.push((format!("a.{ext}"), single));
+    }
+    for ext in json5 {
+        files.push((format!("a.{ext}"), single));
+    }
+    // Two values on two lines: JSON Lines, not one JSON5 document.
+    files.push(("a.jsonl".to_owned(), "{}\n{}\n"));
+    files.push(("a.ndjson".to_owned(), "{}\n{}\n"));
+    let dir = workdir(
+        &files
+            .iter()
+            .map(|(n, t)| (n.as_str(), *t))
+            .collect::<Vec<_>>(),
+    );
+    for (ext, dialect) in extensions {
+        let name = format!("a.{ext}");
+        assert_eq!(
+            jsonvet(&dir, &[&name]),
+            (
+                1,
+                format!(
+                    "{name}:1:2: error[syntax] single-quoted strings are not allowed in {dialect}\n"
+                )
+            )
+        );
+    }
+    for name in json5
+        .iter()
+        .map(|ext| format!("a.{ext}"))
+        .chain([".babelrc".to_owned()])
+    {
+        assert_eq!(jsonvet(&dir, &[&name]), (0, String::new()), "{name}");
+    }
+    for name in ["a.jsonl", "a.ndjson"] {
+        assert_eq!(jsonvet(&dir, &[name]), (0, String::new()), "{name}");
+        assert_eq!(jsonvet(&dir, &["--dialect", "json5", name]).0, 1, "{name}");
+    }
 }
