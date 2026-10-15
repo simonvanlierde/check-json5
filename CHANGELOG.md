@@ -42,8 +42,9 @@ of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
   private; read it with `UnknownRule::id()` and `UnknownDialect::name()`.
 - Directories, devices and FIFOs are reported as `not a regular file` under the rule `unreadable`
   (exit 1). A symlink to a regular file is still checked.
-- A duplicate-key path longer than 256 bytes is shortened to its first and last segments with `…`
-  between them. Shorter paths print as before.
+- A duplicate-key path longer than 256 bytes keeps as many segments from each end as fit, with
+  `…` in place of the rest, and a single segment too long to fit is cut. Shorter paths print as
+  before.
 - A JSON Lines syntax error at the end of a line says "found the end of the line" instead of
   "found U+000A".
 - The `--dialect` help says that files with any other extension are checked as JSON5, and that
@@ -60,8 +61,9 @@ of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
 - A FIFO no longer hangs a run, and a symlink to `/dev/zero` no longer fills memory.
 - A deep document full of duplicate keys could print hundreds of megabytes; the output now grows
   only with the number of duplicates.
-- Finding the column of a problem on a long single line is no longer quadratic, so a minified
-  file with many duplicate keys takes milliseconds instead of seconds.
+- Finding the column of a problem on a long single line is no longer quadratic, with or without
+  non-ASCII text on it, so a minified file with many duplicate keys takes milliseconds instead
+  of seconds.
 - In JSON Lines files with CRLF line endings, an error at the end of a line gets the same column
   as with LF.
 - `jsonvet … | head` exits with the verdict instead of printing "Broken pipe" and exiting 2.
@@ -79,6 +81,9 @@ of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
 - Control characters and Unicode bidi controls in file names and messages print as escapes such
   as `\u001b` and `\u202e`, so a file name cannot send terminal escape sequences or reorder the
   line.
+- Library: a syntax error that shows the character it found prints a bidi control as a code
+  point, such as `U+202E`, as it already did for control characters, so `Display` output cannot
+  reorder the line either.
 
 ## [2.0.0] - 2026-10-13
 
