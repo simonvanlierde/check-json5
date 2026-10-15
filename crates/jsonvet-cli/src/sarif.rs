@@ -21,14 +21,10 @@ pub(crate) fn result(
     at: Location,
     related: Option<(Location, &str)>,
 ) -> String {
-    let level = if severity == Severity::Error {
-        "error"
-    } else {
-        "warning"
-    };
     let mut json = format!(
-        r#"{{"ruleId":{},"level":"{level}","message":{{"text":{}}},"locations":[{{{}}}]"#,
+        r#"{{"ruleId":{},"level":"{}","message":{{"text":{}}},"locations":[{{{}}}]"#,
         string(rule),
+        level(severity),
         string(message),
         physical(file, at),
     );
@@ -42,6 +38,16 @@ pub(crate) fn result(
     }
     json.push('}');
     json
+}
+
+/// The level of a reported problem, the same word in SARIF and in a GitHub annotation: `error`
+/// or `warning`.
+pub(crate) fn level(severity: Severity) -> &'static str {
+    if severity == Severity::Error {
+        "error"
+    } else {
+        "warning"
+    }
 }
 
 /// The whole document: one run holding every result.
@@ -137,7 +143,7 @@ fn uri(file: &OsStr) -> (String, bool) {
 }
 
 /// A JSON string literal.
-pub(crate) fn string(value: &str) -> String {
+fn string(value: &str) -> String {
     let mut json = String::with_capacity(value.len() + 2);
     json.push('"');
     for c in value.chars() {

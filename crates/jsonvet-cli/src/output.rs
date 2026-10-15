@@ -63,7 +63,7 @@ fn escape(value: &str, property: bool) -> String {
 }
 
 pub(crate) struct Printer<W: Write> {
-    pub(crate) out: W,
+    out: W,
     annotate: bool,
     /// SARIF results, held until `finish` writes the document; `None` for text output.
     sarif: Option<Vec<String>>,
@@ -131,7 +131,7 @@ impl<W: Write> Printer<W> {
             writeln!(
                 self.out,
                 "::{} file={},line={},col={},title=jsonvet ({rule})::{}",
-                annotation_level(severity),
+                sarif::level(severity),
                 escape(file, true),
                 at.line,
                 at.column,
@@ -180,14 +180,6 @@ impl<W: Write> Printer<W> {
             writeln!(self.out, "{}", sarif::document(results))?;
         }
         self.out.flush()
-    }
-}
-
-fn annotation_level(severity: Severity) -> &'static str {
-    if severity == Severity::Error {
-        "error"
-    } else {
-        "warning"
     }
 }
 
