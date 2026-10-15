@@ -98,6 +98,13 @@ to the offset of its value: one walk over the events of a document with errors f
 error's value, with no pointer kept per value. Schema errors are always errors and follow the file's other problems;
 a file with a syntax error has no events, so it gets none.
 
+Schema regexes with back-references or lookaround run on fancy-regex, which backtracks; jsonvet
+caps that at 5,000 steps per match, so `^(a|a)*\1b` over 5,000 strings takes under a second
+instead of minutes. Over the cap, `pattern` reports an error, but `patternProperties` (and
+`additionalProperties` beside it) count the key as not matching, because jsonschema 0.58 drops
+the regex error there (`is_match(..).unwrap_or(false)`). A schema-side pre-check of every
+`patternProperties` regex would close it; until then it is a known limit.
+
 Output:
 
 ```text

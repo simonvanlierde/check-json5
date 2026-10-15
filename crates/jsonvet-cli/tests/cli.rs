@@ -672,3 +672,22 @@ fn a_deep_schema_is_a_usage_error() {
         "jsonvet: the schema schema.json:1:897: nested deeper than 128 levels\n"
     );
 }
+
+#[test]
+fn a_backtracking_pattern_is_cut_short_and_reported() {
+    let strings: Vec<String> = (0..500)
+        .map(|i| format!("\"{}!{i}\"", "a".repeat(30)))
+        .collect();
+    let dir = workdir(&[
+        ("schema.json", r#"{"items": {"pattern": "^(a|a)*\\1b"}}"#),
+        ("r.json", &format!("[{}]", strings.join(", "))),
+    ]);
+    let start = std::time::Instant::now();
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "r.json"]);
+    assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+    assert_eq!(code, 1);
+    assert_eq!(out.lines().count(), 500);
+    assert!(out.starts_with(
+        "r.json:1:2: error[schema] Error executing regex: Max limit for backtracking count exceeded (at /0)\n"
+    ));
+}

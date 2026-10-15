@@ -138,6 +138,10 @@ with a syntax error gets no schema errors. Each line of a JSON Lines file is che
 on its own. `NaN`, `Infinity` and numbers past a double's range have no JSON Schema value, so a
 document holding one is reported once and not checked.
 
+A pattern with a back-reference or lookaround may backtrack 5,000 times per string. Past that,
+`pattern` reports an error, but `patternProperties` and an `additionalProperties` next to it
+treat the key as not matching: the jsonschema crate gives them no way to report it.
+
 The schema file may itself be in any dialect. Its `$schema` picks the draft, from draft 4 to
 2020-12. A `$ref` must point inside the schema file: jsonvet fetches nothing over the network or
 from disk. A schema that cannot be read or used, such as one with a `$ref` to another file or one

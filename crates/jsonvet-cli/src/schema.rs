@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use jsonschema::error::ValidationErrorKind;
-use jsonschema::{ReferencingError, ValidationError, Validator};
+use jsonschema::{PatternOptions, ReferencingError, ValidationError, Validator};
 use jsonvet::{Event, EventKind, Severity};
 use serde_json::{Map, Number, Value};
 
@@ -25,6 +25,10 @@ const MAX_MESSAGE: usize = 200;
 
 /// How deep a schema may nest; real schemas stay well under it.
 const MAX_SCHEMA_DEPTH: usize = 128;
+
+/// How many times one regex match may backtrack before it fails. About one step per character
+/// for a lookaround over the whole string, so a string over a few thousand characters can hit it.
+const BACKTRACK_LIMIT: usize = 5_000;
 
 /// A compiled schema.
 pub(crate) struct Schema(Validator);
@@ -57,7 +61,12 @@ impl Schema {
         }
         let document = documents.swap_remove(0);
         // Offline: a `$ref` to anything outside the schema file fails here.
-        let error = match jsonschema::options().offline().build(&document.value) {
+        let options = jsonschema::options()
+            .offline()
+            // fancy-regex backtracks for back-references and lookaround, and its default limit
+            // of a million lets one 30-byte string take 30 ms.
+            .with_pattern_options(PatternOptions::fancy_regex().backtrack_limit(BACKTRACK_LIMIT));
+        let error = match options.build(&document.value) {
             Ok(validator) => return Ok(Schema(validator)),
             Err(error) => error,
         };
