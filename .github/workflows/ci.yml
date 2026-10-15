@@ -157,7 +157,10 @@ jobs:
               exit 1
             fi
           done
-      # The action from this checkout, installing the wheel built above instead of PyPI's.
+      # The action from this checkout, installing the wheel built above instead of PyPI's. `$/` is
+      # this repository at the running commit, fetched like a remote action, so the action runs as
+      # users get it: github.action_ref is a commit SHA, and github.action_path is not the
+      # checkout (docs.github.com, workflow syntax, `jobs.<job_id>.steps[*].uses`).
       - name: Run the action on a duplicate key
         id: action-bad
         continue-on-error: true
