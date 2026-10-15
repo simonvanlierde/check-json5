@@ -27,6 +27,21 @@
       datasourceTemplate: "crate",
     },
     {
+      // The images maturin builds the Linux wheels in, pinned by tag and digest.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ["container: (?<depName>[a-z0-9./_-]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]+)"],
+      datasourceTemplate: "docker",
+    },
+    {
+      // The Rust that builds the released wheels. Lint and tests float on stable instead.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ['RELEASE_RUST: "(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
+      depNameTemplate: "rust-lang/rust",
+      datasourceTemplate: "github-releases",
+    },
+    {
       // The images the conformance drivers run in.
       customType: "regex",
       managerFilePatterns: ["/^conformance/run\\.py$/"],
