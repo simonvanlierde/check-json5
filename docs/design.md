@@ -3,14 +3,15 @@
 jsonvet checks files in the JSON family for syntax errors, duplicate keys and the rules each
 dialect adds, and reports every problem with its file, line, column and rule. 2.0 is a rewrite of
 check-json5 1.4 (Python) in Rust. This document records what 2.0 promises, how it is built, and
-what has to be true before it ships.
+the bar it had to meet before it shipped.
 
 ## The contract with 1.4
 
 jsonvet 2.0 replaces check-json5 1.4 in place. These stay the same:
 
-- the pass or fail verdict for every file in the two dialects 1.4 knows (JSON5, and strict JSON
-  through `--strict`);
+- the pass or fail verdict for every file 2.0 checks in the two dialects 1.4 knows: JSON5 (the
+  default for `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and
+  for any other extension) and strict JSON through `--strict`;
 - the exit code: 0 when every file passes, 1 when any fails, 2 on a usage error;
 - what a duplicate-key report says: the position of the repeated key and its JSONPath;
 - the meaning of `--strict GLOB`, which becomes an alias for `--dialect json:GLOB`, with
@@ -24,7 +25,11 @@ These change on purpose, and the changelog marks them **Breaking**:
 - the importable Python module, which is gone: the wheel brings only the commands;
 - lines now end at every JSON5 line terminator, so positions differ from 1.4 in files that use a
   lone CR, U+2028 or U+2029;
-- the hook also checks `.jsonl` and `.ndjson` files.
+- the hook also checks `.jsonl` and `.ndjson` files;
+- `.jsonc`, `.code-workspace` and `.code-snippets` files are checked as JSONC, and `.hujson` and
+  `.jwcc` files as JWCC. 1.4 read every file as JSON5, so JSON5-only syntax in those files, such
+  as `{'a': 1, b: 2}`, passed in 1.4 and fails now. `--dialect json5:GLOB`, or a `dialects` entry
+  in the config file, keeps the old verdict.
 
 A syntax error points at the first character that cannot continue the document, or at the end of
 the input. Where that differs from 1.4, the difference is listed with its reason below. Any
@@ -57,14 +62,9 @@ One parser covers six dialects. Each step in the chain only adds syntax:
 JSON ⊂ JSONC ⊂ JWCC ⊂ JSON5. I-JSON is JSON with stricter content rules, and JSON Lines is one JSON
 value per line.
 
-| Dialect | Adds to JSON | Default for |
-| --- | --- | --- |
-| `json` | nothing (RFC 8259) | none; chosen with `--dialect` or `--strict` |
-| `i-json` | stricter content: duplicate keys, lone surrogates, noncharacters and numbers out of a double's range are errors (RFC 7493) | none |
-| `jsonc` | `//` and `/* */` comments | `.jsonc`, `.code-workspace`, `.code-snippets` |
-| `jwcc` | comments and trailing commas (HuJSON) | `.hujson`, `.jwcc` |
-| `json5` | the JSON5 1.0.0 grammar | `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest`, `.babelrc` |
-| `jsonl` | one JSON value per line, no blank lines | `.jsonl`, `.ndjson` |
+The [README](../README.md#dialects) has the table of what each dialect adds and which extensions
+default to it. A file with any other extension is checked as JSON5, and extensions match in lower
+case only.
 
 `.json` defaults to JSON5, as in 1.4, because most `.json` files that fail strict JSON are
 config files with comments. `auto` means "the default for this file's extension".
@@ -77,14 +77,14 @@ Unicode code points from the start of the line, starting at 1.
 Every problem belongs to a rule. Each rule has a default severity per dialect. `--warn`,
 `--error` and `--ignore` change it, and an ignored rule is not checked at all.
 
-| Rule | What it reports | Default |
-| --- | --- | --- |
-| `syntax` | the first syntax error; checking stops there | error, always |
-| `duplicate-key` | a key repeated in the same object, with both positions and the JSONPath | error |
-| `invalid-number` | a number outside a double's range, or an integer past ±(2⁵³ − 1) | error in `i-json`, off elsewhere |
-| `invalid-code-point` | a lone surrogate or a noncharacter in a string | error in `i-json`, off elsewhere |
-| `byte-order-mark` | a byte order mark at the start of the file | warning in `json`, `i-json`; error in `jsonl`; off elsewhere |
-| `missing-final-newline` | a JSON Lines file without a final newline | warning in `jsonl` |
+The [README](../README.md#rules) lists the rules and their defaults. `syntax` is always an error,
+and `duplicate-key` is an error in every dialect, not only `i-json`, although RFC 7493 is where
+unique names are required. `invalid-number` and `invalid-code-point` are the I-JSON rules: off
+outside `i-json`.
+
+Two things the I-JSON rules do not flag, and RFC 7493 leaves open: a number that underflows to
+zero (`1e-400`), and an integer written with a fraction or an exponent past 2^53 (`9007199254740993.0`).
+`i-json` reports an overflow, and an integer written as digits alone past ±(2⁵³ − 1).
 
 Warnings don't fail a run unless `--max-warnings N` is exceeded. In GitHub Actions each problem is
 also printed as a `::warning` or `::error` annotation. `--format sarif` prints one SARIF 2.1.0
@@ -95,7 +95,7 @@ Output:
 
 ```text
 config.json:4:5: error[duplicate-key] duplicate key $.server.port (first at 2:5)
-data.jsonl:12:1: error[syntax] expected a value, found end of line
+data.jsonl:2:4: error[syntax] expected a value, found U+000A
 ```
 
 ## Configuration
@@ -191,7 +191,7 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   8 minutes). The mutants that survive change no behaviour: speed-only branches, OR of bits that
   never overlap, a match arm the fallback repeats, and a Windows-only branch.
 
-## Release bar for 2.0.0
+## Release bar for 2.0.0 (met; kept as history)
 
 1. json5-tests passes in every dialect it applies to.
 2. The differential run shows no unexplained difference from 1.4.
@@ -227,7 +227,8 @@ them.
 - **Fixed on purpose:** `check-json5==1.4.1` on Python 3.13 in `scripts/`, the reference the
   contract is checked against; `rust-version = "1.88"` and the MSRV job, raised by hand when a
   dependency or a language feature needs it; and jsonvet's own version in `setup.py` and
-  `compat/`, which the release sets.
+  `compat/`, which a release commit sets by hand and `scripts/check-versions.py` checks against
+  the tag.
 - **Floating on purpose:** Rust stable for lint and tests and nightly for fuzzing, so new lints
   and compiler changes show up at once, and the hosted runner images.
 
