@@ -44,6 +44,18 @@ impl Rule {
         }
     }
 
+    /// A one-line description of what the rule reports, such as `a key repeated in one object`.
+    pub fn description(self) -> &'static str {
+        match self {
+            Rule::Syntax => "the first syntax error; checking stops there",
+            Rule::DuplicateKey => "a key repeated in one object",
+            Rule::InvalidNumber => "a number a double cannot hold, or an integer past 2^53 - 1",
+            Rule::InvalidCodePoint => "a lone surrogate or a noncharacter in a string",
+            Rule::ByteOrderMark => "a byte order mark at the start of the file",
+            Rule::MissingFinalNewline => "a JSON Lines file that does not end with a newline",
+        }
+    }
+
     /// The rule's severity when nothing overrides it.
     pub fn default_severity(self, dialect: Dialect) -> Severity {
         match (self, dialect) {

@@ -264,6 +264,13 @@ fn names_and_file_names() {
             .to_string()
             .starts_with("unknown dialect `yaml`; expected one of json,")
     );
+    for rule in jsonvet::Rule::ALL {
+        assert!(!rule.description().is_empty(), "{rule}");
+    }
+    assert_eq!(
+        jsonvet::Rule::DuplicateKey.description(),
+        "a key repeated in one object"
+    );
     let unknown = "tabs".parse::<jsonvet::Rule>().expect_err("not a rule");
     assert_eq!(unknown.id(), "tabs");
     assert!(
