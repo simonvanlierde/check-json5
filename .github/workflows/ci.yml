@@ -145,6 +145,11 @@ jobs:
           manylinux: auto
           container: ${{ matrix.container || '' }}
           rust-toolchain: ${{ env.RELEASE_RUST }}
+      # For the action job below.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.13.0"
@@ -198,4 +203,97 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/dist
         with:
           files: ok.json
+
+  # The action's own logic, on bash 3.2 too: /bin/bash on macOS. The Windows checkout converts
+  # line endings, which bash scripts do not survive; the action job below covers Windows.
+  action-script:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: /bin/bash scripts/test-action.sh
+
+  # The action as users run it, in a repository of its own: the default file list (nested files,
+  # tracked only, no symlinks), `args`, `**` in `files` and the SARIF check. No checkout: `$/`
+  # fetches the action, and the workspace is the test repository.
+  action:
+    needs: hook
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PIP_NO_INDEX: "1"
+      PIP_FIND_LINKS: ${{ github.workspace }}/dist
+    steps:
+      # Untracked, so the default file list leaves it out.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist
+      - name: Make a repository to check
+        shell: bash
+        run: |
+          git init -q .
+          mkdir -p nested/deep
+          printf '{"a": 1}\n' > nested/deep/ok.json
+          printf '{a: 1}\n' > nested/conf.json5
+          printf '{"a": 1, "a": 2}\n' > nested/deep/dup.json
+          git add nested/deep/ok.json nested/conf.json5
+          # A tracked symlink to a file that does not exist: checking it would fail.
+          target=$(printf 'missing.json' | git hash-object -w --stdin)
+          git update-index --add --cacheinfo "120000,$target,link.json"
+      - name: The default list passes (dup.json is untracked, link.json a symlink)
+        uses: $/
+      - name: args reach jsonvet
+        id: strict
+        continue-on-error: true
+        uses: $/
+        with:
+          args: --strict conf.json5
+      - name: "** reaches nested files"
+        id: globstar
+        continue-on-error: true
+        uses: $/
+        with:
+          files: "**/*.json"
+          sarif: out.sarif
+      - name: Track dup.json
+        shell: bash
+        run: git add nested/deep/dup.json
+      - name: The default list finds nested files
+        id: tracked
+        continue-on-error: true
+        uses: $/
+      - name: The version input is checked
+        id: version
+        continue-on-error: true
+        uses: $/
+        with:
+          version: ">=2"
+      - name: Check the outcomes and the SARIF file
+        shell: bash
+        env:
+          OUTCOMES: >-
+            ${{ steps.strict.outcome }} ${{ steps.globstar.outcome }}
+            ${{ steps.tracked.outcome }} ${{ steps.version.outcome }}
+        run: |
+          test "$OUTCOMES" = "failure failure failure failure"
+          python=python3
+          [[ "$RUNNER_OS" == Windows ]] && python=python
+          "$python" -c '
+          import json
+          results = json.load(open("out.sarif"))["runs"][0]["results"]
+          uris = [r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in results]
+          assert [r["ruleId"] for r in results] == ["duplicate-key"], results
+          assert uris == ["nested/deep/dup.json"], uris
+          '
 
