@@ -89,12 +89,7 @@ fn check_file(
     settings: &Settings,
     printer: &mut Printer<impl Write>,
 ) -> io::Result<Counts> {
-    let text = match std::fs::read(Path::new(file)) {
-        Ok(bytes) => String::from_utf8(bytes)
-            .map_err(|e| format!("not valid UTF-8 (byte {})", e.utf8_error().valid_up_to())),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Err("no such file".to_owned()),
-        Err(e) => Err(format!("cannot read: {e}")),
-    };
+    let text = read(Path::new(file));
     let name = file.to_string_lossy();
     let text = match text {
         Ok(text) => text,
@@ -117,6 +112,26 @@ fn check_file(
         }
     }
     Ok(counts)
+}
+
+/// A file's text, or why it has none. Only regular files are read, so a FIFO cannot hang the
+/// run and a device such as `/dev/zero` cannot fill memory. A symlink to a regular file is
+/// followed, as `cat` would.
+fn read(path: &Path) -> Result<String, String> {
+    let read = std::fs::metadata(path).and_then(|meta| {
+        if meta.is_file() {
+            std::fs::read(path).map(Some)
+        } else {
+            Ok(None)
+        }
+    });
+    match read {
+        Ok(Some(bytes)) => String::from_utf8(bytes)
+            .map_err(|e| format!("not valid UTF-8 (byte {})", e.utf8_error().valid_up_to())),
+        Ok(None) => Err("not a regular file".to_owned()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err("no such file".to_owned()),
+        Err(e) => Err(format!("cannot read: {e}")),
+    }
 }
 
 fn print(mut out: impl Write, text: &str) -> Result<u8, String> {

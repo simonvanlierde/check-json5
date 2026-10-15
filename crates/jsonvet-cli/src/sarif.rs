@@ -49,7 +49,10 @@ pub(crate) fn document(results: &[String]) -> String {
     let rules: Vec<String> = Rule::ALL
         .iter()
         .map(|rule| (rule.id(), description(*rule)))
-        .chain([(UNREADABLE, "a file that could not be read, or is not UTF-8")])
+        .chain([(
+            UNREADABLE,
+            "a file that is not a regular file, could not be read, or is not UTF-8",
+        )])
         .map(|(id, text)| {
             format!(
                 r#"{{"id":{},"shortDescription":{{"text":{}}}}}"#,

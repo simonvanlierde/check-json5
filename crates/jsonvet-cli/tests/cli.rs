@@ -170,11 +170,51 @@ fn help_version_and_the_check_json5_name() {
         .output()
         .expect("run check-json5");
     assert_eq!(out.status.code(), Some(1));
-    // A directory is unreadable for a reason other than not existing.
     fs::create_dir(dir.join("folder.json")).expect("create a folder");
-    let (code, out) = jsonvet(&dir, &["folder.json"]);
-    assert_eq!(code, 1);
-    assert!(out.contains(": error: cannot read: "), "{out}");
+    assert_eq!(
+        jsonvet(&dir, &["folder.json"]),
+        (1, "folder.json: error: not a regular file\n".to_owned())
+    );
+}
+
+/// A device or a FIFO is reported, not read: `/dev/zero` would fill memory and a FIFO with no
+/// writer would wait for ever. A symlink to a regular file is followed.
+#[cfg(unix)]
+#[test]
+fn only_regular_files_are_read() {
+    use std::os::unix::fs::symlink;
+    use std::time::{Duration, Instant};
+    let dir = workdir(&[("real.json", "[1,")]);
+    symlink("/dev/zero", dir.join("zero.json")).expect("symlink");
+    symlink("real.json", dir.join("link.json")).expect("symlink");
+    let fifo = Command::new("mkfifo")
+        .arg(dir.join("fifo.json"))
+        .status()
+        .expect("run mkfifo");
+    assert!(fifo.success());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(["zero.json", "fifo.json", "link.json"])
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("run jsonvet");
+    let start = Instant::now();
+    while child.try_wait().expect("wait").is_none() {
+        if start.elapsed() > Duration::from_secs(10) {
+            let _ = child.kill();
+            panic!("jsonvet still running after 10 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().expect("output");
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        "zero.json: error: not a regular file\n\
+         fifo.json: error: not a regular file\n\
+         link.json:1:4: error[syntax] expected a value, found the end of the file\n"
+    );
 }
 
 #[test]
