@@ -187,6 +187,9 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   lone surrogate escapes, U+2028 and U+2029 in strings, and identifier characters from a Unicode
   release one side has and the other lacks.
 - **Properties:** proptest, for example that a location matches a naive recount.
+- **Mutations:** cargo-mutants over both crates with `--test-workspace=true`, run by hand (about
+  8 minutes). The mutants that survive change no behaviour: speed-only branches, OR of bits that
+  never overlap, a match arm the fallback repeats, and a Windows-only branch.
 
 ## Release bar for 2.0.0
 
