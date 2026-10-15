@@ -154,4 +154,18 @@ mod tests {
         push_key(&mut path, b"a\xED\xA0\x80b");
         assert_eq!(path, "$[\"a\\ud800b\"]");
     }
+
+    #[test]
+    fn a_lone_surrogate_becomes_one_replacement_character() {
+        use std::borrow::Cow;
+        // WTF-8 for the escape `\ud800`, as the parser writes it.
+        let lone = [0xED, 0xA0, 0x80];
+        assert!(matches!(
+            super::text(Cow::Borrowed(b"ok")),
+            Cow::Borrowed("ok")
+        ));
+        assert_eq!(super::text(Cow::Borrowed(&lone)), "\u{FFFD}");
+        let owned = [b"a".as_slice(), &lone, b"b"].concat();
+        assert_eq!(super::text(Cow::Owned(owned)), "a\u{FFFD}b");
+    }
 }

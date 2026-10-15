@@ -807,3 +807,100 @@ fn the_schema_rule_cannot_be_reconfigured() {
         "{err}"
     );
 }
+
+#[test]
+fn a_document_with_nan_is_reported_at_the_first_one() {
+    let dir = workdir(&[
+        ("schema.json", r#"{"items": {"type": "string"}}"#),
+        ("n.json5", "[1,\n NaN, Infinity]"),
+    ]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "n.json5"]);
+    assert_eq!(code, 1);
+    assert_eq!(
+        out,
+        "n.json5:2:2: error[schema] NaN, Infinity and numbers beyond a double's range have no \
+         JSON Schema value, so this document is not checked against the schema\n"
+    );
+}
+
+#[test]
+fn unexpected_and_named_keys_point_at_the_key() {
+    let dir = workdir(&[
+        (
+            "additional.json",
+            r#"{"properties": {"a": true}, "additionalProperties": false}"#,
+        ),
+        (
+            "unevaluated.json",
+            r#"{"properties": {"a": true}, "unevaluatedProperties": false}"#,
+        ),
+        ("names.json", r#"{"propertyNames": {"maxLength": 1}}"#),
+        // jsonschema lists unexpected keys sorted, so `b` comes first there.
+        ("o.json", "{\"z\": 1,\n \"a\": 0, \"b\": 2}"),
+        ("n.json", "{\"a\": 0,\n \"long\": 1}"),
+    ]);
+    let cases = [
+        (
+            "additional.json",
+            "o.json",
+            "o.json:1:2: error[schema] Additional properties are not allowed ('b', 'z' were unexpected) (at /)\n",
+        ),
+        (
+            "unevaluated.json",
+            "o.json",
+            "o.json:1:2: error[schema] Unevaluated properties are not allowed ('b', 'z' were unexpected) (at /)\n",
+        ),
+        (
+            "names.json",
+            "n.json",
+            "n.json:2:2: error[schema] \"long\" is longer than 1 character (at /)\n",
+        ),
+    ];
+    for (schema, file, expected) in cases {
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", schema, file]);
+        assert_eq!((code, out.as_str()), (1, expected), "{schema}");
+    }
+}
+
+#[test]
+fn ignored_duplicate_keys_still_place_schema_errors() {
+    let schema = r#"{"properties": {"a": {"properties": {"b": {"type": "integer"}}, "additionalProperties": false}}}"#;
+    let dir = workdir(&[
+        ("schema.json", schema),
+        (
+            "d.json",
+            "{\"a\": {\"b\": 1},\n \"a\": {\"b\": \"x\", \"c\": 0}}",
+        ),
+    ]);
+    let (code, out, _) = jsonvet_stderr(
+        &dir,
+        &[
+            "--ignore",
+            "duplicate-key",
+            "--schema",
+            "schema.json",
+            "d.json",
+        ],
+    );
+    assert_eq!(code, 1);
+    // The later copy of `a` is the one checked, as most parsers keep it.
+    assert_eq!(
+        out,
+        "d.json:2:13: error[schema] \"x\" is not of type \"integer\" (at /a/b)\n\
+         d.json:2:18: error[schema] Additional properties are not allowed ('c' was unexpected) (at /a)\n"
+    );
+}
+
+#[test]
+fn a_schema_file_with_more_than_one_value_is_a_usage_error() {
+    let dir = workdir(&[("schema.jsonl", "{}\n{}\n"), ("ok.json", "{}")]);
+    let (code, out, err) = jsonvet_stderr(&dir, &["--schema", "schema.jsonl", "ok.json"]);
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (
+            2,
+            "",
+            "jsonvet: the schema schema.jsonl must hold one value\n"
+        )
+    );
+}
