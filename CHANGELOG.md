@@ -85,8 +85,9 @@ of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
 check-json5 is now **jsonvet**, rewritten in Rust. In JSON5 and strict mode it gives the same
 pass or fail as 1.4.1, apart from the differences listed below. I ran both on 20,000 generated
 files plus the 114 json5-tests cases in each mode, and they agreed on every one. With the 70-file
-corpus added later (20,184 files, 40,368 runs), three runs on two files differ, both listed below:
-the depth limit and the `\u` escape in an unquoted key.
+corpus added later and a stricter comparison (20,184 files, 40,368 runs), 385 runs on 383 files
+differ, all on purpose: a `\u` escape that cannot start an unquoted key, the depth limit, and a
+syntax error reported after a duplicate key.
 
 Upgrade: set `rev:` to the new tag. The repository moved to `simonvanlierde/jsonvet`, and the old
 URL still works. The `check-json5` hook id, the `check-json5` command and `--strict` keep working
