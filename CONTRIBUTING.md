@@ -28,6 +28,10 @@ cargo deny.
   the hooks skip it, so do not let an editor reformat those files.
 - **`\uXXXX` escapes.** Tests and snapshots contain them. Edit those files with a script, not an
   editor that unescapes them, and check the diff.
+- **File lists.** The hooks in `.pre-commit-hooks.yaml` and the Action's `scripts/action.sh`
+  pick files by their own lists of extensions and names. When you add a default extension or
+  file name to the library (`Dialect::EXTENSIONS`, `Dialect::FILE_NAMES`), add it to both hooks
+  and to `scripts/action.sh` too, or `crates/jsonvet-cli/tests/file_lists.rs` fails.
 - **Conformance matrix.** `just matrix` runs one set of inputs through 17 other parsers in docker
   containers (never on the host), then renders `docs/conformance.md` and the block in the README.
   Commit `conformance/results/` and both rendered files. CI fails when the report is stale, and when
@@ -36,9 +40,10 @@ cargo deny.
   `just matrix-lock` first. Details: [conformance/README.md](conformance/README.md).
 - **Fuzzing.** `just fuzz check` (or `diff_serde_json`, `diff_json5`) runs a target for 20
   minutes. CI runs each target for 30 seconds on a pull request that touches the library, and for
-  20 minutes after a parser change on `main` and once a week. It needs a nightly toolchain and cargo-fuzz. Coverage stops growing within about two
-  hours per target. A new json5 version in `fuzz/` can need new skips in `diff_json5`: read its skip
-  list before calling a divergence a jsonvet bug.
+  20 minutes after a parser change on `main` and once a week. It needs a nightly toolchain and
+  cargo-fuzz. Coverage stops growing within about two hours per target. A new json5 version in
+  `fuzz/` can need new skips in `diff_json5`: read its skip list before calling a divergence a
+  jsonvet bug.
 - **Mutation testing.** `just mutants` runs cargo-mutants over both crates in about 8 minutes, and
   `mutants.yml` runs it weekly. The mutants that survive change no behaviour.
 - **Differential.** `just differential` compares jsonvet with check-json5 1.4.1 on generated
