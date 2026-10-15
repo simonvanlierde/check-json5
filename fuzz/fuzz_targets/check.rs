@@ -10,7 +10,7 @@ fuzz_target!(|text: &str| {
     let strict = Config::new(Dialect::Json5)
         .rule(Rule::InvalidNumber, Severity::Error)
         .max_depth(8);
-    let configs = Dialect::ALL.map(Config::new);
+    let configs: Vec<Config> = Dialect::ALL.iter().copied().map(Config::new).collect();
     for config in configs.iter().chain([&strict]) {
         let dialect = config.dialect();
         let report = check(text, config);
