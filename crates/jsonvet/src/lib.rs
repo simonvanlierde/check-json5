@@ -13,6 +13,18 @@
 //! assert_eq!((at.line, at.column), (4, 3));
 //! ```
 //!
+//! Printing every problem with its position, as in the README:
+//!
+//! ```
+//! use jsonvet::{check, Config, Dialect};
+//!
+//! let report = check("{\"a\": 1, \"a\": 2}", &Config::new(Dialect::Json));
+//! for problem in report.problems() {
+//!     let at = report.location(problem.offset());
+//!     println!("{}:{}: {}[{}] {problem}", at.line, at.column, problem.severity(), problem.rule());
+//! }
+//! ```
+//!
 //! `check` never panics and has no error mode: the problems in the text are its output.
 
 mod dialect;
