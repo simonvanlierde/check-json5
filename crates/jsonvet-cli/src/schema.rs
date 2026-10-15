@@ -399,7 +399,8 @@ fn number(text: &str) -> Option<Value> {
 mod tests {
     use super::{documents, locate, number};
     use jsonvet::{Config, Dialect};
-    use serde_json::json;
+    use proptest::prelude::*;
+    use serde_json::{Value, json};
 
     #[test]
     fn events_fold_into_the_values_serde_json_reads() {
@@ -450,5 +451,43 @@ mod tests {
         assert_eq!(number("NaN"), None);
         assert_eq!(number("-Infinity"), None);
         assert_eq!(number("1e999"), None);
+    }
+
+    /// Any JSON value, with numbers serde_json reads exactly without its `float_roundtrip`
+    /// feature, and strings that need escapes.
+    fn any_json() -> impl Strategy<Value = Value> {
+        let leaf = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            any::<i64>().prop_map(Value::from),
+            any::<u64>().prop_map(Value::from),
+            any::<i32>().prop_map(|n| Value::from(f64::from(n) / 64.0)),
+            "\\PC{0,6}|[\\x00-\\x1f\"\\\\/]{0,3}".prop_map(Value::String),
+        ];
+        leaf.prop_recursive(4, 32, 4, |inner| {
+            prop_oneof![
+                prop::collection::vec(inner.clone(), 0..4).prop_map(Value::Array),
+                prop::collection::vec(("\\PC{0,3}", inner), 0..4)
+                    .prop_map(|members| Value::Object(members.into_iter().collect())),
+            ]
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn strict_json_folds_into_what_serde_json_reads(value in any_json(), pretty in any::<bool>()) {
+            let text = if pretty {
+                serde_json::to_string_pretty(&value)
+            } else {
+                serde_json::to_string(&value)
+            }
+            .unwrap_or_default();
+            let (_, events) = jsonvet::parse(&text, &Config::new(Dialect::Json));
+            prop_assert!(events.is_some(), "{}", text);
+            let documents = documents(&events.unwrap_or_default());
+            let expected: Value = serde_json::from_str(&text).unwrap_or_default();
+            prop_assert_eq!(documents.len(), 1);
+            prop_assert_eq!(&documents[0].value, &expected);
+        }
     }
 }
