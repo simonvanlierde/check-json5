@@ -54,7 +54,7 @@ pub(crate) fn level(severity: Severity) -> &'static str {
 pub(crate) fn document(results: &[String]) -> String {
     let rules: Vec<String> = Rule::ALL
         .iter()
-        .map(|rule| (rule.id(), description(*rule)))
+        .map(|rule| (rule.id(), rule.description()))
         .chain([(
             UNREADABLE,
             "a file that is not a regular file, could not be read, or is not UTF-8",
@@ -84,18 +84,6 @@ pub(crate) fn document(results: &[String]) -> String {
         rules.join(","),
         results.join(",")
     )
-}
-
-fn description(rule: Rule) -> &'static str {
-    match rule {
-        Rule::Syntax => "the first syntax error; checking stops there",
-        Rule::DuplicateKey => "a key repeated in one object",
-        Rule::InvalidNumber => "a number a double cannot hold, or an integer past 2^53 - 1",
-        Rule::InvalidCodePoint => "a lone surrogate or a noncharacter in a string",
-        Rule::ByteOrderMark => "a byte order mark at the start of the file",
-        Rule::MissingFinalNewline => "a JSON Lines file that does not end with a newline",
-        _ => "",
-    }
 }
 
 /// The `physicalLocation` member of a location object.

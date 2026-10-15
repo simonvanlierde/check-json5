@@ -546,7 +546,6 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
             "unreadable"
         ]
     );
-    // `Rule` is non-exhaustive, so a new rule without a description would compile.
     assert!(rules.iter().all(|r| {
         !r["shortDescription"]["text"]
             .as_str()
