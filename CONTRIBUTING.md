@@ -6,8 +6,11 @@ Clone with `--recurse-submodules` and install the tools in `mise.toml` (`mise in
 Rust from rustup. Then run `just setup` once: it fetches the json5-tests submodule and installs
 the git hooks with [prek](https://github.com/j178/prek). `just --list` shows every task.
 
-`just check` runs what CI runs on Linux: formatting, clippy, rustdoc, cargo deny, ruff, the tests
-(including doctests) and the version check. Run it before you open a pull request.
+`just check` runs CI's Linux `lint` and `test` jobs: formatting, clippy, rustdoc, cargo deny,
+ruff, the tests (including doctests), the version check and the conformance page diff, which fails
+while `README.md` or `docs/conformance.md` has uncommitted edits. Run it before you open a pull
+request. CI also runs the msrv, differential, hook, packaging, action-script, action and semver
+jobs, which `just check` leaves out; `just msrv` and `just differential` run two of them.
 
 ## Pull requests
 
@@ -30,8 +33,9 @@ cargo deny.
   editor that unescapes them, and check the diff.
 - **File lists.** The hooks in `.pre-commit-hooks.yaml` and the Action's `scripts/action.sh`
   pick files by their own lists of extensions and names. When you add a default extension or
-  file name to the library (`Dialect::EXTENSIONS`, `Dialect::FILE_NAMES`), add it to both hooks
-  and to `scripts/action.sh` too, or `crates/jsonvet-cli/tests/file_lists.rs` fails.
+  file name to the library (`Dialect::EXTENSIONS`, `Dialect::FILE_NAMES`), add it to both hooks,
+  to `scripts/action.sh` and to the README's list too, or `crates/jsonvet-cli/tests/file_lists.rs`
+  fails. Also add it to the README's dialect table.
 - **Conformance matrix.** `just matrix` runs one set of inputs through 17 other parsers in docker
   containers (never on the host), then renders `docs/conformance.md` and the block in the README.
   Commit `conformance/results/` and both rendered files. CI fails when the report is stale, and when
@@ -70,6 +74,6 @@ After the pull request merges, publish a GitHub release for the tag `vX.Y.Z`. Th
 `release.yml`: it checks the tag against the versions, builds the wheels, publishes them to PyPI,
 then publishes the `check-json5` package and the crates to crates.io, all by trusted publishing.
 After `publish-jsonvet` has put the wheels on PyPI, the `major-tag` job moves the `v<major>` tag
-(`v2`) to the release, which is what `uses: simonvanlierde/jsonvet@v2` follows. It moves the tag
+(`v3`) to the release, which is what `uses: simonvanlierde/jsonvet@v3` follows. It moves the tag
 only when the new tag is the newest `vX.*.*`, so a patch to an older minor leaves it alone, and
 it skips pre-releases.

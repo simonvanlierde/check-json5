@@ -1,9 +1,9 @@
-# jsonvet 2.0 design
+# jsonvet design
 
 jsonvet checks files in the JSON family for syntax errors, duplicate keys and the rules each
-dialect adds, and reports every problem with its file, line, column and rule. 2.0 is a rewrite of
-check-json5 1.4 (Python) in Rust. This document records what 2.0 promises, how it is built, and
-the bar it had to meet before it shipped.
+dialect adds, and reports every problem with its file, line, column and rule. 2.0 was a rewrite of
+check-json5 1.4 (Python) in Rust. This document records what jsonvet promises, how it is built, and
+the bar it had to meet before it shipped. Items marked *since 3.0* changed after 2.0.0.
 
 ## The contract with 1.4
 
@@ -13,8 +13,7 @@ jsonvet 2.0 replaces check-json5 1.4 in place. These stay the same:
   default for `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and
   for any other extension) and strict JSON through `--strict`;
 - the exit code: 0 when every file passes, 1 when any fails, 2 on a usage error;
-- what a duplicate-key report says: the position of the repeated key and its JSONPath, up to 256
-  bytes of it;
+- what a duplicate-key report says: the position of the repeated key and its JSONPath;
 - the meaning of `--strict GLOB`, which becomes an alias for `--dialect json:GLOB`, with
   `--strict '!GLOB'` mapping to `--dialect auto:GLOB`.
 
@@ -26,10 +25,11 @@ These change on purpose, and the changelog marks them **Breaking**:
 - the importable Python module, which is gone: the wheel brings only the commands;
 - lines now end at every JSON5 line terminator, so positions differ from 1.4 in files that use a
   lone CR, U+2028 or U+2029;
-- a duplicate-key JSONPath longer than 256 bytes is shortened: jsonvet keeps the segments that fit
-  in 128 bytes at each end, with `…` between them, where 1.4 printed the whole path;
-- a missing file whose name starts with `--`, such as `--x`, is an unknown option and exits 2,
-  where 1.4.1 exits 1;
+- *since 3.0*, a duplicate-key JSONPath longer than 256 bytes is shortened: jsonvet keeps the
+  segments that fit in 128 bytes at each end, with `…` between them, so a path is at most 259
+  bytes, where 1.4 and 2.0 printed the whole path;
+- *since 3.0*, a missing file whose name starts with `--`, such as `--x`, is an unknown option
+  and exits 2, where 1.4.1 and 2.0 exit 1;
 - the hook also checks `.jsonl` and `.ndjson` files;
 - `.jsonc`, `.code-workspace` and `.code-snippets` files are checked as JSONC, and `.hujson` and
   `.jwcc` files as JWCC. 1.4 read every file as JSON5, so JSON5-only syntax in those files, such
@@ -196,7 +196,7 @@ impl Problem {
     pub fn offset(&self) -> usize;
     pub fn related(&self) -> Option<Related>;  // the first copy of a duplicate key, or where an unterminated string or comment starts
     pub fn related_offset(&self) -> Option<usize>;  // related()'s offset
-    pub fn path(&self) -> Option<&str>;        // the JSONPath of a duplicate key, up to 256 bytes
+    pub fn path(&self) -> Option<&str>;        // the JSONPath of a duplicate key, at most 256 bytes and a `…`
     /* Display for the message */
 }
 #[non_exhaustive] pub struct Related { pub offset: usize, pub kind: RelatedKind }
@@ -249,7 +249,7 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   lone surrogate escapes, U+2028 and U+2029 in strings, and identifier characters from a Unicode
   release one side has and the other lacks.
 - **API changes:** `cargo semver-checks` compares the library with its last release on every pull
-  request. It reports and does not block, since 2.1 changes the public API on purpose.
+  request. It reports and does not block, since 3.0 changes the public API on purpose.
 - **Properties:** proptest, for example that a location matches a naive recount.
 - **Mutations:** cargo-mutants over both crates with `--test-workspace=true`, run weekly by
   `mutants.yml` and by hand (about 8 minutes). The mutants that survive change no behaviour:
@@ -304,6 +304,6 @@ them.
 - **Floating on purpose:** Rust stable for lint and tests and nightly for fuzzing, so new lints
   and compiler changes show up at once, and the hosted runner images.
 
-## Not in 2.0
+## Not supported
 
 JSON text sequences (RFC 7464) and Hjson. Hjson's unquoted strings need a tokenizer of their own.

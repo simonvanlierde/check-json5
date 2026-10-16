@@ -8,21 +8,25 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
-Upgrade: hook and command users need no change, with two exceptions. `dialects` patterns in a
-config file now match paths relative to that file, and a mistyped `--option` now exits 2. Rust
-library users: `Rule::ALL` and `Dialect::ALL` are slices, a `match` on `Severity` needs a `_`
-arm, a `Location` is no longer built with a struct literal (use `Location::START`), and the text
-of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
+This is a major release because of the three **Breaking** changes below. Upgrade: hook and
+command users set `rev: v3.0.0` and need no other change, with two exceptions. `dialects`
+patterns in a config file now match paths relative to that file, and a mistyped `--option` now
+exits 2. Rust library users: `Rule::ALL` and `Dialect::ALL` are slices, a `match` on `Severity`
+needs a `_` arm, a `Location` is no longer built with a struct literal (use `Location::START`),
+and the text of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
 
 ### Added
 
 - `--format sarif` prints one SARIF 2.1.0 document instead of text lines, for GitHub code
   scanning. A duplicate key also points at its first copy, and a file that cannot be read is a
   result under the rule `unreadable`. Exit codes and `--max-warnings` work as before.
-- A GitHub Action: `uses: simonvanlierde/jsonvet@v2` checks the repository's tracked JSON files,
-  or the `files` you give it, and can write a SARIF file for code scanning with `sarif:`. It
-  installs jsonvet from PyPI and runs on Linux, macOS and Windows runners. The `v2` tag moves to
-  each new 2.x release once its wheels are on PyPI.
+- A GitHub Action: `uses: simonvanlierde/jsonvet@v3` checks the repository's tracked JSON files,
+  apart from symlinks and submodules, or the `files` you give it (`**` matches at any depth on
+  every runner). With `sarif:` it also writes a SARIF file for code scanning, and fails with a
+  message when the installed jsonvet cannot. It installs jsonvet from PyPI and runs on Linux,
+  macOS and Windows runners. Its `version` input takes `X.Y.Z` (with an optional pre- or
+  post-release suffix such as `rc1` or `.post1`), `X.*`, `X.Y.*` or `latest`. The `v3` tag moves
+  to each new 3.x release once its wheels are on PyPI.
 - Library: `Rule::description()`, `Problem::related()` with `Related` and `RelatedKind` (what the
   second position points at), `Problem::path()` (a duplicate key's JSONPath),
   `Dialect::EXTENSIONS`, `Dialect::FILE_NAMES` and `Location::START`.
@@ -43,14 +47,14 @@ of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
 - Directories, devices and FIFOs are reported as `not a regular file` under the rule `unreadable`
   (exit 1). A symlink to a regular file is still checked.
 - A duplicate-key path longer than 256 bytes keeps as many segments from each end as fit, with
-  `…` in place of the rest, and a single segment too long to fit is cut. Shorter paths print as
-  before.
+  `…` in place of the rest, and a single segment too long to fit is cut, so a path is at most
+  259 bytes (256 and the `…`). Shorter paths print as before.
 - A JSON Lines syntax error at the end of a line says "found the end of the line" instead of
   "found U+000A".
 - The `--dialect` help says that files with any other extension are checked as JSON5, and that
   extensions match in lower case only.
-- The Action's `version` input takes `X.Y.Z`, `X.*`, `X.Y.*` or `latest`; anything else stops the
-  step with a message.
+- The `check-json5` hook id, the `check-json5` command and `--strict` keep working through 3.x,
+  not only until 3.0.
 - Unquoted JSON5 keys follow Unicode 17, up from 16, so they may use the letters it added, such
   as the 4,298 ideographs of CJK Extension J.
 
@@ -67,20 +71,15 @@ of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
 - In JSON Lines files with CRLF line endings, an error at the end of a line gets the same column
   as with LF.
 - `jsonvet … | head` exits with the verdict instead of printing "Broken pipe" and exiting 2.
-- The Action skips tracked symlinks and submodules in its default file list, as the hook does.
-- `**` in the Action's `files` input matches at any depth on macOS runners too.
-- The Action's `sarif` input fails with a message when the installed jsonvet cannot write SARIF,
-  instead of writing text into the file.
-- SARIF output declares the `%SRCROOT%` base in `originalUriBaseIds`, as SARIF 2.1.0 asks.
 
 ### Security
 
 - File names and messages can no longer start a GitHub Actions workflow command or hold the older
   `##[command]` form, which could hide or forge annotations. A name starting with `::` prints as
   `./::…`, and the `[` after `##` is escaped.
-- Control characters and Unicode bidi controls in file names and messages print as escapes such
-  as `\u001b` and `\u202e`, so a file name cannot send terminal escape sequences or reorder the
-  line.
+- Control characters and Unicode bidi controls in file names, in messages and in errors that
+  quote a config file print as escapes such as `\u001b` and `\u202e`, so a file cannot send
+  terminal escape sequences or reorder the line.
 - Library: a syntax error that shows the character it found prints a bidi control as a code
   point, such as `U+202E`, as it already did for control characters, so `Display` output cannot
   reorder the line either.

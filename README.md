@@ -47,7 +47,7 @@ also becomes an annotation on the pull request.
 ## Use it as a GitHub Action
 
 ```yaml
-- uses: simonvanlierde/jsonvet@v2
+- uses: simonvanlierde/jsonvet@v3
 ```
 
 The action installs jsonvet from PyPI into a virtual environment, so it runs on Linux, macOS and
@@ -56,13 +56,13 @@ optional:
 
 | Input     | What it does                                                                         |
 | --------- | ------------------------------------------------------------------------------------ |
-| `files`   | paths or globs to check, separated by spaces; `**` matches folders at any depth on every runner; by default every tracked file the hook would check, apart from symlinks and submodules |
+| `files`   | paths or globs to check, separated by spaces; `**` matches folders at any depth on every runner; symlinks are skipped; by default every tracked file the hook would check, apart from symlinks and submodules |
 | `args`    | extra options, separated by spaces, such as `--strict package.json`                  |
 | `sarif`   | also write a SARIF file to this path (see [GitHub code scanning](#github-code-scanning)) |
-| `version` | the jsonvet version to install: `X.Y.Z`, `X.*`, `X.Y.*` or `latest`; anything else stops the step |
+| `version` | the jsonvet version to install: `X.Y.Z` (also with a suffix such as `rc1` or `.post1`), `X.*`, `X.Y.*` or `latest`; anything else stops the step |
 
-Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
-installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
+Releases are tagged `vX.Y.Z`, and `v3` moves to the newest 3.x release. By default the action
+installs the jsonvet version of its own tag: `@v3` the newest 3.x, `@v3.0.0` exactly 3.0.0. Pinned
 to a commit SHA or a branch, it installs the release named in that commit's `Cargo.toml`. Between
 releases that is the last release, not the code in the commit; the step log says which version it
 installed. Pinning the action does not pin the wheel's bytes: pip installs `jsonvet==X.Y.Z`
@@ -102,7 +102,8 @@ with comments. Hold the ones a strict parser reads, such as `package.json`, to J
 | `byte-order-mark`       | a byte order mark at the start of the file                    | warning in `json` and `i-json`, error in `jsonl` |
 | `missing-final-newline` | a JSON Lines file that does not end with a newline            | warning in `jsonl`                               |
 
-Warnings don't fail a run unless there are more than `--max-warnings N`.
+Warnings don't fail a run unless there are more than `--max-warnings N`. A file jsonvet cannot
+read is reported under `unreadable`, which is not a rule you can set: it always fails the run.
 
 ## Options and configuration
 
@@ -193,7 +194,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: simonvanlierde/jsonvet@v2
+      - uses: simonvanlierde/jsonvet@v3
         with:
           sarif: jsonvet.sarif
       # Upload when jsonvet found problems too: that is when the step fails.
@@ -225,8 +226,8 @@ for problem in report.problems() {
 
 ## Coming from check-json5
 
-Bump `rev` to `v2.0.0`. The `check-json5` hook id, the `check-json5` command and `--strict` keep
-working until 3.0, and the `check-json5` package on PyPI now installs jsonvet.
+Bump `rev` to the newest tag. The `check-json5` hook id, the `check-json5` command and `--strict`
+keep working through 3.x, and the `check-json5` package on PyPI now installs jsonvet.
 
 For `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and in strict
 mode, 2.0 gives the same pass or fail as 1.4.1, the same exit codes and the same duplicate-key
