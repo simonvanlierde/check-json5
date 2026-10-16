@@ -34,6 +34,8 @@ jobs:
           tool: cargo-deny@0.20.2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The PyPI wheels' build: without the schema feature.
+      - run: cargo clippy -p jsonvet-cli --all-targets --no-default-features -- -D warnings
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
@@ -74,6 +76,8 @@ jobs:
       - run: cargo nextest run --workspace
       # nextest skips doctests.
       - run: cargo test --workspace --doc
+      # The PyPI wheels' build: `--schema` exits 2 and says how to get it.
+      - run: cargo nextest run -p jsonvet-cli --no-default-features
 
   # The oldest Rust the crates support, from rust-version in Cargo.toml. Builds the library and
   # binaries only: test-only dependencies may need a newer compiler.
@@ -144,6 +148,10 @@ jobs:
           uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
           uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
           uv run --isolated --no-project --with dist/*.whl jsonvet --version
+          # pyproject.toml builds the wheel without the schema feature.
+          status=0
+          uv run --isolated --no-project --with dist/*.whl jsonvet --schema ok.json ok.json || status=$?
+          test "$status" -eq 2 || { echo "the wheel's --schema exited $status, not 2"; exit 1; }
           for tool in pre-commit@4.7.0 prek@0.5.5; do
             uvx "$tool" try-repo . jsonvet --files ok.json
             if uvx "$tool" try-repo . check-json5 --files dup.json; then
