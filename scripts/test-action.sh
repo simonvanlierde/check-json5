@@ -21,45 +21,57 @@ while IFS='|' read -r version ref want; do
   got=$(resolve_spec "$version" "$ref" "$tmp/Cargo.toml" 2>/dev/null) || fail "resolve_spec '$version' '$ref' failed"
   [[ "$got" == "$want" ]] || fail "resolve_spec '$version' '$ref': got '$got', want '$want'"
 done <<'EOF'
-|v2|==2.*
-|v2.1|==2.1.*
-|v2.1.0|==2.1.0
+|v3|==3.*
+|v3.0|==3.0.*
+|v3.0.0|==3.0.0
 |0123456789abcdef0123456789abcdef01234567|==9.8.7
 |main|==9.8.7
 ||==9.8.7
-|v2.1.0-rc.1|==9.8.7
-latest|v2|
-2.1.0|v2|==2.1.0
-2.*|0123456|==2.*
-2.1.*|main|==2.1.*
+|v3.0.0-rc.1|==9.8.7
+latest|v3|
+3.0.0|v3|==3.0.0
+3.0.0a1|v3|==3.0.0a1
+3.0.0b2|v3|==3.0.0b2
+3.0.0rc1|v3|==3.0.0rc1
+3.0.0.post1|main|==3.0.0.post1
+3.*|0123456|==3.*
+3.0.*|main|==3.0.*
 EOF
-for version in '>=2' '2.1' '2' 'v2.1.0' '2.1.0 ' '==2.1.0' 'latest;'; do
-  resolve_spec "$version" v2 "$tmp/Cargo.toml" > /dev/null 2>&1 && fail "resolve_spec accepted '$version'"
+for version in '>=3' '3.0' '3' 'v3.0.0' '3.0.0 ' '==3.0.0' 'latest;' '3.0.0rc' '3.0.0.post' '3.0.0dev1' '3.0.0-rc.1'; do
+  resolve_spec "$version" v3 "$tmp/Cargo.toml" > /dev/null 2>&1 && fail "resolve_spec accepted '$version'"
 done
 resolve_spec "" main "$tmp/missing.toml" > /dev/null 2>&1 && fail "resolve_spec passed without a Cargo.toml"
 
-# The default list: tracked files the hook would check, at any depth, without symlinks.
+# The default list: tracked files the hook would check, at any depth, without symlinks or
+# submodules.
 repo="$tmp/repo"
-mkdir -p "$repo/nested/deep" "$repo/sub"
+mkdir -p "$repo/nested/deep" "$repo/sub" "$tmp/outside"
+echo '{}' > "$tmp/outside/c.json"
 (
   cd "$repo" || exit 1
   git init -q .
   echo '{}' > a.json
   echo '{}' > nested/deep/b.jsonc
+  echo '{}' > .babelrc
   echo '{}' > sub/.babelrc
   echo 'x' > notes.txt
   ln -s a.json link.json
   echo '{}' > untracked.json
-  git add a.json nested sub notes.txt link.json
+  # Untracked links for the files input: one back up the tree, one out of the repository.
+  ln -s . loop
+  ln -s ../outside out
+  git add .babelrc a.json nested sub notes.txt link.json
+  git update-index --add --cacheinfo "160000,0123456789abcdef0123456789abcdef01234567,mod.json"
 )
-want=$'a.json\nnested/deep/b.jsonc\nsub/.babelrc'
+want=$'.babelrc\na.json\nnested/deep/b.jsonc\nsub/.babelrc'
 got=$(cd "$repo" && list_files "" python3 && printf '%s\n' "${files[@]}")
 [[ "$got" == "$want" ]] || fail "default list: got [$got], want [$want]"
 
-# The files input: `**` reaches any depth (bash 3.2 has no globstar), a name that matches
-# nothing stays, and two spaces make no empty name.
+# The files input: `**` reaches any depth (bash 3.2 has no globstar) but through no symlink, a
+# name that matches nothing stays, a file named twice is checked once, and two spaces make no
+# empty name.
 got=$(cd "$repo" && list_files "**/*.json  **/b.jsonc missing*.json untracked.json" python3 && printf '%s\n' "${files[@]}")
-want=$'a.json\nlink.json\nuntracked.json\nnested/deep/b.jsonc\nmissing*.json\nuntracked.json'
+want=$'a.json\nuntracked.json\nnested/deep/b.jsonc\nmissing*.json'
 [[ "$got" == "$want" ]] || fail "files input: got [$got], want [$want]"
 
 # SARIF: the output must be a SARIF 2.1.0 document, whatever the exit code says.

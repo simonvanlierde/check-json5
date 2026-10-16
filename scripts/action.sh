@@ -14,14 +14,14 @@ error() {
 # Arguments: the `version` input, the action's ref, the action's Cargo.toml.
 resolve_spec() {
   local version="$1" ref="$2" cargo_toml="$3"
-  local exact='^[0-9]+\.[0-9]+\.[0-9]+$' series='^[0-9]+(\.[0-9]+)?\.\*$' tag='^v[0-9]+(\.[0-9]+){0,2}$'
+  local exact='^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+|\.post[0-9]+)?$' series='^[0-9]+(\.[0-9]+)?\.\*$' tag='^v[0-9]+(\.[0-9]+){0,2}$'
   if [[ -n "$version" ]]; then
     if [[ "$version" == latest ]]; then
       echo ""
     elif [[ "$version" =~ $exact || "$version" =~ $series ]]; then
       echo "==$version"
     else
-      error "version must be X.Y.Z, X.*, X.Y.* or latest, not '$version'"
+      error "version must be X.Y.Z, X.Y.ZrcN, X.Y.Z.postN, X.*, X.Y.* or latest, not '$version'"
       return 2
     fi
   elif [[ "$ref" =~ $tag ]]; then
@@ -49,7 +49,9 @@ list_files() {
   if [[ -n "$input" ]]; then
     # Word splitting is the point: the input is a space-separated list. Python expands the globs,
     # since bash 3.2 has no globstar. A pattern that matches nothing stays as it is, so jsonvet
-    # reports it as unreadable rather than checking nothing.
+    # reports it as unreadable rather than checking nothing. A file two patterns match is checked
+    # once. Wildcards skip symlinks, like the default list: glob.glob follows them, so a link
+    # `loop -> .` repeats the tree under `**` and `out -> /` leaves the repository.
     set -f
     # shellcheck disable=SC2206
     local words=($input)
@@ -57,9 +59,41 @@ list_files() {
     while IFS= read -r -d '' file; do files+=("$file"); done < <(
       "$python" -c '
 import glob, os, sys
+from fnmatch import fnmatch
+
+def expand(done, parts):
+    if not parts:
+        if "/".join(done):
+            yield "/".join(done)
+        return
+    head, rest = parts[0], parts[1:]
+    if not glob.has_magic(head):
+        if os.path.lexists("/".join(done + [head]) or "/"):
+            yield from expand(done + [head], rest)
+        return
+    try:
+        entries = list(os.scandir("/".join(done) + "/" if done else "."))
+    except OSError:
+        return
+    if head == "**":
+        yield from expand(done, rest)
+    for entry in entries:
+        if entry.is_symlink() or entry.name.startswith(".") and not head.startswith("."):
+            continue
+        if head == "**":
+            if entry.is_dir():
+                yield from expand(done + [entry.name], parts)
+            elif not rest:
+                yield "/".join(done + [entry.name])
+        elif fnmatch(entry.name, head) and (not rest or entry.is_dir()):
+            yield from expand(done + [entry.name], rest)
+
+seen = set()
 for pattern in sys.argv[1:]:
-    for path in sorted(glob.glob(pattern, recursive=True)) or [pattern]:
-        sys.stdout.buffer.write(os.fsencode(path.replace(os.sep, "/")) + b"\0")
+    for path in sorted(expand([], pattern.replace(os.sep, "/").split("/"))) or [pattern]:
+        if path not in seen:
+            seen.add(path)
+            sys.stdout.buffer.write(os.fsencode(path.replace(os.sep, "/")) + b"\0")
 ' "${words[@]}"
     )
   else
@@ -78,7 +112,7 @@ for pattern in sys.argv[1:]:
 }
 
 # Writes the SARIF file. Arguments: the jsonvet binary, the Python, the SARIF path, then the
-# jsonvet arguments. Exit 1 means problems found, but jsonvet before 2.1.0 has no `--format` and
+# jsonvet arguments. Exit 1 means problems found, but jsonvet before 3.0.0 has no `--format` and
 # takes it for a file name, and a path that cannot be written also gives 1, so check what landed.
 write_sarif() {
   local jsonvet="$1" python="$2" sarif="$3"
@@ -92,7 +126,7 @@ try:
 except (OSError, ValueError, AttributeError):
     sys.exit(1)
 ' "$sarif"; then
-    error "jsonvet did not write SARIF to $sarif (exit $status); the sarif input needs jsonvet 2.1.0 or later"
+    error "jsonvet did not write SARIF to $sarif (exit $status); the sarif input needs jsonvet 3.0.0 or later"
     return 2
   fi
 }

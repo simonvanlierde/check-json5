@@ -1,4 +1,4 @@
-# The jsonvet GitHub Action: `uses: simonvanlierde/jsonvet@v2`. It installs jsonvet from PyPI
+# The jsonvet GitHub Action: `uses: simonvanlierde/jsonvet@v3`. It installs jsonvet from PyPI
 # into a virtual environment, so it needs only the Python that every hosted runner has.
 name: jsonvet
 description: Check JSON, I-JSON, JSONC, JSON5, HuJSON and JSON Lines files, with optional SARIF output
@@ -26,9 +26,10 @@ inputs:
     default: ""
   version:
     description: >-
-      The jsonvet version to install from PyPI: `X.Y.Z`, `X.*`, `X.Y.*` or `latest`. By default,
-      the version of the action's tag: `v2` installs the newest 2.x, `v2.1.0` installs 2.1.0, and
-      a commit SHA or branch the release named in that commit's Cargo.toml.
+      The jsonvet version to install from PyPI: `X.Y.Z` (also a pre- or post-release such as
+      `3.0.0rc1` or `3.0.0.post1`), `X.*`, `X.Y.*` or `latest`. By default, the version of the
+      action's tag: `v3` installs the newest 3.x, `v3.0.0` installs 3.0.0, and a commit SHA or
+      branch the release named in that commit's Cargo.toml.
     required: false
     default: ""
 
