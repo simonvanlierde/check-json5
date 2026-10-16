@@ -5,6 +5,7 @@
     reason = "a broken test setup should fail the test loudly"
 )]
 
+#[cfg(feature = "schema")]
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -358,7 +359,8 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
             "byte-order-mark",
             "missing-final-newline",
             "unreadable",
-            "schema"
+            #[cfg(feature = "schema")]
+            "schema",
         ]
     );
     // `Rule` is non-exhaustive, so a new rule without a description would compile.
@@ -425,6 +427,7 @@ fn jsonvet_stderr(dir: &Path, args: &[&str]) -> (i32, String, String) {
 }
 
 /// A schema in JSON5, so the schema file itself may use any dialect's syntax.
+#[cfg(feature = "schema")]
 const SCHEMA: &str = r#"{
   // Every file below breaks it the same three ways.
   type: "object",
@@ -438,6 +441,7 @@ const SCHEMA: &str = r#"{
 }
 "#;
 
+#[cfg(feature = "schema")]
 #[test]
 fn schema_errors_point_at_the_value_in_every_dialect() {
     let dir = workdir(&[
@@ -532,6 +536,7 @@ l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexp
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_file_with_a_syntax_error_gets_no_schema_errors() {
     let dir = workdir(&[
@@ -548,6 +553,7 @@ fn a_file_with_a_syntax_error_gets_no_schema_errors() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_schema_that_cannot_be_used_is_a_usage_error() {
     let dir = workdir(&[
@@ -599,6 +605,7 @@ fn a_schema_that_cannot_be_used_is_a_usage_error() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn schema_errors_in_a_large_file() {
     // 100,000 records, every 10,000th with a string port: about 3 MB.
@@ -637,6 +644,7 @@ fn schema_errors_in_a_large_file() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_deep_file_with_long_keys_is_placed_quickly() {
     // 9,000 levels with 100-byte keys: a JSON Pointer per value would hold about 4 GB.
@@ -661,6 +669,7 @@ fn a_deep_file_with_long_keys_is_placed_quickly() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_deep_schema_is_a_usage_error() {
     let schema = format!("{}{{}}{}", "{\"not\":".repeat(5_000), "}".repeat(5_000));
@@ -673,6 +682,7 @@ fn a_deep_schema_is_a_usage_error() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_backtracking_pattern_is_cut_short_and_reported() {
     let strings: Vec<String> = (0..500)
@@ -698,6 +708,7 @@ fn a_backtracking_pattern_is_cut_short_and_reported() {
     ));
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_schema_value_json_schema_cannot_hold_is_a_usage_error() {
     let dir = workdir(&[
@@ -724,6 +735,7 @@ fn a_schema_value_json_schema_cannot_hold_is_a_usage_error() {
     }
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn keys_that_differ_only_in_lone_surrogates_skip_the_document() {
     let dir = workdir(&[
@@ -742,6 +754,7 @@ fn keys_that_differ_only_in_lone_surrogates_skip_the_document() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_message_listing_many_keys_is_cut_short() {
     let members: Vec<String> = (0..1_000).map(|i| format!("\"k{i}\": {i}")).collect();
@@ -765,6 +778,7 @@ fn a_message_listing_many_keys_is_cut_short() {
     assert!(out.ends_with("... (at $)\n"), "{out}");
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn control_characters_in_keys_are_escaped_in_the_output() {
     let dir = workdir(&[
@@ -782,6 +796,7 @@ fn control_characters_in_keys_are_escaped_in_the_output() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn schema_paths_are_written_as_duplicate_key_paths_are() {
     let key = "a/b~c.d\\\"\u{e9}";
@@ -805,6 +820,7 @@ fn schema_paths_are_written_as_duplicate_key_paths_are() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn the_schema_rule_cannot_be_reconfigured() {
     let dir = workdir(&[
@@ -831,6 +847,7 @@ fn the_schema_rule_cannot_be_reconfigured() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_document_with_nan_is_reported_at_the_first_one() {
     let dir = workdir(&[
@@ -846,6 +863,7 @@ fn a_document_with_nan_is_reported_at_the_first_one() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn unexpected_and_named_keys_point_at_the_key() {
     let dir = workdir(&[
@@ -885,6 +903,7 @@ fn unexpected_and_named_keys_point_at_the_key() {
     }
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn ignored_duplicate_keys_still_place_schema_errors() {
     let schema = r#"{"properties": {"a": {"properties": {"b": {"type": "integer"}}, "additionalProperties": false}}}"#;
@@ -914,6 +933,7 @@ fn ignored_duplicate_keys_still_place_schema_errors() {
     );
 }
 
+#[cfg(feature = "schema")]
 #[test]
 fn a_schema_file_with_more_than_one_value_is_a_usage_error() {
     let dir = workdir(&[("schema.jsonl", "{}\n{}\n"), ("ok.json", "{}")]);
@@ -929,6 +949,7 @@ fn a_schema_file_with_more_than_one_value_is_a_usage_error() {
 }
 
 #[cfg(unix)]
+#[cfg(feature = "schema")]
 #[test]
 fn a_deep_file_is_checked_against_a_recursive_schema_on_a_small_main_stack() {
     // Windows gives the main thread 1 MB; validating and dropping 10,000 levels takes more.
@@ -951,4 +972,25 @@ fn a_deep_file_is_checked_against_a_recursive_schema_on_a_small_main_stack() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(out.status.code(), Some(1), "{stdout}");
     assert!(stdout.starts_with("deep.json:1:10000: error[schema] 0 is not of type \"array\""));
+}
+
+#[cfg(not(feature = "schema"))]
+#[test]
+fn a_build_without_schema_says_how_to_get_it() {
+    let dir = workdir(&[("schema.json", "{}"), ("ok.json", "{}")]);
+    let (code, out, err) = jsonvet_stderr(&dir, &["--schema", "schema.json", "ok.json"]);
+    assert_eq!((code, out.as_str()), (2, ""));
+    assert_eq!(
+        err,
+        "jsonvet: --schema is not in this build: the PyPI wheels, which the pre-commit hook and \
+         the GitHub Action install, leave it out to stay small. `cargo install jsonvet-cli` \
+         builds jsonvet with it.\n"
+    );
+    let (code, help) = jsonvet(&dir, &["--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        help.contains("--schema FILE             Not in this build"),
+        "{help}"
+    );
+    assert!(help.contains("`cargo install jsonvet-cli`"), "{help}");
 }

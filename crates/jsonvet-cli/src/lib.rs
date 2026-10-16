@@ -11,20 +11,47 @@ mod args;
 mod glob;
 mod output;
 mod sarif;
+#[cfg(feature = "schema")]
 mod schema;
 mod settings;
+
+/// A build without the `schema` feature, such as the Python wheels, still takes `--schema`, and
+/// says why it cannot use it.
+#[cfg(not(feature = "schema"))]
+mod schema {
+    use std::path::Path;
+
+    use jsonvet::Event;
+
+    use crate::settings::Settings;
+
+    /// No schema can be loaded, so none exists.
+    pub(crate) enum Schema {}
+
+    impl Schema {
+        pub(crate) fn load(_: &Path, _: &Settings) -> Result<Schema, String> {
+            Err(crate::args::NO_SCHEMA.to_owned())
+        }
+
+        pub(crate) fn errors(&self, _: &[Event<'_>]) -> Vec<(usize, String)> {
+            match *self {}
+        }
+    }
+}
 
 use args::{Command, ConfigSource};
 use output::Printer;
 use schema::Schema;
 use settings::Settings;
 
-/// The stack the command runs on. `--schema` builds, validates and drops a value 10,000 levels
+/// The stack `--schema` runs on. `--schema` builds, validates and drops a value 10,000 levels
 /// deep recursively, which takes up to about 32 MB in a debug build and overflows Windows'
 /// 1 MB main thread. Only the pages used are committed, so the margin costs nothing.
+#[cfg(feature = "schema")]
 const STACK: usize = 256 << 20;
 
 /// Run the command with the process's arguments and environment, and return its exit code.
+#[cfg(feature = "schema")]
 pub fn run() -> ExitCode {
     match std::thread::Builder::new()
         .stack_size(STACK)
@@ -35,6 +62,12 @@ pub fn run() -> ExitCode {
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
         Err(_) => run_here(),
     }
+}
+
+/// Run the command with the process's arguments and environment, and return its exit code.
+#[cfg(not(feature = "schema"))]
+pub fn run() -> ExitCode {
+    run_here()
 }
 
 fn run_here() -> ExitCode {

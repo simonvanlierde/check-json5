@@ -26,7 +26,10 @@ version for a new option or output, the patch version for a fix.
   always errors: `--error`, `--warn`, `--ignore` and settings files do not take `schema`. SARIF
   output lists `schema` among its rules. A schema that cannot be read or used, nests more than
   128 levels, or holds such a number exits with status 2. A regex in it may backtrack 5,000
-  times per match. The binary grows from about 0.6 MB to about 5 MB on Linux x86-64.
+  times per match. It comes with `cargo install jsonvet-cli`, where the binary grows from about
+  0.6 MB to about 5 MB on Linux x86-64. The PyPI wheels, which the hook and the GitHub Action
+  install, are built without it and stay at about 0.65 MB; there `--schema` exits with status 2
+  and says how to get it. Building the crate with `--no-default-features` leaves it out too.
 - The library's `parse` returns a text's values as positioned events, next to the report
   `check` gives.
 - The library's `json_path` writes a path of keys and indices as duplicate-key messages do.

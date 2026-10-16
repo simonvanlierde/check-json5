@@ -52,13 +52,11 @@ pub(crate) fn document(results: &[String]) -> String {
     let rules: Vec<String> = Rule::ALL
         .iter()
         .map(|rule| (rule.id(), description(*rule)))
-        .chain([
-            (UNREADABLE, "a file that could not be read, or is not UTF-8"),
-            (
-                SCHEMA,
-                "a value the JSON Schema given with --schema rejects",
-            ),
-        ])
+        .chain([(UNREADABLE, "a file that could not be read, or is not UTF-8")])
+        .chain(cfg!(feature = "schema").then_some((
+            SCHEMA,
+            "a value the JSON Schema given with --schema rejects",
+        )))
         .map(|(id, text)| {
             format!(
                 r#"{{"id":{},"shortDescription":{{"text":{}}}}}"#,

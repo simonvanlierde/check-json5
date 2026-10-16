@@ -103,6 +103,13 @@ alone reads the same for `[0]` and `["0"]`. Schema errors are always errors: `--
 unknown rule. They follow the file's other problems; a file with a syntax error has no events,
 so it gets none.
 
+`--schema` is the cargo feature `schema`, on by default, so `cargo install jsonvet-cli` has it.
+The PyPI wheels leave it out (`no-default-features` in `pyproject.toml`): jsonschema and its
+regex engines take the binary from about 0.6 MB to about 5 MB, and every hook and Action install
+downloads it. Without the feature, `--schema` still parses, so it exits 2 with a message naming
+`cargo install jsonvet-cli` instead of reading the next argument as a file, and the 256 MB stack
+thread it needs is not started. CI tests and lints both builds.
+
 Schema regexes with back-references or lookaround run on fancy-regex, which backtracks; jsonvet
 caps that at 5,000 steps per match, so `^(a|a)*\1b` over 5,000 strings takes under a second
 instead of minutes. Over the cap, `pattern` reports an error, but `patternProperties` (and
@@ -141,8 +148,9 @@ A glob without `/` matches the file name at any depth, and one with `/` matches 
 
 ```text
 crates/jsonvet/        library: the parser, rules and positions. Depends on memchr and unicode-properties.
-crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output, --schema
-                       (jsonschema, serde_json). Built into the PyPI wheels by maturin.
+crates/jsonvet-cli/    binaries jsonvet and check-json5: arguments, config, output, and --schema
+                       (jsonschema, serde_json) behind the default feature `schema`. Built into
+                       the PyPI wheels by maturin, without that feature (pyproject.toml).
 compat/check-json5/    the check-json5 package on PyPI: depends on jsonvet, nothing else
 setup.py               placeholder that pre-commit installs: pins the jsonvet wheel
 action.yml             the GitHub Action: installs the jsonvet wheel from PyPI and runs it

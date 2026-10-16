@@ -9,7 +9,11 @@ use lexopt::prelude::*;
 use crate::output::Format;
 use crate::settings::{DialectPattern, Settings, parse_severity};
 
-pub(crate) const HELP: &str = "\
+/// The help text, with the parts that depend on whether this build has `--schema`.
+macro_rules! help {
+    ($schema:literal, $rules:literal, $exit:literal) => {
+        concat!(
+            "\
 Check JSON, I-JSON, JSONC, JWCC (HuJSON), JSON5 and JSON Lines files for syntax errors,
 duplicate keys and the rules of each dialect.
 
@@ -26,26 +30,57 @@ Options:
       --max-warnings N          Fail when there are more than N warnings.
       --format FORMAT           Print problems as text (the default) or as one SARIF 2.1.0
                                 document, for GitHub code scanning.
-      --schema FILE             Also check each file against the JSON Schema in FILE, reported
-                                under the rule schema at the value each error is about, named
-                                by its JSONPath as duplicate-key names keys ($ is the root). Files
-                                with a syntax error are not checked. A $ref must stay inside
-                                FILE: nothing is fetched. At most 100 errors per document are
-                                listed, then a count of the rest.
-      --config FILE             Read settings from FILE instead of searching for one.
+",
+            $schema,
+            "      --config FILE             Read settings from FILE instead of searching for one.
       --no-config               Do not read a settings file.
   -h, --help                    Print this help.
   -V, --version                 Print the version.
 
 Rules: syntax, duplicate-key, invalid-number, invalid-code-point, byte-order-mark,
-missing-final-newline. With --schema, errors also come under the rule schema; they are always
-errors, and --error, --warn, --ignore and settings files do not take schema.
+missing-final-newline.",
+            $rules,
+            "
 
 Settings come from jsonvet.toml, or [tool.jsonvet] in pyproject.toml, found in the working
 directory or a parent up to the repository root. Options on the command line win.
 
-Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error, which
-includes a schema that cannot be read or used.";
+Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error",
+            $exit,
+            "."
+        )
+    };
+}
+
+#[cfg(feature = "schema")]
+pub(crate) const HELP: &str = help!(
+    "      --schema FILE             Also check each file against the JSON Schema in FILE, reported
+                                under the rule schema at the value each error is about, named
+                                by its JSONPath as duplicate-key names keys ($ is the root). Files
+                                with a syntax error are not checked. A $ref must stay inside
+                                FILE: nothing is fetched. At most 100 errors per document are
+                                listed, then a count of the rest.
+",
+    " With --schema, errors also come under the rule schema; they are always\n\
+     errors, and --error, --warn, --ignore and settings files do not take schema.",
+    ", which\nincludes a schema that cannot be read or used"
+);
+
+#[cfg(not(feature = "schema"))]
+pub(crate) const HELP: &str = help!(
+    "      --schema FILE             Not in this build: the PyPI wheels, which the pre-commit hook
+                                and the GitHub Action install, leave it out to stay small.
+                                `cargo install jsonvet-cli` builds jsonvet with it.
+",
+    "",
+    ""
+);
+
+/// What `--schema` says in a build without it.
+#[cfg(not(feature = "schema"))]
+pub(crate) const NO_SCHEMA: &str = "--schema is not in this build: the PyPI wheels, which the \
+    pre-commit hook and the GitHub Action install, leave it out to stay small. `cargo install \
+    jsonvet-cli` builds jsonvet with it.";
 
 /// Where settings come from besides the command line.
 #[derive(Debug, PartialEq, Eq)]

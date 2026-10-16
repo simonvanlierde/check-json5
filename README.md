@@ -34,7 +34,8 @@ In `.pre-commit-config.yaml` (pre-commit or [prek](https://github.com/j178/prek)
 The hook installs a prebuilt binary from PyPI, so it needs no Rust. It checks files by name:
 `.json`, `.jsonc`, `.json5`, `.jsonl`, `.ndjson`, `.geojson`, `.jsonld`, `.hujson`, `.jwcc`,
 `.code-workspace`, `.code-snippets`, `.webmanifest` and `.babelrc`. In GitHub Actions each problem
-also becomes an annotation on the pull request.
+also becomes an annotation on the pull request. The hook has no [`--schema`](#json-schema): the
+PyPI binary leaves it out to stay small, until it shows its worth.
 
 ## Use it as a GitHub Action
 
@@ -55,7 +56,8 @@ optional:
 
 Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
 installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
-to a commit SHA, it installs the version in that commit, so the pin covers jsonvet too.
+to a commit SHA, it installs the version in that commit, so the pin covers jsonvet too. It
+installs the PyPI binary, so it has no [`--schema`](#json-schema) either.
 
 ## Dialects
 
@@ -124,7 +126,10 @@ Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.
 ## JSON Schema
 
 `--schema FILE` checks each file's values against one JSON Schema, and reports each error at the
-line and column of the value it is about, in every dialect, comments and JSON5 syntax included:
+line and column of the value it is about, in every dialect, comments and JSON5 syntax included.
+It comes with `cargo install jsonvet-cli` only: the PyPI wheels, and so the hook and the GitHub
+Action, are built without it, because it makes the binary about 5 MB instead of 0.6 MB. There,
+`--schema` exits with status 2 and says so.
 
 ```text
 $ jsonvet --schema server.schema.json server.json5
@@ -197,7 +202,7 @@ jobs:
 ```bash
 uvx jsonvet config/*.json        # from PyPI, without installing
 pip install jsonvet              # the same binary, as a Python package
-cargo install jsonvet-cli        # from source
+cargo install jsonvet-cli        # from source, with --schema
 ```
 
 The library is the `jsonvet` crate:
