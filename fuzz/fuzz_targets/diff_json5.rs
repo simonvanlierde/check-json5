@@ -25,7 +25,8 @@ fn has_long_digit_run(text: &str) -> bool {
 
 /// Whether the text has a character, literal or escaped, that jsonvet's Unicode tables call a
 /// letter, mark, digit or connector and json5's tables do not, as when one crate moves to a newer
-/// Unicode version first. json5 then rejects it anywhere in a key, even after a first letter.
+/// Unicode version first. json5 then rejects it anywhere in a key: with `expected identifier` where
+/// it starts the key or is escaped, and with `expected colon` where it ends the key early.
 fn has_newer_identifier_char(text: &str) -> bool {
     use unicode_properties::GeneralCategory::{
         ConnectorPunctuation, DecimalNumber, LetterNumber, LowercaseLetter, ModifierLetter,
@@ -76,7 +77,9 @@ fuzz_target!(|text: &str| {
             let limit = (message.starts_with("invalid escape sequence")
                 || message.starts_with("unpaired surrogate"))
                 && has_surrogate_escape(text)
-                || has_newer_identifier_char(text)
+                || (message.starts_with("expected identifier")
+                    || message.starts_with("expected colon"))
+                    && has_newer_identifier_char(text)
                 || ((message.starts_with("number too ")
                     || message.starts_with("overflow parsing number"))
                     && has_long_digit_run(text));

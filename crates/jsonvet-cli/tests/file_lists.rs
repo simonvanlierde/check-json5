@@ -1,5 +1,5 @@
 //! The pre-commit hooks and the GitHub Action pick files by their own lists of extensions and
-//! names. These must stay the ones `Dialect::for_path` knows.
+//! names, and the README lists them. These must stay the ones `Dialect::for_path` knows.
 
 #![allow(
     clippy::expect_used,
@@ -81,4 +81,20 @@ fn the_action_checks_the_default_files() {
             .collect::<BTreeSet<_>>(),
         expected
     );
+}
+
+#[test]
+fn the_readme_lists_the_default_files() {
+    let readme = repo_file("README.md");
+    let start = readme
+        .find("It checks files by name:")
+        .expect("the list of files the hook checks");
+    let paragraph = &readme[start..start + readme[start..].find("\n\n").expect("its end")];
+    let listed: BTreeSet<&str> = paragraph.split('`').skip(1).step_by(2).collect();
+    // The README writes an extension as `.json`, where the other lists have `*.json`.
+    let expected: BTreeSet<String> = defaults()
+        .into_iter()
+        .map(|name| name.trim_start_matches('*').to_owned())
+        .collect();
+    assert_eq!(listed, expected.iter().map(String::as_str).collect());
 }

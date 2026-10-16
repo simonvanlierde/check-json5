@@ -20,6 +20,52 @@ pub(crate) fn recount(text: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
+/// A JSON5 config that reaches what the defaults never do: the number check, which is off by
+/// default, and a depth limit that short inputs can hit.
+pub(crate) fn strict() -> Config {
+    Config::new(Dialect::Json5)
+        .rule(Rule::InvalidNumber, Severity::Error)
+        .max_depth(8)
+}
+
+/// The first way a report on `text` breaks what every report promises: problems in offset order,
+/// every offset inside the text, on a character boundary and at the location a naive recount
+/// gives (asked forwards and again backwards, as `location` counts on from its last answer when
+/// that is nearer), every message non-empty, and `passed` meaning no error.
+pub(crate) fn report_violation(text: &str, config: &Config) -> Result<(), String> {
+    let dialect = config.dialect();
+    let report = check(text, config);
+    let problems = report.problems();
+    if problems.windows(2).any(|w| w[0].offset() > w[1].offset()) {
+        return Err(format!("{dialect}: problems out of order"));
+    }
+    let offsets = problems
+        .iter()
+        .flat_map(|p| std::iter::once(p.offset()).chain(p.related_offset()));
+    for offset in offsets
+        .clone()
+        .chain(problems.iter().rev().map(jsonvet::Problem::offset))
+    {
+        if offset > text.len() || !text.is_char_boundary(offset) {
+            return Err(format!(
+                "{dialect}: offset {offset} outside the text or inside a character"
+            ));
+        }
+        let at = report.location(offset);
+        if (at.line, at.column) != recount(text, offset) {
+            return Err(format!("{dialect}: wrong location for offset {offset}"));
+        }
+    }
+    // The text output and the SARIF and GitHub formats are built from the message.
+    if problems.iter().any(|p| p.to_string().is_empty()) {
+        return Err(format!("{dialect}: a problem with no message"));
+    }
+    if report.passed() != problems.iter().all(|p| p.severity() != Severity::Error) {
+        return Err(format!("{dialect}: `passed` disagrees with the problems"));
+    }
+    Ok(())
+}
+
 fn passes(text: &str, dialect: Dialect) -> bool {
     // Duplicate keys are not a syntax question and every dialect treats them the same.
     check(

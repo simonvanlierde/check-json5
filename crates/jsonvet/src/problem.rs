@@ -46,7 +46,8 @@ impl Problem {
     }
 
     /// The JSONPath of a duplicate key, such as `$.server.port`, or `None` for other problems.
-    /// A path longer than 256 bytes keeps its ends, with `…` in place of the middle.
+    /// A path longer than 256 bytes keeps its ends, with `…` in place of the middle, so a path is
+    /// at most 259 bytes: 256 and the three of `…`.
     ///
     /// ```
     /// use jsonvet::{check, Config, Dialect};

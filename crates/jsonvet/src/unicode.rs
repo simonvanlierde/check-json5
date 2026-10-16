@@ -89,3 +89,105 @@ pub(crate) fn is_identifier_part(c: char) -> bool {
             NonspacingMark | SpacingMark | DecimalNumber | ConnectorPunctuation
         )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
+
+    #[test]
+    fn code_point_ranges_end_where_they_should() {
+        // Code point, then whether it is a noncharacter, a high surrogate and a low surrogate.
+        for (code_point, non, high, low) in [
+            (0xFDCF, false, false, false),
+            (0xFDD0, true, false, false),
+            (0xFDEF, true, false, false),
+            (0xFDF0, false, false, false),
+            (0xFFFD, false, false, false),
+            (0xFFFE, true, false, false),
+            (0xFFFF, true, false, false),
+            (0x1FFFE, true, false, false),
+            (0x0010_FFFD, false, false, false),
+            (0x0010_FFFE, true, false, false),
+            (0x0010_FFFF, true, false, false),
+            (0xD7FF, false, false, false),
+            (0xD800, false, true, false),
+            (0xDBFF, false, true, false),
+            (0xDC00, false, false, true),
+            (0xDFFF, false, false, true),
+            (0xE000, false, false, false),
+        ] {
+            assert_eq!(
+                (
+                    is_noncharacter(code_point),
+                    is_high_surrogate(code_point),
+                    is_low_surrogate(code_point),
+                    is_surrogate(code_point)
+                ),
+                (non, high, low, high || low),
+                "U+{code_point:04X}"
+            );
+        }
+    }
+
+    #[test]
+    fn bidi_controls_and_json5_spaces_are_exactly_the_listed_ones() {
+        let bidi: Vec<char> = ('\0'..=char::MAX).filter(|&c| is_bidi_control(c)).collect();
+        assert_eq!(
+            bidi,
+            [
+                '\u{61C}', '\u{200E}', '\u{200F}', '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}',
+                '\u{202E}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+            ]
+        );
+        for c in '\u{80}'..=char::MAX {
+            let space = c.general_category() == GeneralCategory::SpaceSeparator
+                || matches!(c, '\u{2028}' | '\u{2029}' | '\u{FEFF}');
+            assert_eq!(is_json5_space(c), space, "U+{:04X}", u32::from(c));
+        }
+        let text = "a\u{2028}\u{2029}\u{2027}".as_bytes();
+        let at: Vec<bool> = [0, 1, 4, 7, 9]
+            .map(|at| line_separator_at(text, at))
+            .to_vec();
+        assert_eq!(at, [false, true, true, false, false]);
+    }
+
+    #[test]
+    fn identifier_characters_follow_their_general_category() {
+        // Character, then whether it can start an identifier and whether it can continue one.
+        for (c, start, part) in [
+            ('$', true, true),
+            ('_', true, true),
+            ('A', true, true),
+            ('z', true, true),
+            ('0', false, true),
+            ('9', false, true),
+            ('@', false, false),
+            ('[', false, false),
+            ('`', false, false),
+            ('{', false, false),
+            ('-', false, false),
+            ('\u{AA}', true, true),     // Lo
+            ('\u{B7}', false, false),   // Po
+            ('é', true, true),          // Ll
+            ('\u{2E2F}', true, true),   // Lm
+            ('\u{2160}', true, true),   // Nl
+            ('\u{0E33}', true, true),   // Lo
+            ('\u{1885}', false, true),  // Mn
+            ('\u{0903}', false, true),  // Mc
+            ('\u{0660}', false, true),  // Nd
+            ('\u{203F}', false, true),  // Pc
+            ('\u{200C}', false, true),  // ZWNJ
+            ('\u{200D}', false, true),  // ZWJ
+            ('\u{200B}', false, false), // Cf
+            ('\u{2070}', false, false), // No
+        ] {
+            assert_eq!(
+                (is_identifier_start(c), is_identifier_part(c)),
+                (start, part),
+                "U+{:04X}",
+                u32::from(c)
+            );
+        }
+    }
+}

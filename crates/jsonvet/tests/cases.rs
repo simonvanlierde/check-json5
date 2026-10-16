@@ -192,6 +192,10 @@ fn i_json_and_json_lines() {
         (JsonLines, "1 2\n"),
         (JsonLines, "{\"a\": 1, \"a\": 2}\r\n[3]\r\n"),
         (JsonLines, "\u{FEFF}{}\n"),
+        // A lone CR is white space, not a line ending, though positions count it as one.
+        (JsonLines, "[1,\r2]\n"),
+        (JsonLines, "1\r"),
+        (JsonLines, "1\r\n\r\n"),
     ]));
 }
 
@@ -380,8 +384,9 @@ fn duplicate_key_paths_stay_short_however_deep_the_key() {
         let report = check(&text, &Config::new(Dialect::Json));
         assert!(report.problems().len() >= depth);
         for problem in report.problems() {
-            let message = problem.to_string();
-            assert!(message.len() <= 300, "{} bytes", message.len());
+            // 256 bytes and the three of `…`.
+            let path = problem.path().unwrap_or_default();
+            assert!(path.len() <= 259, "{} bytes", path.len());
         }
     }
     let text = format!("{}{{\"a\":0,\"a\":0}}{}", "[".repeat(100), "]".repeat(100));

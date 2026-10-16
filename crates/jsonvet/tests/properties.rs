@@ -1,11 +1,11 @@
-//! Properties that hold for every input in every dialect: no panic, every offset inside the
-//! text and on a character boundary, every location equal to a naive recount, and a text that
-//! passes in a narrower dialect passing in the wider ones.
+//! Properties that hold for every input in every dialect: no panic, every report keeping the
+//! promises `common::report_violation` lists, and a text that passes in a narrower dialect
+//! passing in the wider ones.
 
 mod common;
 
-use common::{nesting_violations, recount};
-use jsonvet::{Config, Dialect, Rule, Severity, check};
+use common::{nesting_violations, report_violation, strict};
+use jsonvet::{Config, Dialect};
 use proptest::prelude::*;
 
 /// JSON-ish token soup, so most inputs get past the first byte, mixed with arbitrary text for
@@ -78,27 +78,9 @@ proptest! {
     ))]
 
     #[test]
-    fn offsets_are_valid_and_locations_agree(text in soup(), dialect in prop::sample::select(Dialect::ALL.to_vec())) {
-        // The same config as the fuzz target's extra run: the number check, which is off by
-        // default, and a depth limit the soup can reach.
-        let strict = Config::new(Dialect::Json5)
-            .rule(Rule::InvalidNumber, Severity::Error)
-            .max_depth(8);
-        for config in [Config::new(dialect), strict] {
-            let report = check(&text, &config);
-            for problem in report.problems() {
-                for offset in std::iter::once(problem.offset()).chain(problem.related_offset()) {
-                    prop_assert!(offset <= text.len());
-                    prop_assert!(text.is_char_boundary(offset));
-                    let at = report.location(offset);
-                    prop_assert_eq!((at.line, at.column), recount(&text, offset));
-                }
-            }
-            // Again backwards: `location` counts from its last answer when that is nearer.
-            for problem in report.problems().iter().rev() {
-                let at = report.location(problem.offset());
-                prop_assert_eq!((at.line, at.column), recount(&text, problem.offset()));
-            }
+    fn reports_keep_their_promises(text in soup(), dialect in prop::sample::select(Dialect::ALL.to_vec())) {
+        for config in [Config::new(dialect), strict()] {
+            prop_assert_eq!(report_violation(&text, &config), Ok(()));
         }
     }
 
