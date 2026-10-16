@@ -150,27 +150,54 @@ fn a_file_name_cannot_start_a_workflow_command_or_send_escapes() {
         "./::stop-commands::tok.json:1:4: error[syntax] expected a value, found the end of the file\n\
          ::error file=%3A%3Astop-commands%3A%3Atok.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
          \\u001b]0;x\\u0007.json:1:4: error[syntax] expected a value, found the end of the file\n\
-         ::error file=\u{1b}]0;x\u{7}.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
+         ::error file=\\u001b]0;x\\u0007.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
          gone\\u001b[2J.json: error: no such file\n\
-         ::error file=gone\u{1b}[2J.json,title=jsonvet::no such file\n"
+         ::error file=gone\\u001b[2J.json,title=jsonvet::no such file\n"
     );
 }
 
 /// A bidi control would reorder how the rest of the line displays, so neither a file name nor a
-/// character a syntax error shows may print one.
+/// key in a message may print one, in text or annotations.
 #[test]
 fn output_never_holds_a_bidi_control() {
-    let dir = workdir(&[("rtl\u{202e}.json", "[\u{2066}]")]);
-    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
-        .arg("rtl\u{202e}.json")
-        .current_dir(&dir)
-        .env_remove("GITHUB_ACTIONS")
-        .output()
-        .expect("run jsonvet");
-    assert_eq!(
-        String::from_utf8(out.stdout).expect("UTF-8 output"),
-        "rtl\\u202e.json:1:2: error[syntax] expected a value, found U+2066\n"
-    );
+    let bidi = [
+        '\u{61c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+        '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+    ];
+    let names: Vec<String> = bidi.iter().map(|c| format!("{c}.json")).collect();
+    let texts: Vec<String> = bidi
+        .iter()
+        .map(|c| format!("{{\"{c}\": 1, \"{c}\": 2}}"))
+        .collect();
+    let files: Vec<(&str, &str)> = names
+        .iter()
+        .zip(&texts)
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let dir = workdir(&files);
+    for actions in ["false", "true"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(&names)
+            .current_dir(&dir)
+            .env("GITHUB_ACTIONS", actions)
+            .output()
+            .expect("run jsonvet");
+        let out = String::from_utf8(out.stdout).expect("UTF-8 output");
+        assert!(!out.contains(bidi), "{out}");
+        let expected: String = bidi
+            .iter()
+            .map(|&c| {
+                let c = format!("\\u{:04x}", u32::from(c));
+                let text = format!("{c}.json:1:10: error[duplicate-key] duplicate key $[\"{c}\"] (first at 1:2)\n");
+                if actions == "true" {
+                    format!("{text}::error file={c}.json,line=1,col=10,title=jsonvet (duplicate-key)::duplicate key $[\"{c}\"] (first at 1:2)\n")
+                } else {
+                    text
+                }
+            })
+            .collect();
+        assert_eq!(out, expected);
+    }
 }
 
 /// GitHub Actions also runs the older `##[command]` form found anywhere in a line, so neither a
@@ -193,7 +220,7 @@ fn output_never_holds_a_legacy_workflow_command() {
     assert_eq!(
         run("text"),
         "##\\u005badd-mask]a.json:1:22: error[duplicate-key] duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n\
-         ::error file=##[add-mask]a.json,line=1,col=22,title=jsonvet (duplicate-key)::duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n"
+         ::error file=##\\u005badd-mask]a.json,line=1,col=22,title=jsonvet (duplicate-key)::duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n"
     );
     let sarif = run("sarif");
     assert!(!sarif.contains("##["), "{sarif}");
@@ -388,18 +415,22 @@ fn a_file_name_that_is_not_utf8_is_opened_as_given() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
     let dir = workdir(&[]);
-    let name = OsStr::from_bytes(b"caf\xe9.json");
-    fs::write(dir.join(name), "[1,]").expect("write file");
+    // The names that look like options are files too, not read lossily as options.
+    let names = [b"caf\xe9.json".as_slice(), b"--\xff.json", b"-x\xff.json"].map(OsStr::from_bytes);
+    for name in names {
+        fs::write(dir.join(name), "[1,]").expect("write file");
+    }
     let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
         .args(["--strict", "*"])
-        .arg(name)
+        .args(names)
         .current_dir(&dir)
         .env_remove("GITHUB_ACTIONS")
         .output()
         .expect("run jsonvet");
+    let found = ".json:1:4: error[syntax] trailing comma before `]` is not allowed in json\n";
     assert_eq!(
         String::from_utf8_lossy(&out.stdout),
-        "caf\u{FFFD}.json:1:4: error[syntax] trailing comma before `]` is not allowed in json\n"
+        format!("caf\u{FFFD}{found}--\u{FFFD}{found}-x\u{FFFD}{found}")
     );
 }
 
@@ -518,11 +549,17 @@ fn pyproject_tool_table_and_bad_configs() {
     let wrong_types = workdir(&[
         ("rules.toml", "rules = 1\n"),
         ("dialects.toml", "dialects = 1\n"),
+        ("forged.toml", "\"\\n::error::x\" = \"error\"\n"),
         ("d.json", "{}"),
     ]);
     for (config, message) in [
         ("rules.toml", "`rules` must be a table"),
         ("dialects.toml", "`dialects` must be an array of tables"),
+        // A key holding a newline stays on the line, so it cannot forge a workflow command.
+        (
+            "forged.toml",
+            "unknown key `\\n::error::x`; expected rules or dialects",
+        ),
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
             .args(["--config", config, "d.json"])

@@ -8,6 +8,7 @@ use jsonvet::{Config, Dialect, Rule, Severity};
 use toml::{Table, Value};
 
 use crate::glob;
+use crate::output::printable;
 
 /// A dialect for files matching a pattern, or for every file when the pattern is `None`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,7 +140,8 @@ fn has_jsonvet_table(text: &str) -> bool {
 /// `files` glob, relative to the config file's directory, and a `dialect`. Any other key is an
 /// error, so a typo is never ignored.
 pub(crate) fn load(path: &Path) -> Result<Settings, String> {
-    let in_file = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    // A key or value from the file shows escaped, so it cannot start a line of its own on stderr.
+    let in_file = |e: &dyn std::fmt::Display| printable(&format!("{}: {e}", path.display()));
     let text = fs::read_to_string(path).map_err(|e| in_file(&e))?;
     let table: Table = text
         .parse()

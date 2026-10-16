@@ -23,7 +23,7 @@ pub(crate) enum Format {
 /// the line displays, show the same way. CR and LF show as `\r` and `\n`, the rest as
 /// `\u001b`, as JSONPaths in messages show them. The runner also reads its older `##[command]`
 /// form anywhere in a line, so the `[` of `##[` shows as `\u005b`.
-fn printable(value: &str) -> String {
+pub(crate) fn printable(value: &str) -> String {
     let mut shown = String::with_capacity(value.len());
     for c in value.chars() {
         match c {
@@ -40,7 +40,7 @@ fn printable(value: &str) -> String {
 }
 
 /// Unicode's `Bidi_Control` characters: the marks and the embedding, override and isolate
-/// controls.
+/// controls. NOTE: the same list as `is_bidi_control` in jsonvet, which is not public.
 fn is_bidi_control(c: char) -> bool {
     matches!(
         c,
@@ -140,7 +140,7 @@ impl<W: Write> Printer<W> {
                 self.out,
                 "::{} file={},line={},col={},title=jsonvet ({rule})::{}",
                 sarif::level(severity),
-                escape(file, true),
+                escape(&printable(file), true),
                 at.line,
                 at.column,
                 escape(&printable(&message), false)
@@ -175,7 +175,7 @@ impl<W: Write> Printer<W> {
             writeln!(
                 self.out,
                 "::error file={},title=jsonvet::{}",
-                escape(file, true),
+                escape(&printable(file), true),
                 escape(&printable(message), false)
             )?;
         }

@@ -67,12 +67,26 @@ pub(crate) enum Command {
 
 pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     let mut parser = lexopt::Parser::from_args(args);
+    // Otherwise `-x=a.json` would come back as `-x` and `a.json`, losing the `=`.
+    parser.set_short_equals(false);
     let mut files = Vec::new();
     let mut settings = Settings::default();
     let mut max_warnings = None;
     let mut config = ConfigSource::Search;
     let mut format = Format::Text;
-    while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
+    loop {
+        // lexopt reads a non-UTF-8 argument that starts with `-` lossily. No option has such a
+        // name, so it is a file, kept as given.
+        if let Some(file) = parser
+            .try_raw_args()
+            .and_then(|mut raw| raw.next_if(|arg| arg.to_str().is_none()))
+        {
+            files.push(file);
+            continue;
+        }
+        let Some(arg) = parser.next().map_err(|e| e.to_string())? else {
+            break;
+        };
         match arg {
             Long("dialect") => settings
                 .dialects
@@ -191,8 +205,18 @@ mod tests {
 
     #[test]
     fn files_that_look_like_options_stay_files() {
-        let args = check(&["-dash.json", "-h.json", "--", "--y.json", "a.json"]);
-        assert_eq!(args.files, ["-dash.json", "-h.json", "--y.json", "a.json"]);
+        let args = check(&[
+            "-dash.json",
+            "-h.json",
+            "-x=a.json",
+            "--",
+            "--y.json",
+            "a.json",
+        ]);
+        assert_eq!(
+            args.files,
+            ["-dash.json", "-h.json", "-x=a.json", "--y.json", "a.json"]
+        );
         // An unknown `--name` is a file only when it exists; tests/cli.rs covers that case.
         for unknown in ["--strcit", "--help=x", "--x.json"] {
             assert_eq!(
