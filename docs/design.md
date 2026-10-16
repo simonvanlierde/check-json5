@@ -95,7 +95,10 @@ schemas. The library's `parse` returns the file's values as events, each with it
 the CLI folds them into `serde_json` values, validates those with the `jsonschema` crate (default
 features off, so nothing is fetched), and maps each error's instance path, a JSON Pointer, back
 to the offset of its value: one walk over the events of a document with errors finds every
-error's value, with no pointer kept per value. Schema errors are always errors: `--error`,
+error's value, with no pointer kept per value. The message names the value by JSONPath, through
+the same path code as `duplicate-key`, so one file's problems use one path style; each pointer
+segment counts as an index only where the value it steps into is an array, since a pointer
+alone reads the same for `[0]` and `["0"]`. Schema errors are always errors: `--error`,
 `--warn`, `--ignore` and the settings file do not take the id `schema`, and exit 2 on it as an
 unknown rule. They follow the file's other problems; a file with a syntax error has no events,
 so it gets none.

@@ -128,9 +128,12 @@ line and column of the value it is about, in every dialect, comments and JSON5 s
 
 ```text
 $ jsonvet --schema server.schema.json server.json5
-server.json5:3:9: error[schema] "80" is not of type "integer" (at /port)
-server.json5:6:3: error[schema] Additional properties are not allowed ('debug' was unexpected) (at /)
+server.json5:3:9: error[schema] "80" is not of type "integer" (at $.port)
+server.json5:6:3: error[schema] Additional properties are not allowed ('debug' was unexpected) (at $)
 ```
+
+Each message ends with the JSONPath of the value, written as duplicate-key paths are: `$` is the
+root, `$.tags[1]` an array element, `$[""]` the empty key.
 
 The errors come under the rule `schema` and are errors, in text, GitHub annotations and SARIF
 alike. They are always errors: `--error`, `--warn`, `--ignore` and the settings file do not take

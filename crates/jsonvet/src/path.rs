@@ -25,6 +25,37 @@ pub(crate) fn render<'s, 'a: 's>(
     path
 }
 
+/// One step of a [`json_path`]: an object key or an array index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathStep<'a> {
+    /// A member of an object, by its key.
+    Key(&'a str),
+    /// An element of an array, by its index from 0.
+    Index(usize),
+}
+
+/// The JSONPath of the value that `steps` lead to, written as duplicate-key messages write
+/// paths: `$` for the root, `.key` for an identifier-like key, `["other key"]` for any other key,
+/// and `[0]` for an index.
+///
+/// ```
+/// use jsonvet::{json_path, PathStep};
+///
+/// assert_eq!(json_path([]), "$");
+/// let steps = [PathStep::Key("a"), PathStep::Index(0), PathStep::Key("")];
+/// assert_eq!(json_path(steps), "$.a[0][\"\"]");
+/// ```
+pub fn json_path<'a>(steps: impl IntoIterator<Item = PathStep<'a>>) -> String {
+    let mut path = "$".to_owned();
+    for step in steps {
+        match step {
+            PathStep::Key(key) => push_key(&mut path, key.as_bytes()),
+            PathStep::Index(i) => push(&mut path, &Segment::Index(i)),
+        }
+    }
+    path
+}
+
 /// Append one segment to a path.
 fn push(path: &mut String, segment: &Segment<'_>) {
     match segment {

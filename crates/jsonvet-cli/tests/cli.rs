@@ -486,25 +486,25 @@ fn schema_errors_point_at_the_value_in_every_dialect() {
     );
     assert_eq!(code, 1);
     let expected = "\
-strict.json:1:23: error[schema] \"80\" is not of type \"integer\" (at /port)
-strict.json:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
-strict.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
-i.json:1:23: error[schema] \"80\" is not of type \"integer\" (at /port)
-i.json:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
-i.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
-c.jsonc:1:31: error[schema] \"80\" is not of type \"integer\" (at /port)
-c.jsonc:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
-c.jsonc:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
-w.hujson:1:23: error[schema] \"80\" is not of type \"integer\" (at /port)
-w.hujson:2:16: error[schema] 1 is not of type \"string\" (at /tags/1)
-w.hujson:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
-f.json5:1:26: error[schema] \"80\" is not of type \"integer\" (at /port)
-f.json5:2:14: error[schema] 1 is not of type \"string\" (at /tags/1)
-f.json5:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
-l.jsonl:2:1: error[schema] \"name\" is a required property (at /)
-l.jsonl:2:10: error[schema] \"80\" is not of type \"integer\" (at /port)
-l.jsonl:2:30: error[schema] 1 is not of type \"string\" (at /tags/1)
-l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexpected) (at /)
+strict.json:1:23: error[schema] \"80\" is not of type \"integer\" (at $.port)
+strict.json:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+strict.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+i.json:1:23: error[schema] \"80\" is not of type \"integer\" (at $.port)
+i.json:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+i.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+c.jsonc:1:31: error[schema] \"80\" is not of type \"integer\" (at $.port)
+c.jsonc:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+c.jsonc:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+w.hujson:1:23: error[schema] \"80\" is not of type \"integer\" (at $.port)
+w.hujson:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+w.hujson:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+f.json5:1:26: error[schema] \"80\" is not of type \"integer\" (at $.port)
+f.json5:2:14: error[schema] 1 is not of type \"string\" (at $.tags[1])
+f.json5:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+l.jsonl:2:1: error[schema] \"name\" is a required property (at $)
+l.jsonl:2:10: error[schema] \"80\" is not of type \"integer\" (at $.port)
+l.jsonl:2:30: error[schema] 1 is not of type \"string\" (at $.tags[1])
+l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
 ";
     assert_eq!(out, expected);
 
@@ -594,7 +594,7 @@ fn a_schema_that_cannot_be_used_is_a_usage_error() {
         (code, out.as_str()),
         (
             1,
-            "ok.json:1:1: error[schema] {} is not of type \"string\" (at /)\n"
+            "ok.json:1:1: error[schema] {} is not of type \"string\" (at $)\n"
         )
     );
 }
@@ -624,16 +624,16 @@ fn schema_errors_in_a_large_file() {
     assert_eq!(lines.len(), 10);
     assert_eq!(
         lines[0],
-        "big.json:2:26: error[schema] \"80\" is not of type \"integer\" (at /0/port)"
+        "big.json:2:26: error[schema] \"80\" is not of type \"integer\" (at $[0].port)"
     );
     assert_eq!(
         lines[9],
-        "big.json:90002:30: error[schema] \"80\" is not of type \"integer\" (at /90000/port)"
+        "big.json:90002:30: error[schema] \"80\" is not of type \"integer\" (at $[90000].port)"
     );
     // The message names a large value instead of quoting all of it.
     assert_eq!(
         jsonvet_stderr(&dir, &["--schema", "object.json", "big.json"]).1,
-        "big.json:1:1: error[schema] value is not of type \"object\" (at /)\n"
+        "big.json:1:1: error[schema] value is not of type \"object\" (at $)\n"
     );
 }
 
@@ -657,7 +657,7 @@ fn a_deep_file_with_long_keys_is_placed_quickly() {
     assert_eq!(code, 1);
     assert_eq!(
         out,
-        "deep.json:1:1: error[schema] value is not of type \"string\" (at /)\n"
+        "deep.json:1:1: error[schema] value is not of type \"string\" (at $)\n"
     );
 }
 
@@ -694,7 +694,7 @@ fn a_backtracking_pattern_is_cut_short_and_reported() {
         )
     );
     assert!(out.starts_with(
-        "r.json:1:2: error[schema] Error executing regex: Max limit for backtracking count exceeded (at /0)\n"
+        "r.json:1:2: error[schema] Error executing regex: Max limit for backtracking count exceeded (at $[0])\n"
     ));
 }
 
@@ -762,7 +762,7 @@ fn a_message_listing_many_keys_is_cut_short() {
         ),
         "{out}"
     );
-    assert!(out.ends_with("... (at /)\n"), "{out}");
+    assert!(out.ends_with("... (at $)\n"), "{out}");
 }
 
 #[test]
@@ -778,7 +778,30 @@ fn control_characters_in_keys_are_escaped_in_the_output() {
     assert_eq!(code, 1);
     assert_eq!(
         out,
-        "k.json:1:37: error[schema] 1 is not of type \"string\" (at /x\\u001b]0;t\\u0007\\r\\n::error::y)\n"
+        "k.json:1:37: error[schema] 1 is not of type \"string\" (at $[\"x\\u001b]0;t\\u0007\\r\\n::error::y\"])\n"
+    );
+}
+
+#[test]
+fn schema_paths_are_written_as_duplicate_key_paths_are() {
+    let key = "a/b~c.d\\\"\u{e9}";
+    let schema = format!(
+        r#"{{"required": ["z"], "properties": {{"": {{"type": "string"}}, "{key}": {{"items": {{"type": "integer"}}}}}}}}"#
+    );
+    let file = format!(r#"{{"": 1, "": 2, "{key}": [0], "{key}": [0, "x"]}}"#);
+    let dir = workdir(&[("schema.json", &schema), ("e.json", &file)]);
+    let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "e.json"]);
+    assert_eq!(code, 1);
+    let quoted = "[\"a/b~c.d\\\"\\u00e9\"]";
+    assert_eq!(
+        out,
+        format!(
+            "e.json:1:9: error[duplicate-key] duplicate key $[\"\"] (first at 1:2)\n\
+             e.json:1:35: error[duplicate-key] duplicate key ${quoted} (first at 1:16)\n\
+             e.json:1:1: error[schema] \"z\" is a required property (at $)\n\
+             e.json:1:13: error[schema] 2 is not of type \"string\" (at $[\"\"])\n\
+             e.json:1:53: error[schema] \"x\" is not of type \"integer\" (at ${quoted}[1])\n"
+        )
     );
 }
 
@@ -843,17 +866,17 @@ fn unexpected_and_named_keys_point_at_the_key() {
         (
             "additional.json",
             "o.json",
-            "o.json:1:2: error[schema] Additional properties are not allowed ('b', 'z' were unexpected) (at /)\n",
+            "o.json:1:2: error[schema] Additional properties are not allowed ('b', 'z' were unexpected) (at $)\n",
         ),
         (
             "unevaluated.json",
             "o.json",
-            "o.json:1:2: error[schema] Unevaluated properties are not allowed ('b', 'z' were unexpected) (at /)\n",
+            "o.json:1:2: error[schema] Unevaluated properties are not allowed ('b', 'z' were unexpected) (at $)\n",
         ),
         (
             "names.json",
             "n.json",
-            "n.json:2:2: error[schema] \"long\" is longer than 1 character (at /)\n",
+            "n.json:2:2: error[schema] \"long\" is longer than 1 character (at $)\n",
         ),
     ];
     for (schema, file, expected) in cases {
@@ -886,8 +909,8 @@ fn ignored_duplicate_keys_still_place_schema_errors() {
     // The later copy of `a` is the one checked, as most parsers keep it.
     assert_eq!(
         out,
-        "d.json:2:13: error[schema] \"x\" is not of type \"integer\" (at /a/b)\n\
-         d.json:2:18: error[schema] Additional properties are not allowed ('c' was unexpected) (at /a)\n"
+        "d.json:2:13: error[schema] \"x\" is not of type \"integer\" (at $.a.b)\n\
+         d.json:2:18: error[schema] Additional properties are not allowed ('c' was unexpected) (at $.a)\n"
     );
 }
 

@@ -20,7 +20,8 @@ version for a new option or output, the patch version for a fix.
   `schema`, at the line and column of the value it is about, in every dialect and output format.
   A file with a syntax error gets no schema errors. A `$ref` must stay inside the schema file:
   jsonvet fetches nothing. Each document lists at most 100 schema errors, then a count of the
-  rest. A document holding `NaN`, `Infinity` or a number past a double's range has no JSON
+  rest. Each message ends with the value's JSONPath, as duplicate-key messages write it, with
+  `$` for the root. A document holding `NaN`, `Infinity` or a number past a double's range has no JSON
   Schema value, so it gets one schema error at that number and is not checked. Schema errors are
   always errors: `--error`, `--warn`, `--ignore` and settings files do not take `schema`. SARIF
   output lists `schema` among its rules. A schema that cannot be read or used, nests more than
@@ -28,6 +29,7 @@ version for a new option or output, the patch version for a fix.
   times per match. The binary grows from about 0.6 MB to about 5 MB on Linux x86-64.
 - The library's `parse` returns a text's values as positioned events, next to the report
   `check` gives.
+- The library's `json_path` writes a path of keys and indices as duplicate-key messages do.
 
 ### Changed
 

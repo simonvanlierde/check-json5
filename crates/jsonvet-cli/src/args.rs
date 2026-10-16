@@ -27,7 +27,8 @@ Options:
       --format FORMAT           Print problems as text (the default) or as one SARIF 2.1.0
                                 document, for GitHub code scanning.
       --schema FILE             Also check each file against the JSON Schema in FILE, reported
-                                under the rule schema at the value each error is about. Files
+                                under the rule schema at the value each error is about, named
+                                by its JSONPath as duplicate-key names keys ($ is the root). Files
                                 with a syntax error are not checked. A $ref must stay inside
                                 FILE: nothing is fetched. At most 100 errors per document are
                                 listed, then a count of the rest.

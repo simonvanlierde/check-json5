@@ -7,7 +7,7 @@ use std::path::Path;
 
 use jsonschema::error::ValidationErrorKind;
 use jsonschema::{PatternOptions, ReferencingError, ValidationError, Validator};
-use jsonvet::{Event, EventKind, Severity};
+use jsonvet::{Event, EventKind, PathStep, Severity};
 use serde_json::{Map, Number, Value};
 
 use crate::settings::Settings;
@@ -128,8 +128,7 @@ impl Schema {
                 .into_iter()
                 .zip(&found)
                 .map(|(offset, error)| {
-                    let pointer = error.instance_path().as_str();
-                    let at = if pointer.is_empty() { "/" } else { pointer };
+                    let at = json_path(&document.value, error.instance_path().as_str());
                     (offset, format!("{} (at {at})", message(error)))
                 })
                 .collect();
@@ -146,6 +145,28 @@ impl Schema {
         }
         errors
     }
+}
+
+/// The JSONPath of the value at the JSON Pointer `pointer` in `value`, written as duplicate-key
+/// paths are. The pointer alone cannot tell the index `0` from the key `"0"`, so each segment
+/// is read as an index only where the value it steps into is an array.
+// shortcut: a key holding a lone surrogate is written with U+FFFD here and with the surrogate's
+// escape in a duplicate-key path; carry the key's source text if that is ever reported.
+fn json_path(value: &Value, pointer: &str) -> String {
+    let segments: Vec<String> = pointer
+        .split('/')
+        .skip(1)
+        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+        .collect();
+    let mut value = Some(value);
+    jsonvet::json_path(segments.iter().map(|segment| {
+        if let (Some(Value::Array(items)), Ok(i)) = (value, segment.parse::<usize>()) {
+            value = items.get(i);
+            return PathStep::Index(i);
+        }
+        value = value.and_then(|v| v.get(segment));
+        PathStep::Key(segment)
+    }))
 }
 
 /// An error's message, quoting the value it is about only when that is short, and cut short
@@ -398,7 +419,7 @@ fn number(text: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_MESSAGE, documents, fits, locate, message, number};
+    use super::{MAX_MESSAGE, documents, fits, json_path, locate, message, number};
     use jsonvet::{Config, Dialect};
     use proptest::prelude::*;
     use serde_json::{Value, json};
@@ -427,6 +448,25 @@ mod tests {
         let pointers: Vec<_> = errors.iter().map(|e| e.instance_path().as_str()).collect();
         assert_eq!(pointers, ["/a", "/b\u{e9}~1~0"]);
         assert_eq!(locate(&events, &errors), [44, 34]);
+    }
+
+    #[test]
+    fn pointers_become_the_paths_duplicate_key_writes() {
+        let value = json!({"": 1, "0": [true, {"a/b~c.d\"\u{e9}": 2}], "x": {"": 3}});
+        let cases = [
+            ("", "$"),
+            ("/", "$[\"\"]"),
+            ("/x/", "$.x[\"\"]"),
+            ("/0", "$[\"0\"]"),
+            ("/0/1", "$[\"0\"][1]"),
+            (
+                "/0/1/a~1b~0c.d\"\u{e9}",
+                "$[\"0\"][1][\"a/b~c.d\\\"\\u00e9\"]",
+            ),
+        ];
+        for (pointer, path) in cases {
+            assert_eq!(json_path(&value, pointer), path, "{pointer}");
+        }
     }
 
     #[test]

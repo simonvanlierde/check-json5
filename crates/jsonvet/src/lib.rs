@@ -25,6 +25,7 @@ mod rule;
 
 pub use dialect::{Dialect, UnknownDialect};
 pub use event::{Event, EventKind};
+pub use path::{PathStep, json_path};
 pub use problem::Problem;
 pub use report::{Location, Report};
 pub use rule::{Config, Rule, Severity, UnknownRule};
