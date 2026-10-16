@@ -1,6 +1,6 @@
 # The tools the justfile calls, at the versions CI pins where CI pins them (.github/workflows/).
 # `mise install` fetches them. Rust itself comes from rustup: stable for lint and tests, nightly
-# for fuzzing, 1.88 for `just msrv`.
+# for fuzzing, and the `rust-version` in Cargo.toml for `just msrv`.
 [tools]
 just = "1"
 uv = "0.13.0"

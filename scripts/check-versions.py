@@ -8,6 +8,9 @@ in the hook placeholder (setup.py), the check-json5 compatibility package's vers
 (compat/check-json5/pyproject.toml), the `rev:` in the README's hook example and a heading in the
 CHANGELOG must name the same release, or a hook install would pull another version than the tag.
 
+The minimum supported Rust has three places too: `rust-version` in Cargo.toml, the toolchain of
+ci.yml's msrv job and `cargo +X` in the justfile's msrv recipe.
+
 The CHANGELOG rule holds on main and on a release branch alike. Main keeps the last release's
 version until a release commit bumps it, so `## [X.Y.Z]` exists there already; the release commit
 moves the Unreleased entries under a new `## [X.Y.Z]` heading in the same change that bumps the
@@ -30,9 +33,16 @@ def pep440(cargo: str) -> str:
     return cargo
 
 
+def first(pattern: str, path: str) -> str | None:
+    """The first group of the pattern's first match in the file, or None."""
+    match = re.search(pattern, (ROOT / path).read_text(), re.MULTILINE | re.DOTALL)
+    return match[1] if match else None
+
+
 def main() -> int:
     """Print each version and exit 1 when they differ or the CHANGELOG has no heading for it."""
-    cargo = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    package = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]
+    cargo = package["version"]
     compat = tomllib.loads((ROOT / "compat" / "check-json5" / "pyproject.toml").read_text())["project"]
     pins = re.findall(r"jsonvet==([^\"']+)", (ROOT / "setup.py").read_text()) + [
         dep.split("==")[1] for dep in compat["dependencies"] if dep.startswith("jsonvet==")
@@ -49,7 +59,20 @@ def main() -> int:
     heading = f"## [{cargo}]"
     has_heading = any(line.startswith(heading) for line in (ROOT / "CHANGELOG.md").read_text().splitlines())
     print(f"{'CHANGELOG':16} {'has' if has_heading else 'lacks'} {heading}")
-    if len(pins) != PINS or len(revs) != 1 or len(set(found.values())) != 1 or not has_heading:
+    msrvs = {
+        "rust-version": package["rust-version"],
+        "ci.yml msrv": first(r'^  msrv:$.*?toolchain: "([^"]+)"', ".github/workflows/ci.yml"),
+        "just msrv": first(r"^msrv:\n\s+cargo \+(\S+)", "justfile"),
+    }
+    for where, version in msrvs.items():
+        print(f"{where:16} {version}")
+    if (
+        len(pins) != PINS
+        or len(revs) != 1
+        or len(set(found.values())) != 1
+        or not has_heading
+        or len(set(msrvs.values())) != 1
+    ):
         print("versions differ", file=sys.stderr)
         return 1
     return 0

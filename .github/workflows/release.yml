@@ -25,6 +25,8 @@ env:
   # The Rust that builds the published wheels, pinned so a rebuild of a tag gives the same
   # compiler. Renovate bumps it; CI's hook job builds with the same one.
   RELEASE_RUST: "1.99.0"
+  # The uv every job sets up, as in ci.yml and mise.toml. Renovate bumps all three.
+  PINNED_UV: "0.13.0"
 
 jobs:
   # The tag must name the same release as the crates and the hook placeholder's pin.
@@ -37,7 +39,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
           enable-cache: false
       - name: The versions agree and match the tag
         env:
@@ -132,6 +134,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
+      # For scripts/smoke.py only; the wheels come from the artifacts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.wheel }}
@@ -142,16 +148,10 @@ jobs:
           path: compat-dist/
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
           enable-cache: false
       - shell: bash
-        run: |
-          printf '{"a": 1, "a": 2}\n' > dup.json
-          uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl jsonvet --version
-          # The check-json5 package, with its jsonvet pin met by the wheel above.
-          uv run --isolated --no-project --find-links dist --with compat-dist/*.whl check-json5 --version
+        run: uv run scripts/smoke.py dist/*.whl compat-dist/*.whl
 
   publish-jsonvet:
     needs: [wheels, sdist, smoke]
@@ -182,7 +182,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
           enable-cache: false
       - run: uv build --out-dir dist compat/check-json5
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -232,8 +232,8 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
-  # The Action's major tag (`uses: simonvanlierde/jsonvet@v2`) follows the newest X.Y.Z release
-  # once its wheels are on PyPI, since `@v2` installs the newest 2.x from there. A pre-release, or
+  # The Action's major tag (`uses: simonvanlierde/jsonvet@v3`) follows the newest X.Y.Z release
+  # once its wheels are on PyPI, since `@v3` installs the newest 3.x from there. A pre-release, or
   # a patch to an older minor, leaves it where it is.
   major-tag:
     needs: publish-jsonvet
@@ -247,16 +247,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
+          # On a release event, the commit the tag points at.
+          SHA: ${{ github.sha }}
         run: |
           [[ "$TAG" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]] || { echo "$TAG is not vX.Y.Z; no major tag"; exit 0; }
           major="v${BASH_REMATCH[1]}"
           newest=$(gh api "repos/$REPO/git/matching-refs/tags/$major." --jq '.[].ref' |
             sed -n "s|^refs/tags/\($major\.[0-9]*\.[0-9]*\)$|\1|p" | sort -V | tail -n 1)
           [[ "$newest" == "$TAG" ]] || { echo "$newest is newer than $TAG; $major stays"; exit 0; }
-          sha=$(gh api "repos/$REPO/commits/$TAG" --jq .sha)
           if gh api "repos/$REPO/git/ref/tags/$major" > /dev/null 2>&1; then
-            gh api -X PATCH "repos/$REPO/git/refs/tags/$major" -f sha="$sha" -F force=true > /dev/null
+            gh api -X PATCH "repos/$REPO/git/refs/tags/$major" -f sha="$SHA" -F force=true > /dev/null
           else
-            gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" > /dev/null
+            gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$major" -f sha="$SHA" > /dev/null
           fi
-          echo "$major now points at $TAG ($sha)"
+          echo "$major now points at $TAG ($SHA)"

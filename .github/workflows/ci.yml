@@ -17,6 +17,8 @@ env:
   CARGO_TERM_COLOR: always
   # The Rust that builds the release wheels; keep it equal to RELEASE_RUST in release.yml.
   RELEASE_RUST: "1.99.0"
+  # The uv every job sets up, as in release.yml and mise.toml. Renovate bumps all three.
+  PINNED_UV: "0.13.0"
 
 jobs:
   lint:
@@ -42,7 +44,7 @@ jobs:
       - run: cargo deny check
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
       # The repo's Python: the hook placeholder and scripts/. The ruff hooks from
       # .pre-commit-config.yaml, so its rev is the one ruff pin. Only these two: the others guard
       # commits or repeat the cargo steps above.
@@ -107,7 +109,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
       - run: cargo build --release --locked -p jsonvet-cli
       # A new sample each run; rerun a failure locally with the seed printed here.
       - name: Compare on 5,000 cases
@@ -152,18 +154,16 @@ jobs:
           path: dist/
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
       - name: Install the hook and run it
         shell: bash
         env:
           PIP_FIND_LINKS: ${{ github.workspace }}/dist
           UV_FIND_LINKS: ${{ github.workspace }}/dist
         run: |
+          uv run scripts/smoke.py dist/*.whl
           printf '{"a": 1}\n' > ok.json
           printf '{"a": 1, "a": 2}\n' > dup.json
-          uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl jsonvet --version
           for tool in pre-commit@4.7.0 prek@0.5.5; do
             uvx "$tool" try-repo . jsonvet --files ok.json
             if uvx "$tool" try-repo . check-json5 --files dup.json; then
@@ -318,22 +318,19 @@ jobs:
           args: --out ../../dist
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
       - name: Install the sdist and the check-json5 package, and run them
         run: |
-          printf '{"a": 1, "a": 2}\n' > dup.json
-          uv run --isolated --no-project --with dist/*.tar.gz jsonvet dup.json && exit 1
           uv build --out-dir compat-dist compat/check-json5
-          # Its jsonvet pin may not be on PyPI yet; the sdist stands in.
-          uv run --isolated --no-project --find-links dist --with compat-dist/*.whl check-json5 --version
+          uv run scripts/smoke.py dist/*.tar.gz compat-dist/*.whl
       # Both crates, with jsonvet-cli built against the packaged jsonvet even when its `=x.y.z`
       # version is not on crates.io yet. The release job skips this with --no-verify.
       - run: cargo publish --dry-run --locked --workspace
 
-  # Public API changes in the library against its last release on crates.io. Reported, not
-  # enforced: 2.1 changes the types of Rule::ALL and Dialect::ALL and adds #[non_exhaustive] on
-  # purpose, which this flags as major. Read the job summary on a pull request that touches the
-  # library.
+  # Public API changes in the library against its last release on crates.io. 3.0 changes the
+  # types of Rule::ALL and Dialect::ALL and adds #[non_exhaustive], which this flags as major
+  # against 2.0.x: the job fails until the release commit bumps Cargo.toml to 3.0.0. Reported, not
+  # enforced, so read the job summary on a pull request that touches the library.
   semver:
     runs-on: ubuntu-latest
     timeout-minutes: 15

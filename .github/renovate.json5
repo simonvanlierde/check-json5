@@ -43,6 +43,14 @@
       datasourceTemplate: "github-releases",
     },
     {
+      // The uv the workflows set up. mise.toml pins it too, and the "uv" group below joins them.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ['PINNED_UV: "(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
+      depNameTemplate: "astral-sh/uv",
+      datasourceTemplate: "github-releases",
+    },
+    {
       // The images the conformance drivers run in.
       customType: "regex",
       managerFilePatterns: ["/^conformance/run\\.py$/"],
@@ -82,8 +90,9 @@
       enabled: false,
     },
     {
-      // The Rust toolchains in CI: stable and nightly float by design, and 1.88 is the minimum
-      // supported Rust, a policy that changes with rust-version in Cargo.toml, not with releases.
+      // The Rust toolchains in CI: stable and nightly float by design, and the msrv job's is the
+      // minimum supported Rust, a policy that changes with rust-version in Cargo.toml, not with
+      // releases.
       matchManagers: ["github-actions"],
       matchDepNames: ["rust"],
       enabled: false,

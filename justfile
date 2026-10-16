@@ -12,7 +12,7 @@ setup:
     git submodule update --init
     prek install
 
-# ci.yml `lint`, apart from the generated-page diff (see `matrix-check`).
+# ci.yml `lint`, apart from check-versions and the rendered-page diff, which `check` adds.
 lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -31,8 +31,9 @@ differential CASES="5000" SEED="7":
     cargo build --release --locked -p jsonvet-cli
     uv run scripts/differential.py --cases {{ CASES }} --seed {{ SEED }} --jsonvet {{ target }}/release/jsonvet
 
-# Everything a pull request needs to pass, except the other operating systems.
-check: lint test
+# ci.yml `lint` and `test` on this OS. Not ci.yml's msrv, differential, hook, packaging,
+# action-script, action or semver jobs: `just msrv` and `just differential` run two of them.
+check: lint test matrix-check
     uv run scripts/check-versions.py
 
 # ci.yml `msrv`: the oldest Rust the crates support (`rust-version` in Cargo.toml).
