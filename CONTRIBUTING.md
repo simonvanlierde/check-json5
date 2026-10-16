@@ -48,8 +48,9 @@ cargo deny.
   cargo-fuzz. Coverage stops growing within about two hours per target. A new json5 version in
   `fuzz/` can need new skips in `diff_json5`: read its skip list before calling a divergence a
   jsonvet bug.
-- **Mutation testing.** `just mutants` runs cargo-mutants over both crates in about 8 minutes, and
-  `mutants.yml` runs it weekly. The mutants that survive change no behaviour.
+- **Mutation testing.** `just mutants` runs cargo-mutants over both crates in about 25 minutes, and
+  `mutants.yml` runs it weekly. It fails when a mutant survives that `.cargo/mutants.toml` does
+  not list. List one there only when it changes no behaviour, and say why.
 - **Differential.** `just differential` compares jsonvet with check-json5 1.4.1 on generated
   files; CI runs 5,000 cases with a new seed each run.
 - **Public API.** `cargo semver-checks` reports library API changes on a pull request. It does not

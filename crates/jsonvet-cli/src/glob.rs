@@ -58,9 +58,7 @@ fn wildcard(pattern: &[char], text: &[char]) -> bool {
             p += 1;
             continue;
         }
-        if p < pattern.len()
-            && let Some((true, next)) = one(&pattern[p..], text[t])
-        {
+        if let Some((true, next)) = one(&pattern[p..], text[t]) {
             p += next;
             t += 1;
             continue;

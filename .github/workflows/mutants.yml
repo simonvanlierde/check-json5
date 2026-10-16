@@ -1,8 +1,7 @@
 name: mutants
 
-# cargo-mutants over both crates once a week (see docs/design.md, "Mutations"). It reports, and
-# never fails: the mutants that survive today change no behaviour. Compare mutants.out/missed.txt
-# in the artifact with the last run's.
+# cargo-mutants over both crates once a week (see docs/design.md, "Mutations"). It fails when a
+# mutant survives that .cargo/mutants.toml does not list as changing no behaviour.
 on:
   schedule:
     - cron: "41 4 * * 1"
@@ -17,7 +16,7 @@ env:
 jobs:
   mutants:
     runs-on: ubuntu-latest
-    # A run takes about 8 minutes on a laptop.
+    # A run takes about 25 minutes on a laptop.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,10 +30,12 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-mutants@27.1.0
-      # --test-workspace=true: the CLI's tests also catch mutants in the library.
+      # Exit 3 means some mutants hung until the timeout, which counts as caught; a missed one
+      # gives 2, unless a timeout came too, so check the list as well.
       - name: cargo mutants
-        continue-on-error: true
-        run: cargo mutants --workspace --test-workspace=true --no-shuffle
+        run: |
+          cargo mutants --workspace --no-shuffle || [ $? -eq 3 ]
+          test ! -s mutants.out/missed.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

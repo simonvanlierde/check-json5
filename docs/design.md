@@ -251,8 +251,9 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
 - **API changes:** `cargo semver-checks` compares the library with its last release on every pull
   request. It reports and does not block, since 3.0 changes the public API on purpose.
 - **Properties:** proptest, for example that a location matches a naive recount.
-- **Mutations:** cargo-mutants over both crates with `--test-workspace=true`, run weekly by
-  `mutants.yml` and by hand (about 8 minutes). The mutants that survive change no behaviour:
+- **Mutations:** cargo-mutants over both crates with `test_workspace = true`, run weekly by
+  `mutants.yml` and by hand (about 25 minutes). The mutants that survive change no behaviour, and
+  `.cargo/mutants.toml` lists them, so any other survivor fails the weekly run:
   speed-only branches, OR of bits that never overlap, a match arm the fallback repeats, a
   Windows-only branch, a loop guard the loop body always stops first, and a character-count
   checkpoint moved to the boundary before instead of after.
