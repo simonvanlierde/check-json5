@@ -1067,6 +1067,31 @@ l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexp
     }
 
     #[test]
+    fn each_json_lines_document_places_its_own_errors() {
+        let strings = format!("[{}]", vec!["\"s\""; 101].join(","));
+        let text = format!("[]\n\"a\"\n{strings}\n");
+        let dir = workdir(&[
+            (
+                "schema.json",
+                "{\"type\": \"array\", \"items\": {\"type\": \"integer\"}}",
+            ),
+            ("l.jsonl", &text),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "l.jsonl"]);
+        assert_eq!(code, 1);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 102, "{out}");
+        assert_eq!(
+            lines[0],
+            "l.jsonl:2:1: error[schema] \"a\" is not of type \"array\" (at $)"
+        );
+        assert_eq!(
+            lines[101],
+            "l.jsonl:3:1: error[schema] ... and 1 more schema errors in this document"
+        );
+    }
+
+    #[test]
     fn a_long_ref_chain_is_a_usage_error() {
         let dir = workdir(&[
             ("ok.json", "[[[1]]]"),

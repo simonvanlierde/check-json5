@@ -298,8 +298,9 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
   `mutants.yml` and by hand (about 25 minutes). The mutants that survive change no behaviour, and
   `.cargo/mutants.toml` lists them, so any other survivor fails the weekly run:
   speed-only branches, OR of bits that never overlap, a match arm the fallback repeats, a
-  Windows-only branch, a loop guard the loop body always stops first, and a character-count
-  checkpoint moved to the boundary before instead of after.
+  Windows-only branch, a loop guard the loop body always stops first, a character-count
+  checkpoint moved to the boundary before instead of after, the no-schema stub the run does not
+  compile, and running every check on the big-stack thread.
 
 ## Release bar for 2.0.0 (met; kept as history)
 

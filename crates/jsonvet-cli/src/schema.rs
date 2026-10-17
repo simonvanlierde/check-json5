@@ -784,6 +784,43 @@ mod tests {
             cut(long[..MAX_MESSAGE - 1].to_owned()),
             long[..MAX_MESSAGE - 1]
         );
+        let full = "x".repeat(MAX_MESSAGE);
+        assert_eq!(cut(full.clone()), full);
+    }
+
+    /// A schema `depth` levels deep: `allOf` arrays `depth / 2` times, then `last`.
+    fn nested(depth: usize, last: Value) -> Value {
+        (0..depth / 2).fold(last, |inner, _| json!({"allOf": [inner]}))
+    }
+
+    #[test]
+    fn ref_chains_count_through_arrays_and_from_each_place_they_are_reached() {
+        let too_deep = |schema: &Value| {
+            Reach::new(schema)
+                .too_deep()
+                .map(|(path, key)| (path.join("/"), key))
+        };
+        // `$defs/long` is first reached near the root, then again under 100 levels of `allOf`.
+        let long = nested(60, json!({"type": "integer"}));
+        let schema = json!({
+            "$defs": {"long": long},
+            "allOf": [nested(100, json!({"$ref": "#/$defs/long"}))],
+        });
+        let path = format!("allOf/0{}", "/allOf/0".repeat(50));
+        assert_eq!(too_deep(&schema), Some((path, "$ref")));
+        // The same `$ref` reached only near the root stays under the cap.
+        let schema = json!({"$defs": {"long": nested(60, json!(true))}, "allOf": [{"$ref": "#/$defs/long"}]});
+        assert_eq!(too_deep(&schema), None);
+        // A chain of `$ref`s in arrays, and a pointer whose escape sits mid-segment.
+        let mut defs = serde_json::Map::new();
+        for i in 0..100 {
+            defs.insert(
+                format!("d%{i}"),
+                json!({"allOf": [{"$ref": format!("#/$defs/d%25{}", i + 1)}]}),
+            );
+        }
+        let schema = json!({"$defs": defs, "$ref": "#/$defs/d%250"});
+        assert!(too_deep(&schema).is_some());
     }
 
     /// Any JSON value, with numbers `serde_json` reads exactly without its `float_roundtrip`
