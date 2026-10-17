@@ -16,7 +16,8 @@ fn repo_file(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(name);
-    fs::read_to_string(&path).expect(name)
+    // A Windows checkout with core.autocrlf turns LF into CRLF; the parsing below expects LF.
+    fs::read_to_string(&path).expect(name).replace("\r\n", "\n")
 }
 
 /// The defaults as pathspecs: `*.json` for an extension, the bare name for a file name.
