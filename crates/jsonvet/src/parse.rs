@@ -434,7 +434,9 @@ impl<'a> Parser<'a> {
         // Only duplicate-key paths read a key after this, so without the check it moves into
         // its event uncopied.
         if !track_keys {
-            self.emit(start, EventKind::Key(path::text(key)));
+            if self.events.is_some() {
+                self.emit(start, EventKind::Key(path::text(key)));
+            }
             return Ok(());
         }
         if self.events.is_some() {

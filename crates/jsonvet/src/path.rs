@@ -27,6 +27,7 @@ pub(crate) fn render<'s, 'a: 's>(
 
 /// One step of a [`json_path`]: an object key or an array index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PathStep<'a> {
     /// A member of an object, by its key.
     Key(&'a str),
