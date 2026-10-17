@@ -7,7 +7,8 @@ Rust from rustup. Then run `just setup` once: it fetches the json5-tests submodu
 the git hooks with [prek](https://github.com/j178/prek). `just --list` shows every task.
 
 `just check` runs CI's Linux `lint` and `test` jobs: formatting, clippy, rustdoc, cargo deny,
-ruff, the tests (including doctests), the version check and the conformance page diff, which fails
+ruff, the tests (including doctests), clippy and the CLI tests again without the `schema` feature,
+as the PyPI wheels are built, the version check and the conformance page diff, which fails
 while `README.md` or `docs/conformance.md` has uncommitted edits. Run it before you open a pull
 request. CI also runs the msrv, differential, hook, packaging, action-script, action and semver
 jobs, which `just check` leaves out; `just msrv` and `just differential` run two of them.
