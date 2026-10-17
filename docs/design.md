@@ -1,16 +1,17 @@
-# jsonvet 2.0 design
+# jsonvet design
 
 jsonvet checks files in the JSON family for syntax errors, duplicate keys and the rules each
-dialect adds, and reports every problem with its file, line, column and rule. 2.0 is a rewrite of
-check-json5 1.4 (Python) in Rust. This document records what 2.0 promises, how it is built, and
-what has to be true before it ships.
+dialect adds, and reports every problem with its file, line, column and rule. 2.0 was a rewrite of
+check-json5 1.4 (Python) in Rust. This document records what jsonvet promises, how it is built, and
+the bar it had to meet before it shipped. Items marked *since 3.0* changed after 2.0.0.
 
 ## The contract with 1.4
 
 jsonvet 2.0 replaces check-json5 1.4 in place. These stay the same:
 
-- the pass or fail verdict for every file in the two dialects 1.4 knows (JSON5, and strict JSON
-  through `--strict`);
+- the pass or fail verdict for every file 2.0 checks in the two dialects 1.4 knows: JSON5 (the
+  default for `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and
+  for any other extension) and strict JSON through `--strict`;
 - the exit code: 0 when every file passes, 1 when any fails, 2 on a usage error;
 - what a duplicate-key report says: the position of the repeated key and its JSONPath;
 - the meaning of `--strict GLOB`, which becomes an alias for `--dialect json:GLOB`, with
@@ -24,7 +25,16 @@ These change on purpose, and the changelog marks them **Breaking**:
 - the importable Python module, which is gone: the wheel brings only the commands;
 - lines now end at every JSON5 line terminator, so positions differ from 1.4 in files that use a
   lone CR, U+2028 or U+2029;
-- the hook also checks `.jsonl` and `.ndjson` files.
+- *since 3.0*, a duplicate-key JSONPath longer than 256 bytes is shortened: jsonvet keeps the
+  segments that fit in 128 bytes at each end, with `…` between them, so a path is at most 259
+  bytes, where 1.4 and 2.0 printed the whole path;
+- *since 3.0*, a missing file whose name starts with `--`, such as `--x`, is an unknown option
+  and exits 2, where 1.4.1 and 2.0 exit 1;
+- the hook also checks `.jsonl` and `.ndjson` files;
+- `.jsonc`, `.code-workspace` and `.code-snippets` files are checked as JSONC, and `.hujson` and
+  `.jwcc` files as JWCC. 1.4 read every file as JSON5, so JSON5-only syntax in those files, such
+  as `{'a': 1, b: 2}`, passed in 1.4 and fails now. `--dialect json5:GLOB`, or a `dialects` entry
+  in the config file, keeps the old verdict.
 
 A syntax error points at the first character that cannot continue the document, or at the end of
 the input. Where that differs from 1.4, the difference is listed with its reason below. Any
@@ -35,9 +45,12 @@ other difference is a bug.
 `scripts/differential.py` compares jsonvet with check-json5 1.4.1 file by file. Its first run,
 against 1.4.0, found two bugs in 1.4.0, fixed in 1.4.1: strict mode passed `NaN` or `Infinity`
 running on into other text (`[NaN-2.5e3`), and unquoted JSON5 keys were compared with their
-`\u` escapes undecoded. Against 1.4.1, all 40,228 comparisons (20,114 files in each of
-JSON5 and strict mode, 2026-10-13) agree. These differences are deliberate, and the corpus
-can still meet them:
+`\u` escapes undecoded. Against 1.4.1, on 20,184 files in each of JSON5 and strict mode (20,000
+generated, the 114 json5-tests cases and the 70 corpus files; `--cases 20000 --seed 7`,
+2026-10-15), 40,368 runs in all, every verdict and duplicate-key report matches except 385 runs on
+383 files, each below: 381 files whose unquoted key starts with a `\u` escape that cannot start a
+key (in JSON5 mode), the depth-10,000 file, and a file with a syntax error after a duplicate key
+(in both modes). These differences are deliberate, and the corpus can still meet them:
 
 - Lines end at lone CR, U+2028 and U+2029 in jsonvet, so positions after one of them differ.
 - Raw U+2028 and U+2029 inside strings pass in jsonvet, as the JSON5 spec allows; 1.4's JSON5
@@ -46,25 +59,25 @@ can still meet them:
   it). 1.4 stopped at 9,998 levels, or 9,994 in files with JSON5 syntax, so only files from 9,995
   to 10,000 levels deep get a different verdict.
 - A `\u` escape in an unquoted key must stand for a character the key could hold literally, as
-  ECMAScript 5.1 says; 1.4 passed any escape, so `{\u0301: 1}` passed there. Literal characters
+  ECMAScript 5.1 says; 1.4 passed any escape, so `{\u0301: 1}` passed there, and `{\ud800: 1}`
+  passed too, though a lone surrogate is no character at all. Literal characters
   agree: both go by general category (letters to start a key, then marks, digits and connectors
   too), as the spec and the JS reference do, not by Unicode's `ID_Start`.
+- After a duplicate key, 1.4 stops at the duplicates; jsonvet goes on and also reports a syntax
+  error later in the file. The verdict is the same.
 - Syntax-error wording, and some syntax-error positions, follow the rule above.
 
 ## Dialects
 
-One parser covers six dialects. Each step in the chain only adds syntax:
-JSON ⊂ JSONC ⊂ JWCC ⊂ JSON5. I-JSON is JSON with stricter content rules, and JSON Lines is one JSON
-value per line.
+One parser covers six dialects. Each step in the chain adds syntax:
+JSON, JSONC, JWCC, JSON5. A file that passes in one passes in the next, with one exception: a
+`//` comment ends at a different place in each. JWCC ends it at LF only, JSONC also at a lone CR,
+and JSON5 also at U+2028 and U+2029. So `new-lines/comment-cr.json5` passes as JSONC and fails as
+JWCC. I-JSON is JSON with stricter content rules, and JSON Lines is one JSON value per line.
 
-| Dialect | Adds to JSON | Default for |
-| --- | --- | --- |
-| `json` | nothing (RFC 8259) | none; chosen with `--dialect` or `--strict` |
-| `i-json` | stricter content: duplicate keys, lone surrogates, noncharacters and numbers out of a double's range are errors (RFC 7493) | none |
-| `jsonc` | `//` and `/* */` comments | `.jsonc`, `.code-workspace`, `.code-snippets` |
-| `jwcc` | comments and trailing commas (HuJSON) | `.hujson`, `.jwcc` |
-| `json5` | the JSON5 1.0.0 grammar | `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest`, `.babelrc` |
-| `jsonl` | one JSON value per line, no blank lines | `.jsonl`, `.ndjson` |
+The [README](../README.md#dialects) has the table of what each dialect adds and which extensions
+default to it. A file with any other extension is checked as JSON5, and extensions match in lower
+case only.
 
 `.json` defaults to JSON5, as in 1.4, because most `.json` files that fail strict JSON are
 config files with comments. `auto` means "the default for this file's extension".
@@ -77,14 +90,13 @@ Unicode code points from the start of the line, starting at 1.
 Every problem belongs to a rule. Each rule has a default severity per dialect. `--warn`,
 `--error` and `--ignore` change it, and an ignored rule is not checked at all.
 
-| Rule | What it reports | Default |
-| --- | --- | --- |
-| `syntax` | the first syntax error; checking stops there | error, always |
-| `duplicate-key` | a key repeated in the same object, with both positions and the JSONPath | error |
-| `invalid-number` | a number outside a double's range, or an integer past ±(2⁵³ − 1) | error in `i-json`, off elsewhere |
-| `invalid-code-point` | a lone surrogate or a noncharacter in a string | error in `i-json`, off elsewhere |
-| `byte-order-mark` | a byte order mark at the start of the file | warning in `json`, `i-json`; error in `jsonl`; off elsewhere |
-| `missing-final-newline` | a JSON Lines file without a final newline | warning in `jsonl` |
+The [README](../README.md#rules) lists the rules and their defaults. `syntax` is always an error,
+and `duplicate-key` is an error in every dialect, not only `i-json`. `invalid-number` and `invalid-code-point` are the I-JSON rules: off
+outside `i-json`.
+
+Two things the I-JSON rules do not flag, and RFC 7493 leaves open: a number that underflows to
+zero (`1e-400`), and an integer written with a fraction or an exponent past 2⁵³ (`9007199254740993.0`).
+`i-json` reports an overflow, and an integer written as digits alone past ±(2⁵³ − 1).
 
 Warnings don't fail a run unless `--max-warnings N` is exceeded. In GitHub Actions each problem is
 also printed as a `::warning` or `::error` annotation. `--format sarif` prints one SARIF 2.1.0
@@ -95,7 +107,7 @@ Output:
 
 ```text
 config.json:4:5: error[duplicate-key] duplicate key $.server.port (first at 2:5)
-data.jsonl:12:1: error[syntax] expected a value, found end of line
+data.jsonl:2:4: error[syntax] expected a value, found the end of the line
 ```
 
 ## Configuration
@@ -118,6 +130,12 @@ dialects = [
 A glob without `/` matches the file name at any depth, and one with `/` matches the whole path.
 `*` also matches `/`.
 
+A pattern in a config file is relative to the directory that holds the file. With `data/*.json` in
+the root's `jsonvet.toml`, `data/x.json` matches whether jsonvet runs in the root or in `data/`,
+and whether the path is relative or absolute. A file outside that directory matches none of the
+file's patterns. A pattern given with `--dialect` or `--strict` matches the path as typed, as in
+1.4.
+
 ## Architecture
 
 ```text
@@ -135,19 +153,60 @@ fuzz/  tests/  scripts/
 ```rust
 pub fn check(text: &str, config: &Config) -> Report<'_>;
 
-pub struct Config { /* dialect, rule overrides */ }
-impl Config { pub fn new(dialect: Dialect) -> Self; pub fn rule(self, rule: Rule, severity: Severity) -> Self; }
+pub struct Config { /* dialect, rule overrides, depth limit */ }
+impl Config {
+    pub const DEFAULT_MAX_DEPTH: usize;  // 10,000
+    pub fn new(dialect: Dialect) -> Self;
+    pub fn rule(self, rule: Rule, severity: Severity) -> Self;
+    pub fn max_depth(self, depth: usize) -> Self;
+    pub fn dialect(&self) -> Dialect;
+    pub fn severity(&self, rule: Rule) -> Severity;
+}
 
 #[non_exhaustive] pub enum Dialect { Json, IJson, Jsonc, Jwcc, Json5, JsonLines }
-impl Dialect { pub fn for_path(path: &Path) -> Option<Dialect>; }
+impl Dialect {
+    pub const ALL: &'static [Dialect];
+    pub const EXTENSIONS: &'static [(&'static str, Dialect)];  // default extensions, no dot
+    pub const FILE_NAMES: &'static [(&'static str, Dialect)];  // default file names
+    pub fn name(self) -> &'static str;                         // as on the command line, e.g. `jsonc`
+    pub fn for_path(path: &Path) -> Option<Dialect>;
+}
+
+#[non_exhaustive] pub enum Rule { /* Syntax, DuplicateKey, ... */ }
+impl Rule {
+    pub const ALL: &'static [Rule];
+    pub fn id(self) -> &'static str;
+    pub fn description(self) -> &'static str;
+    pub fn default_severity(self, dialect: Dialect) -> Severity;
+}
+
+#[non_exhaustive] pub enum Severity { Off, Warning, Error }  // ordered; name() gives `off`, `warning`, `error`
+#[non_exhaustive] pub struct Location { pub line: usize, pub column: usize }
+impl Location { pub const START: Location; }
 
 impl<'a> Report<'a> {
     pub fn problems(&self) -> &[Problem];               // document order
+    pub fn passed(&self) -> bool;                       // no problem is an error
     pub fn location(&self, offset: usize) -> Location;  // line and column, computed on first use
 }
 
-pub struct Problem { /* rule, severity, kind, offset, related offset, JSONPath */ }
+impl Problem {
+    pub fn rule(&self) -> Rule;
+    pub fn severity(&self) -> Severity;
+    pub fn offset(&self) -> usize;
+    pub fn related(&self) -> Option<Related>;  // the first copy of a duplicate key, or where an unterminated string or comment starts
+    pub fn related_offset(&self) -> Option<usize>;  // related()'s offset
+    pub fn path(&self) -> Option<&str>;        // the JSONPath of a duplicate key, at most 256 bytes and a `…`
+    /* Display for the message */
+}
+#[non_exhaustive] pub struct Related { pub offset: usize, pub kind: RelatedKind }
+#[non_exhaustive] pub enum RelatedKind { FirstOccurrence, Start }
 ```
+
+`Rule`, `Severity`, `Dialect` and `Problem` implement `Display`, and `Rule` and `Dialect` parse
+from their ids and names with `FromStr`. On failure, `UnknownRule::id()` and
+`UnknownDialect::name()` give back the text that failed to parse. A `Report` is `Send` but not
+`Sync`, because `location` caches line starts and character counts inside it.
 
 The text is `&str`: the caller has already checked UTF-8, so every offset falls on a character
 boundary and columns are well defined. `check` never panics and has no error mode. Problems in the
@@ -159,9 +218,11 @@ Behind that interface:
   bytes from 0x80 up;
 - an explicit stack of frames instead of recursion, so the depth limit is a setting, not the
   call stack's size. The frames also hold each object's keys for duplicate detection and give
-  the JSONPath of any problem;
+  the JSONPath of a duplicate key;
 - keys compared by their decoded value, borrowed from the input unless they contain an escape;
-- line starts found once with memchr, and only when the first location is asked for.
+- line starts found once with memchr, and only when the first location is asked for;
+- in text that is not all ASCII, a count of the code points before every 4 KiB, built only as
+  far as a lookup needs, so finding a column counts the characters of at most two chunks.
 
 ### Python packaging
 
@@ -181,17 +242,23 @@ arm64), macOS (x86-64 and arm64) and Windows (x64 and arm64).
 - **Differential:** `scripts/differential.py` runs the corpus through `check-json5==1.4.1`
   (Python 3.13) and jsonvet, in the two dialects 1.4 knows, and compares verdicts, positions,
   paths and exit codes.
-- **Fuzzing:** cargo-fuzz targets for raw bytes (no panics, offsets on character boundaries),
+- **Fuzzing:** on a pull request that touches the library, each target runs for 30 seconds;
+  cargo-fuzz targets for raw bytes (no panics, offsets on character boundaries),
   and against serde_json and the json5 crate, both ways. The json5 target skips inputs that hit
   json5's own limits rather than the grammar's, each found by fuzzing: integers past 64 bits,
   lone surrogate escapes, U+2028 and U+2029 in strings, and identifier characters from a Unicode
   release one side has and the other lacks.
+- **API changes:** `cargo semver-checks` compares the library with its last release on every pull
+  request. It reports and does not block, since 3.0 changes the public API on purpose.
 - **Properties:** proptest, for example that a location matches a naive recount.
-- **Mutations:** cargo-mutants over both crates with `--test-workspace=true`, run by hand (about
-  8 minutes). The mutants that survive change no behaviour: speed-only branches, OR of bits that
-  never overlap, a match arm the fallback repeats, and a Windows-only branch.
+- **Mutations:** cargo-mutants over both crates with `test_workspace = true`, run weekly by
+  `mutants.yml` and by hand (about 25 minutes). The mutants that survive change no behaviour, and
+  `.cargo/mutants.toml` lists them, so any other survivor fails the weekly run:
+  speed-only branches, OR of bits that never overlap, a match arm the fallback repeats, a
+  Windows-only branch, a loop guard the loop body always stops first, and a character-count
+  checkpoint moved to the boundary before instead of after.
 
-## Release bar for 2.0.0
+## Release bar for 2.0.0 (met; kept as history)
 
 1. json5-tests passes in every dialect it applies to.
 2. The differential run shows no unexplained difference from 1.4.
@@ -210,7 +277,7 @@ went up by hand.
 
 ## Dependencies and pins
 
-Every version in the repository falls in one of four groups. `.github/renovate.json5` encodes
+Every version in the repository falls in one of five groups. `.github/renovate.json5` encodes
 them.
 
 - **Bumped monthly**, in one Renovate pull request after a release is 7 days old, with majors
@@ -220,6 +287,9 @@ them.
   pre-commit and prek through `uvx`, the cargo tools through `install-action`, uv, and the
   maturin that builds the wheels. The fuzz crate pins json5 exactly, because it is the reference
   the `diff_json5` target compares with; a bump changes `fuzz/`, which runs the fuzz workflow.
+  ruff is pinned in one place, the `rev` in `.pre-commit-config.yaml`, and CI runs its hooks.
+  `check-json5` builds with `uv_build`, pinned to the same version as the uv CI uses, and Renovate
+  moves the two together.
 - **Bumped quarterly, with a re-run:** the conformance matrix's parsers, pinned exactly with
   their lock files, and its images, pinned by tag and digest. CI's `conformance/run.py --check`
   fails until `results/versions.json` matches the pins, so the pull request cannot merge until
@@ -227,10 +297,14 @@ them.
 - **Fixed on purpose:** `check-json5==1.4.1` on Python 3.13 in `scripts/`, the reference the
   contract is checked against; `rust-version = "1.88"` and the MSRV job, raised by hand when a
   dependency or a language feature needs it; and jsonvet's own version in `setup.py` and
-  `compat/`, which the release sets.
+  `compat/`, which a release commit sets by hand and `scripts/check-versions.py` checks against
+  the tag.
+- **Pinned to the release:** the images and the Rust that build the release wheels, by digest and
+  version, so a wheel does not change with an upstream image. This is an exception to the next
+  item.
 - **Floating on purpose:** Rust stable for lint and tests and nightly for fuzzing, so new lints
   and compiler changes show up at once, and the hosted runner images.
 
-## Not in 2.0
+## Not supported
 
 JSON text sequences (RFC 7464) and Hjson. Hjson's unquoted strings need a tokenizer of their own.

@@ -3,7 +3,7 @@
 [![CI](https://github.com/simonvanlierde/jsonvet/actions/workflows/ci.yml/badge.svg)](https://github.com/simonvanlierde/jsonvet/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/simonvanlierde/jsonvet/branch/main/graph/badge.svg)](https://codecov.io/gh/simonvanlierde/jsonvet)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/simonvanlierde/jsonvet/blob/main/LICENSE)
 [![release](https://img.shields.io/github/v/release/simonvanlierde/jsonvet)](https://github.com/simonvanlierde/jsonvet/releases/latest)
 
 jsonvet checks JSON, I-JSON, JSONC, HuJSON (JWCC), JSON5 and JSON Lines files for syntax errors,
@@ -12,12 +12,12 @@ rule, and a duplicate key with the JSONPath and position of both copies:
 
 ```text
 config.json:4:5: error[duplicate-key] duplicate key $.server.port (first at 2:5)
-package.json:3:1: error[syntax] comments are not allowed in json
+package.json:3:3: error[syntax] expected `,` or `}`, found `"`
 events.jsonl:12:1: error[syntax] blank line; JSON Lines needs a value on every line
 ```
 
 It is a pre-commit and prek hook, a command, and a Rust library. Until 2.0 it was check-json5, a
-Python hook; 2.0 is a rewrite in Rust that keeps its verdicts (see
+Python hook; 2.0 is a rewrite in Rust that keeps its verdicts for JSON5 and strict JSON (see
 [Coming from check-json5](#coming-from-check-json5)).
 
 ## Use it as a hook
@@ -26,9 +26,17 @@ In `.pre-commit-config.yaml` (pre-commit or [prek](https://github.com/j178/prek)
 
 ```yaml
 - repo: https://github.com/simonvanlierde/jsonvet
-  rev: v2.0.0
+  rev: v3.0.0
   hooks:
     - id: jsonvet
+```
+
+Options go in `args`. For example, to hold `package.json` to strict JSON and check `.vscode`
+files as JSONC:
+
+```yaml
+    - id: jsonvet
+      args: [--strict, package.json, --dialect, "jsonc:.vscode/*.json"]
 ```
 
 The hook installs a prebuilt binary from PyPI, so it needs no Rust. It checks files by name:
@@ -39,7 +47,7 @@ also becomes an annotation on the pull request.
 ## Use it as a GitHub Action
 
 ```yaml
-- uses: simonvanlierde/jsonvet@v2
+- uses: simonvanlierde/jsonvet@v3
 ```
 
 The action installs jsonvet from PyPI into a virtual environment, so it runs on Linux, macOS and
@@ -48,19 +56,24 @@ optional:
 
 | Input     | What it does                                                                         |
 | --------- | ------------------------------------------------------------------------------------ |
-| `files`   | paths or globs to check, separated by spaces; by default every tracked file the hook would check |
+| `files`   | paths or globs to check, separated by spaces; `**` matches folders at any depth on every runner; symlinks are skipped; by default every tracked file the hook would check, apart from symlinks and submodules |
 | `args`    | extra options, separated by spaces, such as `--strict package.json`                  |
 | `sarif`   | also write a SARIF file to this path (see [GitHub code scanning](#github-code-scanning)) |
-| `version` | the jsonvet version to install, or `latest`                                          |
+| `version` | the jsonvet version to install: `X.Y.Z` (also with a suffix such as `rc1` or `.post1`), `X.*`, `X.Y.*` or `latest`; anything else stops the step |
 
-Releases are tagged `vX.Y.Z`, and `v2` moves to the newest 2.x release. By default the action
-installs the jsonvet version of its own tag: `@v2` the newest 2.x, `@v2.1.0` exactly 2.1.0. Pinned
-to a commit SHA, it installs the version in that commit, so the pin covers jsonvet too.
+Releases are tagged `vX.Y.Z`, and `v3` moves to the newest 3.x release. By default the action
+installs the jsonvet version of its own tag: `@v3` the newest 3.x, `@v3.0.0` exactly 3.0.0. Pinned
+to a commit SHA or a branch, it installs the release named in that commit's `Cargo.toml`. Between
+releases that is the last release, not the code in the commit; the step log says which version it
+installed. Pinning the action does not pin the wheel's bytes: pip installs `jsonvet==X.Y.Z`
+from PyPI without a hash check. Set `version:` to say which release you want.
 
 ## Dialects
 
 Each file is checked in the dialect its extension implies, and `--dialect` or the config file can
-choose another. Each step in JSON, JSONC, JWCC, JSON5 only adds syntax to the one before.
+choose another. Going from JSON to JSONC, JWCC and JSON5 adds syntax at each step. The one thing that
+does not carry over is where a `//` comment ends: JWCC ends it at LF only, JSONC also at a lone
+CR, and JSON5 also at U+2028 and U+2029.
 
 | Dialect  | Adds to JSON                                                                 | Default for                                                        |
 | -------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
@@ -70,6 +83,9 @@ choose another. Each step in JSON, JSONC, JWCC, JSON5 only adds syntax to the on
 | `jwcc`   | comments and trailing commas ([HuJSON](https://github.com/tailscale/hujson)) | `.hujson`, `.jwcc`                                                 |
 | `json5`  | the [JSON5 1.0.0](https://spec.json5.org/) grammar                            | `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest`, `.babelrc` |
 | `jsonl`  | one JSON value per line ([JSON Lines](https://jsonlines.org/))               | `.jsonl`, `.ndjson`                                                |
+
+A file with any other extension is checked as JSON5. Extensions match in lower case only:
+`A.JSONC` is JSON5, and so is `A.JSON`.
 
 `.json` files default to JSON5, because most `.json` files that fail as JSON are config files
 with comments. Hold the ones a strict parser reads, such as `package.json`, to JSON with
@@ -86,7 +102,8 @@ with comments. Hold the ones a strict parser reads, such as `package.json`, to J
 | `byte-order-mark`       | a byte order mark at the start of the file                    | warning in `json` and `i-json`, error in `jsonl` |
 | `missing-final-newline` | a JSON Lines file that does not end with a newline            | warning in `jsonl`                               |
 
-Warnings don't fail a run unless there are more than `--max-warnings N`.
+Warnings don't fail a run unless there are more than `--max-warnings N`. A file jsonvet cannot
+read is reported under `unreadable`, which is not a rule you can set: it always fails the run.
 
 ## Options and configuration
 
@@ -101,8 +118,21 @@ Warnings don't fail a run unless there are more than `--max-warnings N`.
 ```
 
 A glob without `/` matches the file name at any depth, and one with `/` matches the whole path.
-`*` also matches `/`. Paths are matched as given on the command line, so relative to the working
-directory, even for globs from a config file; pre-commit runs from the repository root.
+`*` also matches `/`. A glob given with `--dialect` or `--strict` matches the path as you typed it
+on the command line, so relative to the working directory; pre-commit runs from the repository
+root. A glob in a config file is relative to the directory that holds the file: `data/*.json` in
+the root's `jsonvet.toml` matches `data/x.json` whether jsonvet runs in the root or in `data/`, and
+when the path is absolute. A file outside that directory matches none of the file's globs.
+
+jsonvet reads regular files only. It follows a symlink and checks it when the target is a regular
+file. A directory, device, FIFO or socket prints `error: not a regular file` (rule `unreadable`)
+and makes the run exit 1. The hook (`types: [text]`) and the action skip tracked symlinks and
+submodules.
+
+pre-commit passes file names without a `--`, so a name that starts with `-` is read as an option
+unless it is a file that exists: `-x.json` is a name, and so is an existing `--x.json`. An unknown
+`--name` that is not an existing file is a usage error (`unknown option`). Put `--` before the
+file names when you cannot rule out the confusion: `jsonvet -- --x.json`.
 
 Settings can also live in `jsonvet.toml`, or in a `[tool.jsonvet]` table in `pyproject.toml`.
 jsonvet looks in the working directory and its parents up to the repository root, and the command
@@ -118,7 +148,24 @@ dialects = [
 ]
 ```
 
-Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.
+A key other than `rules` and `dialects`, in the file or in a `dialects` entry, is an error
+(exit status 2), so a typo is never ignored. A severity is `error`, `warning` (or `warn`), or
+`ignore` (or `off`).
+
+Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error, which includes an
+unknown option. A file jsonvet cannot read, or that does not exist, prints `name: error: <reason>`
+with no line or column and makes the run exit 1. With no files, it exits 0. When the output pipe
+closes early, as in `jsonvet … | head -1`, jsonvet stops quietly and exits with the verdict of the
+files it had checked so far.
+
+### Output
+
+File names and messages come from the files you check. jsonvet escapes what could break the line
+or a terminal. A control character prints as `\u001b`, with CR and LF as `\r` and `\n`, and
+a Unicode bidirectional control (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069)
+as `\u202e`. A name that starts with `::`, after any white space, prints as `./::…`. A `[`
+straight after `##` prints as `\u005b`. So no output line looks like a workflow command, old (`##[command]`) or new
+(`::command`). The `file=` value of an annotation holds the real name, percent-encoded as GitHub requires.
 
 ## GitHub code scanning
 
@@ -147,7 +194,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: simonvanlierde/jsonvet@v2
+      - uses: simonvanlierde/jsonvet@v3
         with:
           sarif: jsonvet.sarif
       # Upload when jsonvet found problems too: that is when the step fails.
@@ -179,17 +226,25 @@ for problem in report.problems() {
 
 ## Coming from check-json5
 
-Bump `rev` to `v2.0.0`. The `check-json5` hook id, the `check-json5` command and `--strict` keep
-working until 3.0, and the `check-json5` package on PyPI now installs jsonvet.
+Bump `rev` to the newest tag. The `check-json5` hook id, the `check-json5` command and `--strict`
+keep working through 3.x, and the `check-json5` package on PyPI now installs jsonvet.
 
-2.0 gives the same pass or fail as 1.4.1 for every file, the same exit codes and the same
-duplicate-key paths. Comparing both on 20,114 generated files in JSON5 and in strict mode, 40,228
-runs in all, they agree on every one. What changes, and why, is listed in the
-[CHANGELOG](CHANGELOG.md) and in [docs/design.md](docs/design.md):
+For `.json`, `.json5`, `.geojson`, `.jsonld`, `.webmanifest` and `.babelrc` files, and in strict
+mode, 2.0 gives the same pass or fail as 1.4.1, the same exit codes and the same duplicate-key
+paths. Comparing both on 20,184 files in JSON5 and in strict mode (20,000 generated, the 114
+json5-tests cases and the 70-file corpus), 40,368 runs in all, the verdicts and duplicate-key
+reports match on every run but 385, on 383 files, all deliberate: an unquoted key that starts with
+a `\u` escape that cannot start a key (381 files), a nesting depth of 10,000, and a syntax error
+reported after a duplicate key. What changes, and why, is listed in the
+[CHANGELOG](https://github.com/simonvanlierde/jsonvet/blob/main/CHANGELOG.md) and in [docs/design.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/design.md):
 
 - each line gains the severity and rule, as in `error[duplicate-key]`, and syntax errors use
   jsonvet's own wording;
 - the hook also checks `.jsonl` and `.ndjson` files;
+- `.jsonc`, `.code-workspace` and `.code-snippets` files are now checked as JSONC, and `.hujson`
+  and `.jwcc` files as JWCC. 1.4.1 read every file as JSON5, so JSON5-only syntax such as
+  `{'a': 1, b: 2}` passed there and fails now. To keep the old verdict for such a file, pass
+  `--dialect json5:GLOB` (or add a `dialects` entry to the config file); see [Dialects](#dialects);
 - lines end at every JSON5 line terminator (LF, CR, CRLF, U+2028, U+2029), so positions after a
   lone CR or U+2028 differ;
 - the importable Python module is gone; the wheel brings the `jsonvet` and `check-json5` commands.
@@ -215,7 +270,7 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 
 - the [json5-tests](https://github.com/json5/json5-tests) suite, all 114 cases;
 - a reviewed snapshot of edge cases in every dialect;
-- a [conformance matrix](docs/conformance.md) against 16 other parsers in four languages;
+- a [conformance matrix](https://github.com/simonvanlierde/jsonvet/blob/main/docs/conformance.md) against 17 other parsers in four languages;
 - property tests: no input makes it panic, every position lies on a character boundary and
   matches a naive recount;
 - fuzzing with cargo-fuzz, against serde_json and the json5 crate as references;
@@ -235,22 +290,15 @@ that finds a duplicate key's position. jsonvet does everything in one pass of on
 | JSON Lines | 11 | `jsonvet-jsonl` 100%, `py-jsonlines` 82%, `go-json-stream` 64%, `rs-serde-json-stream` 64% |
 | Strict JSON (baseline) | 129 | `js-json-parse` 100%, `jsonvet-json` 100%, `rs-serde-json` 98%, `py-json` 96% |
 
-Run on 2026-10-14. The full grid, and where each expected verdict comes from: [docs/conformance.md](docs/conformance.md).
+Run on 2026-10-14. The full grid, and where each expected verdict comes from: [docs/conformance.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/conformance.md).
 
 <!-- conformance:end -->
 
 ## Development
 
-```bash
-cargo test --workspace                         # tests, including json5-tests (git submodule)
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all
-uv run scripts/differential.py                 # compare with check-json5 1.4.1
-uv run scripts/bench.py                        # time against check-json5 1.4.1
-cargo +nightly fuzz run check                  # fuzzing, from fuzz/
-```
-
-Clone with `--recurse-submodules`, or run `git submodule update --init` for the test suite.
+See [CONTRIBUTING.md](https://github.com/simonvanlierde/jsonvet/blob/main/CONTRIBUTING.md) for
+setup, the checks, snapshots, the conformance matrix, fuzzing and releases. In short: clone with
+`--recurse-submodules`, run `just setup` once, and `just check` before a pull request.
 
 ## Credits
 
@@ -260,6 +308,6 @@ repository by Anthony Sottile and contributors. 2.0 is a rewrite in Rust.
 
 ## License
 
-[MIT](LICENSE), like the projects it started from
+[MIT](https://github.com/simonvanlierde/jsonvet/blob/main/LICENSE), like the projects it started from
 ([Ben Mares](https://gitlab.com/bmares/check-json5/-/blob/main/LICENSE),
 [pre-commit-hooks](https://github.com/pre-commit/pre-commit-hooks/blob/main/LICENSE)).

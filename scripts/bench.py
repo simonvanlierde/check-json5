@@ -5,6 +5,9 @@
 
 Usage: uv run scripts/bench.py [--jsonvet PATH] [--runs N]
 
+Each command runs without a shell (`hyperfine -N`) after a warm-up, 20 times by default, and the
+table shows the median.
+
 Needs hyperfine and a release build (`cargo build --release -p jsonvet-cli`). The reference is
 installed into its own virtual environment and run from there, so uvx's start-up is not timed.
 Every case passes in both tools, apart from the duplicate key the `dup` files hold on purpose.
@@ -59,9 +62,11 @@ def main() -> int:
     """Install the reference, write the fixtures, time each case and print the table."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--jsonvet", type=Path, default=ROOT / "target" / "release" / "jsonvet")
-    parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--runs", type=int, default=20)
     args = parser.parse_args()
     jsonvet = args.jsonvet.resolve()
+    release = subprocess.run([jsonvet, "--version"], check=True, capture_output=True, text=True).stdout.split()[-1]  # noqa: S603
+    release = ".".join(release.split(".")[:2])
     with tempfile.TemporaryDirectory() as scratch:
         tmp = Path(scratch)
         venv = tmp / "venv"
@@ -72,11 +77,11 @@ def main() -> int:
         files = tmp / "files"
         files.mkdir()
         result = tmp / "result.json"
-        rows = ["| Case | check-json5 1.4.1 | jsonvet 2.0 | Speed-up |", "| --- | ---: | ---: | ---: |"]
+        rows = [f"| Case | check-json5 1.4.1 | jsonvet {release} | Speed-up |", "| --- | ---: | ---: | ---: |"]
         for name, case in fixtures(files):
             listed = " ".join(case)
             # -i: the duplicate-key case exits 1 by design.
-            hyperfine = ["hyperfine", "--style", "none", "--warmup", "2", "--runs", str(args.runs), "-i"]
+            hyperfine = ["hyperfine", "--style", "none", "--warmup", "2", "--runs", str(args.runs), "-N", "-i"]
             hyperfine += ["--export-json", result, "-n", "reference", f"{reference} {listed}"]
             hyperfine += ["-n", "jsonvet", f"{jsonvet} {listed}"]
             subprocess.run(hyperfine, cwd=files, check=True, capture_output=True)  # noqa: S603

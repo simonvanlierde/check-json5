@@ -21,14 +21,10 @@ pub(crate) fn result(
     at: Location,
     related: Option<(Location, &str)>,
 ) -> String {
-    let level = if severity == Severity::Error {
-        "error"
-    } else {
-        "warning"
-    };
     let mut json = format!(
-        r#"{{"ruleId":{},"level":"{level}","message":{{"text":{}}},"locations":[{{{}}}]"#,
+        r#"{{"ruleId":{},"level":"{}","message":{{"text":{}}},"locations":[{{{}}}]"#,
         string(rule),
+        level(severity),
         string(message),
         physical(file, at),
     );
@@ -44,12 +40,25 @@ pub(crate) fn result(
     json
 }
 
+/// The level of a reported problem, the same word in SARIF and in a GitHub annotation: `error`
+/// or `warning`.
+pub(crate) fn level(severity: Severity) -> &'static str {
+    if severity == Severity::Error {
+        "error"
+    } else {
+        "warning"
+    }
+}
+
 /// The whole document: one run holding every result.
 pub(crate) fn document(results: &[String]) -> String {
     let rules: Vec<String> = Rule::ALL
         .iter()
-        .map(|rule| (rule.id(), description(*rule)))
-        .chain([(UNREADABLE, "a file that could not be read, or is not UTF-8")])
+        .map(|rule| (rule.id(), rule.description()))
+        .chain([(
+            UNREADABLE,
+            "a file that is not a regular file, could not be read, or is not UTF-8",
+        )])
         .map(|(id, text)| {
             format!(
                 r#"{{"id":{},"shortDescription":{{"text":{}}}}}"#,
@@ -63,6 +72,11 @@ pub(crate) fn document(results: &[String]) -> String {
             r#"{{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","#,
             r#""runs":[{{"tool":{{"driver":{{"name":"jsonvet","version":"{}","#,
             r#""informationUri":"https://github.com/simonvanlierde/jsonvet","rules":[{}]}}}},"#,
+            // Relative URIs name `%SRCROOT%`, which SARIF wants declared. It has no `uri`: the
+            // working directory's absolute path would make the output differ by machine, and
+            // GitHub code scanning resolves it against the checkout.
+            r#""originalUriBaseIds":{{"%SRCROOT%":{{"description":{{"text":"#,
+            r#""the working directory jsonvet ran in"}}}}}},"#,
             // jsonvet counts columns in code points; SARIF's default is UTF-16 code units.
             r#""columnKind":"unicodeCodePoints","results":[{}]}}]}}"#
         ),
@@ -70,18 +84,6 @@ pub(crate) fn document(results: &[String]) -> String {
         rules.join(","),
         results.join(",")
     )
-}
-
-fn description(rule: Rule) -> &'static str {
-    match rule {
-        Rule::Syntax => "the first syntax error; checking stops there",
-        Rule::DuplicateKey => "a key repeated in one object",
-        Rule::InvalidNumber => "a number a double cannot hold, or an integer past 2^53 - 1",
-        Rule::InvalidCodePoint => "a lone surrogate or a noncharacter in a string",
-        Rule::ByteOrderMark => "a byte order mark at the start of the file",
-        Rule::MissingFinalNewline => "a JSON Lines file that does not end with a newline",
-        _ => "",
-    }
 }
 
 /// The `physicalLocation` member of a location object.
@@ -134,13 +136,16 @@ fn uri(file: &OsStr) -> (String, bool) {
 }
 
 /// A JSON string literal.
-pub(crate) fn string(value: &str) -> String {
+fn string(value: &str) -> String {
     let mut json = String::with_capacity(value.len() + 2);
     json.push('"');
     for c in value.chars() {
         match c {
             '"' => json.push_str("\\\""),
             '\\' => json.push_str("\\\\"),
+            // GitHub Actions reads `##[command]` anywhere in a log line, the SARIF printed
+            // there included; `\u005b` keeps the value and breaks the match.
+            '[' if json.ends_with("##") => json.push_str("\\u005b"),
             c if c < ' ' => {
                 let _ = write!(json, "\\u{:04x}", u32::from(c));
             }
@@ -164,6 +169,7 @@ mod tests {
             "\"a\\\"b\\\\c\\u000a\\u0001\u{7f}\u{e9}\""
         );
         assert_eq!(string("a b"), "\"a b\"");
+        assert_eq!(string("##[add-mask]"), "\"##\\u005badd-mask]\"");
     }
 
     #[test]

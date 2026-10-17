@@ -1,0 +1,13 @@
+# The tools the justfile calls, at the versions CI pins where CI pins them (.github/workflows/).
+# `mise install` fetches them. Rust itself comes from rustup: stable for lint and tests, nightly
+# for fuzzing, and the `rust-version` in Cargo.toml for `just msrv`.
+[tools]
+just = "1"
+uv = "0.13.0"
+prek = "0.5.5"
+hyperfine = "1"
+"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.148"
+cargo-deny = "0.20.2"
+"aqua:mitsuhiko/insta" = "1.49.0" # cargo-insta, the version of the insta dev-dependency
+"cargo:cargo-fuzz" = "0.13.2"
+"cargo:cargo-mutants" = "27.1.0"

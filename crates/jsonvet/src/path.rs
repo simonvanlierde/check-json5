@@ -12,16 +12,69 @@ pub(crate) enum Segment<'a> {
     Index(usize),
 }
 
-/// The JSONPath of `key` in the container that `segments` lead to, root first.
-pub(crate) fn render<'s, 'a: 's>(
-    segments: impl IntoIterator<Item = &'s Segment<'a>>,
-    key: &[u8],
-) -> String {
+/// Past this many bytes, a path keeps only the segments that fit in `MAX_PATH / 2` bytes at
+/// each end, with `…` in place of the rest. A segment longer than that is cut, so a long key
+/// still shows its start or its end. A full path never holds `…`: quoted keys escape
+/// non-ASCII, and `…` cannot be part of an unquoted key.
+pub(crate) const MAX_PATH: usize = 256;
+
+/// The JSONPath made of `count` segments, root first, each as [`rendered`] gives it, cut as
+/// `MAX_PATH` describes. It reads at most `MAX_PATH + 1` segments from each end, so a
+/// duplicate in a deep object costs no more than one near the root.
+pub(crate) fn bounded<'s>(count: usize, segment: impl Fn(usize) -> &'s str) -> String {
     let mut path = String::new();
-    for segment in segments {
-        push(&mut path, segment);
+    let mut len = 0;
+    let fits = (0..count).all(|i| {
+        len += segment(i).len();
+        len <= MAX_PATH
+    });
+    if fits {
+        (0..count).for_each(|i| path.push_str(segment(i)));
+        return path;
     }
-    push_key(&mut path, key);
+    let half = MAX_PATH / 2;
+    for i in 0..count {
+        let s = segment(i);
+        let room = half - path.len();
+        if s.len() <= room {
+            path.push_str(s);
+            continue;
+        }
+        if s.len() > half {
+            let mut end = room;
+            while !s.is_char_boundary(end) {
+                end -= 1;
+            }
+            path.push_str(&s[..end]);
+        }
+        break;
+    }
+    path.push('…');
+    let (mut from, mut len) = (count, 0);
+    while from > 0 {
+        let s = segment(from - 1);
+        if len + s.len() <= half {
+            from -= 1;
+            len += s.len();
+            continue;
+        }
+        if s.len() > half {
+            let mut start = s.len() - (half - len);
+            while !s.is_char_boundary(start) {
+                start += 1;
+            }
+            path.push_str(&s[start..]);
+        }
+        break;
+    }
+    (from..count).for_each(|i| path.push_str(segment(i)));
+    path
+}
+
+/// One segment as a path shows it: `$`, `.key`, `["key"]` or `[0]`.
+pub(crate) fn rendered(segment: &Segment<'_>) -> String {
+    let mut path = String::new();
+    push(&mut path, segment);
     path
 }
 
@@ -112,7 +165,7 @@ fn quote(out: &mut String, chars: &[Result<char, u32>]) {
 
 #[cfg(test)]
 mod tests {
-    use super::push_key;
+    use super::{MAX_PATH, bounded, push_key};
 
     fn rendered(key: &str) -> String {
         let mut path = "$".to_owned();
@@ -134,5 +187,38 @@ mod tests {
         let mut path = "$".to_owned();
         push_key(&mut path, b"a\xED\xA0\x80b");
         assert_eq!(path, "$[\"a\\ud800b\"]");
+    }
+
+    #[test]
+    fn long_paths_keep_their_ends() {
+        let path = |segments: &[&str]| bounded(segments.len(), |i| segments[i]);
+        let key = format!(".{}", "k".repeat(MAX_PATH - 2));
+        assert_eq!(path(&["$", &key]), format!("${key}"));
+        // A key too long to fit keeps its start and its end.
+        let key = format!("{key}k");
+        let long = path(&["$", &key]);
+        assert_eq!(long.len(), MAX_PATH + '…'.len_utf8());
+        assert!(long.starts_with("$.kkk") && long.ends_with("kkk") && long.contains('…'));
+        // A deep path keeps whole segments at each end.
+        let deep: Vec<&str> = std::iter::once("$")
+            .chain(std::iter::repeat_n("[0]", 1000))
+            .chain([".é", ".last"])
+            .collect();
+        let head = format!("${}", "[0]".repeat(42));
+        let tail = format!("{}.é.last", "[0]".repeat(40));
+        assert_eq!(path(&deep), format!("{head}…{tail}"));
+        // A cut never splits a character.
+        let wide = format!(".{}", "é".repeat(MAX_PATH));
+        let wide = path(&["$", &wide]);
+        assert!(wide.len() <= MAX_PATH + '…'.len_utf8());
+        // A segment of exactly half the room is dropped whole at either end, not cut.
+        let half = MAX_PATH / 2;
+        let x = format!(".{}", "x".repeat(half - 1));
+        let y = format!(".{}", "y".repeat(half - 1));
+        assert_eq!(path(&["$", &x, &y, ".z"]), "$….z");
+        // A cut never lands inside a character: the head's moves back, the tail's forward.
+        let s = format!(".a{}", "é".repeat(200));
+        let cut = "é".repeat(62);
+        assert_eq!(path(&["$", &s, &s, ".zz"]), format!("$.a{cut}…{cut}.zz"));
     }
 }

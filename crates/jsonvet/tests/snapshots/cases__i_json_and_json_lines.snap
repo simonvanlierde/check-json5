@@ -1,6 +1,6 @@
 ---
 source: crates/jsonvet/tests/cases.rs
-expression: "snapshot(&[(IJson,\n\"[9007199254740991, 9007199254740992, -9007199254740993, 1e400, 1.5]\"),\n(Json, \"[9007199254740992, 1e400]\"),\n(IJson, r#\"[\"\\ud800\", \"\\ud83d\\ude00\", \"\\ufdd0\", \"﷐\"]\"#),\n(IJson, r#\"[\"\\uffff\", \"\\ud83f\\udfff\", \"\\u00e8\", \"\\ufffd\"]\"#),\n(IJson, \"\\u{FEFF}{}\"), (Json, \"\\u{FEFF}{}\"), (JsonLines, \"\"),\n(JsonLines, \"{\\\"a\\\": 1}\\n[2]\\n3\\n\"), (JsonLines, \"{\\\"a\\\": 1}\\n[2]\"),\n(JsonLines, \"{\\\"a\\\": 1}\\n\\n[2]\\n\"), (JsonLines, \"{\\\"a\\\": 1}\\n   \\n\"),\n(JsonLines, \"{\\\"a\\\":\\n1}\\n\"), (JsonLines, \"1 2\\n\"),\n(JsonLines, \"{\\\"a\\\": 1, \\\"a\\\": 2}\\r\\n[3]\\r\\n\"), (JsonLines, \"\\u{FEFF}{}\\n\"),])"
+expression: "snapshot(&[(IJson,\n\"[9007199254740991, 9007199254740992, -9007199254740993, 1e400, 1.5]\"),\n(Json, \"[9007199254740992, 1e400]\"),\n(IJson, r#\"[\"\\ud800\", \"\\ud83d\\ude00\", \"\\ufdd0\", \"﷐\"]\"#),\n(IJson, r#\"[\"\\uffff\", \"\\ud83f\\udfff\", \"\\u00e8\", \"\\ufffd\"]\"#),\n(IJson, \"\\u{FEFF}{}\"), (Json, \"\\u{FEFF}{}\"), (JsonLines, \"\"),\n(JsonLines, \"{\\\"a\\\": 1}\\n[2]\\n3\\n\"), (JsonLines, \"{\\\"a\\\": 1}\\n[2]\"),\n(JsonLines, \"{\\\"a\\\": 1}\\n\\n[2]\\n\"), (JsonLines, \"{\\\"a\\\": 1}\\n   \\n\"),\n(JsonLines, \"{\\\"a\\\":\\n1}\\n\"), (JsonLines, \"1 2\\n\"),\n(JsonLines, \"{\\\"a\\\": 1, \\\"a\\\": 2}\\r\\n[3]\\r\\n\"), (JsonLines, \"\\u{FEFF}{}\\n\"),\n(JsonLines, \"[1,\\r2]\\n\"), (JsonLines, \"1\\r\"), (JsonLines, \"1\\r\\n\\r\\n\"),])"
 ---
 i-json "[9007199254740991, 9007199254740992, -9007199254740993, 1e400, 1.5]"
        1:20 error[invalid-number] integer beyond ±(2^53 − 1) cannot be represented exactly
@@ -30,10 +30,16 @@ jsonl "{\"a\": 1}\n\n[2]\n"
 jsonl "{\"a\": 1}\n   \n"
        2:1 error[syntax] blank line; JSON Lines needs a value on every line
 jsonl "{\"a\":\n1}\n"
-       1:6 error[syntax] expected a value, found U+000A
+       1:6 error[syntax] expected a value, found the end of the line
 jsonl "1 2\n"
        1:3 error[syntax] expected the end of the line, found `2`
 jsonl "{\"a\": 1, \"a\": 2}\r\n[3]\r\n"
        1:10 error[duplicate-key] duplicate key $.a (from 1:2)
 jsonl "\u{feff}{}\n"
        1:1 error[byte-order-mark] byte order mark at the start of the file
+jsonl "[1,\r2]\n"
+       ok
+jsonl "1\r"
+       2:1 warning[missing-final-newline] no newline at the end of the file
+jsonl "1\r\n\r\n"
+       2:1 error[syntax] blank line; JSON Lines needs a value on every line

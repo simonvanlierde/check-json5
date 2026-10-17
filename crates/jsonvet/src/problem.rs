@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::parse::is_surrogate;
+use crate::unicode::{is_bidi_control, is_surrogate};
 use crate::{Dialect, Rule, Severity};
 
 /// One problem in a file: what is wrong, where, and how much it matters.
@@ -34,15 +34,59 @@ impl Problem {
         }
     }
 
-    /// A second offset the problem refers to: the first occurrence of a duplicate key, or
-    /// where an unterminated string or comment starts.
-    pub fn related_offset(&self) -> Option<usize> {
+    /// A second place the problem refers to: the first occurrence of a duplicate key, or where
+    /// an unterminated string or comment starts.
+    pub fn related(&self) -> Option<Related> {
+        let (offset, kind) = match &self.detail {
+            Detail::DuplicateKey { first, .. } => (*first, RelatedKind::FirstOccurrence),
+            Detail::Syntax(s) => (s.started?, RelatedKind::Start),
+            _ => return None,
+        };
+        Some(Related { offset, kind })
+    }
+
+    /// The JSONPath of a duplicate key, such as `$.server.port`, or `None` for other problems.
+    /// A path longer than 256 bytes keeps its ends, with `…` in place of the middle, so a path is
+    /// at most 259 bytes: 256 and the three of `…`.
+    ///
+    /// ```
+    /// use jsonvet::{check, Config, Dialect};
+    ///
+    /// let report = check(r#"{"server": {"port": 80, "port": 8080}}"#, &Config::new(Dialect::Json));
+    /// assert_eq!(report.problems()[0].path(), Some("$.server.port"));
+    /// assert_eq!(check("[1 2]", &Config::new(Dialect::Json)).problems()[0].path(), None);
+    /// ```
+    pub fn path(&self) -> Option<&str> {
         match &self.detail {
-            Detail::DuplicateKey { first, .. } => Some(*first),
-            Detail::Syntax(s) => s.started,
+            Detail::DuplicateKey { path, .. } => Some(path),
             _ => None,
         }
     }
+
+    /// The offset of [`related`](Self::related).
+    pub fn related_offset(&self) -> Option<usize> {
+        self.related().map(|r| r.offset)
+    }
+}
+
+/// A second place a [`Problem`] refers to, and what it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Related {
+    /// The byte offset in the text. Always on a character boundary.
+    pub offset: usize,
+    /// What sits at the offset.
+    pub kind: RelatedKind,
+}
+
+/// What a [`Related`] offset points at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RelatedKind {
+    /// The first occurrence of a duplicate key.
+    FirstOccurrence,
+    /// The start of the unterminated string or comment a syntax error is about.
+    Start,
 }
 
 /// The message, without its position or rule id.
@@ -118,6 +162,11 @@ pub(crate) enum SyntaxKind {
         /// What was needed, as the message names it: "a value", "`:`".
         expected: &'static str,
     },
+    /// A JSON Lines line ended where something else was needed.
+    UnexpectedLineEnd {
+        /// What was needed, as for `UnexpectedEnd`.
+        expected: &'static str,
+    },
     /// A character that cannot continue the document here.
     Unexpected {
         /// The character found.
@@ -174,6 +223,9 @@ impl fmt::Display for SyntaxError {
             SyntaxKind::UnexpectedEnd { expected } => {
                 write!(f, "expected {expected}, found the end of the file")
             }
+            SyntaxKind::UnexpectedLineEnd { expected } => {
+                write!(f, "expected {expected}, found the end of the line")
+            }
             SyntaxKind::Unexpected { found, expected } => {
                 write!(f, "expected {expected}, found {}", Shown(*found))
             }
@@ -209,13 +261,14 @@ impl fmt::Display for SyntaxError {
     }
 }
 
-/// A character as a message shows it: in backticks when printable, as U+XXXX otherwise.
+/// A character as a message shows it: in backticks when printable, as U+XXXX otherwise. Bidi
+/// controls show as U+XXXX too, since printed they would reorder the rest of the line.
 struct Shown(char);
 
 impl fmt::Display for Shown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let c = self.0;
-        if c.is_control() || c.is_whitespace() || c == '\u{FEFF}' {
+        if c.is_control() || c.is_whitespace() || c == '\u{FEFF}' || is_bidi_control(c) {
             write!(f, "U+{:04X}", u32::from(c))
         } else {
             write!(f, "`{c}`")

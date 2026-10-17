@@ -23,7 +23,7 @@ pub enum Rule {
 
 impl Rule {
     /// Every rule, in the order the docs list them.
-    pub const ALL: [Rule; 6] = [
+    pub const ALL: &'static [Rule] = &[
         Rule::Syntax,
         Rule::DuplicateKey,
         Rule::InvalidNumber,
@@ -41,6 +41,18 @@ impl Rule {
             Rule::InvalidCodePoint => "invalid-code-point",
             Rule::ByteOrderMark => "byte-order-mark",
             Rule::MissingFinalNewline => "missing-final-newline",
+        }
+    }
+
+    /// A one-line description of what the rule reports, such as `a key repeated in one object`.
+    pub fn description(self) -> &'static str {
+        match self {
+            Rule::Syntax => "the first syntax error; checking stops there",
+            Rule::DuplicateKey => "a key repeated in one object",
+            Rule::InvalidNumber => "a number a double cannot hold, or an integer past 2^53 - 1",
+            Rule::InvalidCodePoint => "a lone surrogate or a noncharacter in a string",
+            Rule::ByteOrderMark => "a byte order mark at the start of the file",
+            Rule::MissingFinalNewline => "a JSON Lines file that does not end with a newline",
         }
     }
 
@@ -65,7 +77,14 @@ impl fmt::Display for Rule {
 
 /// The error for a rule id jsonvet does not know.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnknownRule(pub String);
+pub struct UnknownRule(String);
+
+impl UnknownRule {
+    /// The id that was given.
+    pub fn id(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for UnknownRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -86,14 +105,17 @@ impl FromStr for Rule {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Rule::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .find(|r| r.id() == s)
             .ok_or_else(|| UnknownRule(s.to_owned()))
     }
 }
 
-/// How much a problem matters. An ignored (`Off`) rule is not checked at all.
+/// How much a problem matters. An ignored (`Off`) rule is not checked at all. Severities are
+/// ordered from `Off` to `Error`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Severity {
     /// Not checked.
     Off,
@@ -172,5 +194,30 @@ impl Config {
             return Severity::Error;
         }
         self.overrides[rule as usize].unwrap_or_else(|| rule.default_severity(self.dialect))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rule;
+
+    #[test]
+    fn all_lists_every_rule_at_its_index() {
+        // `Config` indexes its overrides by `rule as usize`, so ALL must hold every rule, in
+        // declaration order.
+        for (i, &rule) in Rule::ALL.iter().enumerate() {
+            assert_eq!(rule as usize, i, "{rule}");
+        }
+        let last = Rule::MissingFinalNewline;
+        // No wildcard: a new rule stops this building until `last` and ALL are updated.
+        match last {
+            Rule::Syntax
+            | Rule::DuplicateKey
+            | Rule::InvalidNumber
+            | Rule::InvalidCodePoint
+            | Rule::ByteOrderMark
+            | Rule::MissingFinalNewline => {}
+        }
+        assert_eq!(Rule::ALL.len(), last as usize + 1);
     }
 }

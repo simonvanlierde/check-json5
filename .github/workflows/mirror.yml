@@ -26,8 +26,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # `+` on the tags: release.yml moves the major tag (v3) with each release.
       - env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |-
           git push "https://oauth2:${GITLAB_TOKEN}@gitlab.com/simonvanlierde/check-json5.git" \
-            origin/main:refs/heads/main 'refs/tags/v*:refs/tags/v*'
+            origin/main:refs/heads/main '+refs/tags/v*:refs/tags/v*'

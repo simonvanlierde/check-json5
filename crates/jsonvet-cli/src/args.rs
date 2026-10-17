@@ -19,6 +19,8 @@ Options:
       --dialect DIALECT[:GLOB]  Check files matching GLOB (every file, without one) as DIALECT:
                                 json, i-json, jsonc, jwcc, json5, jsonl, or auto for the file
                                 extension's default. Repeatable; the last match wins.
+                                Files with any other extension are checked as json5;
+                                extensions match in lower case only.
       --strict GLOB             Same as --dialect json:GLOB; --strict '!GLOB' means auto:GLOB.
       --error RULE              Report RULE as an error. Repeatable, as are the next two.
       --warn RULE               Report RULE as a warning.
@@ -65,12 +67,26 @@ pub(crate) enum Command {
 
 pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     let mut parser = lexopt::Parser::from_args(args);
+    // Otherwise `-x=a.json` would come back as `-x` and `a.json`, losing the `=`.
+    parser.set_short_equals(false);
     let mut files = Vec::new();
     let mut settings = Settings::default();
     let mut max_warnings = None;
     let mut config = ConfigSource::Search;
     let mut format = Format::Text;
-    while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
+    loop {
+        // lexopt reads a non-UTF-8 argument that starts with `-` lossily. No option has such a
+        // name, so it is a file, kept as given.
+        if let Some(file) = parser
+            .try_raw_args()
+            .and_then(|mut raw| raw.next_if(|arg| arg.to_str().is_none()))
+        {
+            files.push(file);
+            continue;
+        }
+        let Some(arg) = parser.next().map_err(|e| e.to_string())? else {
+            break;
+        };
         match arg {
             Long("dialect") => settings
                 .dialects
@@ -105,7 +121,7 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
             Long("no-config") => config = ConfigSource::None,
             Value(file) => files.push(file),
             // pre-commit puts file names after the options with no `--`, so a name like
-            // `-x.json`, `-h.json` or `--y.json` is a file, not an option.
+            // `-x.json`, `-h.json` or an existing `--y.json` is a file, not an option.
             Short(c) => {
                 let rest = rest(&mut parser);
                 match (c, rest.is_empty()) {
@@ -117,12 +133,17 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command,
             Long(name) => {
                 let name = name.to_owned();
                 let rest = rest(&mut parser);
-                match (name.as_str(), rest.is_empty()) {
+                let file = match (name.as_str(), rest.is_empty()) {
                     ("help", true) => return Ok(Command::Help),
                     ("version", true) => return Ok(Command::Version),
-                    (_, true) => files.push(format!("--{name}").into()),
-                    _ => files.push(joined(&format!("--{name}"), "=", &rest)),
+                    (_, true) => format!("--{name}").into(),
+                    _ => joined(&format!("--{name}"), "=", &rest),
+                };
+                // A name that is not on disk is a mistyped option, such as `--strcit`.
+                if std::fs::symlink_metadata(&file).is_err() {
+                    return Err(format!("unknown option `{}`", file.to_string_lossy()));
                 }
+                files.push(file);
             }
         }
     }
@@ -158,8 +179,22 @@ fn joined(option: &str, separator: &str, rest: &OsString) -> OsString {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, ConfigSource, Format, parse};
-    use jsonvet::{Rule, Severity};
+    use super::{Command, ConfigSource, Format, HELP, parse};
+    use jsonvet::{Dialect, Rule, Severity};
+
+    #[test]
+    fn help_names_every_rule_and_dialect() {
+        let words: Vec<&str> = HELP
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .collect();
+        let missing: Vec<String> = Rule::ALL
+            .iter()
+            .map(|rule| rule.id().to_owned())
+            .chain(Dialect::ALL.iter().map(ToString::to_string))
+            .filter(|name| !words.contains(&name.as_str()))
+            .collect();
+        assert!(missing.is_empty(), "not in the help: {missing:?}");
+    }
 
     fn check(args: &[&str]) -> super::Args {
         match parse(args.iter().map(Into::into)) {
@@ -173,23 +208,22 @@ mod tests {
         let args = check(&[
             "-dash.json",
             "-h.json",
-            "--help=x",
-            "--x.json",
+            "-x=a.json",
             "--",
             "--y.json",
             "a.json",
         ]);
         assert_eq!(
             args.files,
-            [
-                "-dash.json",
-                "-h.json",
-                "--help=x",
-                "--x.json",
-                "--y.json",
-                "a.json"
-            ]
+            ["-dash.json", "-h.json", "-x=a.json", "--y.json", "a.json"]
         );
+        // An unknown `--name` is a file only when it exists; tests/cli.rs covers that case.
+        for unknown in ["--strcit", "--help=x", "--x.json"] {
+            assert_eq!(
+                parse(["a.json", unknown].iter().map(Into::into)).err(),
+                Some(format!("unknown option `{unknown}`"))
+            );
+        }
         assert!(matches!(
             parse(["a.json", "-h"].iter().map(Into::into)),
             Ok(Command::Help)

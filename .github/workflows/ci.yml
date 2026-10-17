@@ -15,6 +15,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The Rust that builds the release wheels; keep it equal to RELEASE_RUST in release.yml.
+  RELEASE_RUST: "1.99.0"
+  # The uv every job sets up, as in release.yml and mise.toml. Renovate bumps all three.
+  PINNED_UV: "0.13.0"
 
 jobs:
   lint:
@@ -33,18 +37,18 @@ jobs:
         with:
           tool: cargo-deny@0.20.2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo doc --workspace --no-deps
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo doc --workspace --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
       - run: cargo deny check
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
-      # The repo's Python: the hook placeholder and scripts/.
-      # The same ruff as .pre-commit-config.yaml.
-      - run: uvx ruff@0.16.10 check --no-fix .
-      - run: uvx ruff@0.16.10 format --check .
+          version: ${{ env.PINNED_UV }}
+      # The repo's Python: the hook placeholder and scripts/. The ruff hooks from
+      # .pre-commit-config.yaml, so its rev is the one ruff pin. Only these two: the others guard
+      # commits or repeat the cargo steps above.
+      - run: uvx prek@0.5.5 run ruff-check ruff-format --all-files --show-diff-on-failure
       # The crates, the placeholder's wheel pin and the check-json5 package name one release.
       - run: uv run scripts/check-versions.py
       # The conformance page is rendered from conformance/results/; the parser runs stay local.
@@ -71,9 +75,9 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-nextest@0.9.148
-      - run: cargo nextest run --workspace
+      - run: cargo nextest run --workspace --locked
       # nextest skips doctests.
-      - run: cargo test --workspace --doc
+      - run: cargo test --workspace --doc --locked
 
   # The oldest Rust the crates support, from rust-version in Cargo.toml. Builds the library and
   # binaries only: test-only dependencies may need a newer compiler.
@@ -105,9 +109,15 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
       - run: cargo build --release --locked -p jsonvet-cli
-      - run: uv run scripts/differential.py --cases 5000
+      # A new sample each run; rerun a failure locally with the seed printed here.
+      - name: Compare on 5,000 cases
+        env:
+          SEED: ${{ github.run_id }}
+        run: |
+          echo "seed: $SEED (uv run scripts/differential.py --cases 5000 --seed $SEED)"
+          uv run scripts/differential.py --cases 5000 --seed "$SEED"
 
   # The wheel, built the way the release does, and the hook and the action as users install them,
   # on every OS: pre-commit and prek install this repository, and its placeholder setup.py pins
@@ -117,7 +127,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # The same image as release.yml's x86_64 manylinux row.
+          - os: ubuntu-latest
+            container: quay.io/pypa/manylinux2014_x86_64:latest@sha256:f6a6f153c9cf45470507ebbc27013e5db14ce21331b62fd2c540561f25e5f0a5
+          - os: macos-latest
+          - os: windows-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -130,20 +145,25 @@ jobs:
           working-directory: crates/jsonvet-cli
           args: --release --locked --out ../../dist
           manylinux: auto
+          container: ${{ matrix.container || '' }}
+          rust-toolchain: ${{ env.RELEASE_RUST }}
+      # For the action job below.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.0"
+          version: ${{ env.PINNED_UV }}
       - name: Install the hook and run it
         shell: bash
         env:
           PIP_FIND_LINKS: ${{ github.workspace }}/dist
           UV_FIND_LINKS: ${{ github.workspace }}/dist
         run: |
+          uv run scripts/smoke.py dist/*.whl
           printf '{"a": 1}\n' > ok.json
           printf '{"a": 1, "a": 2}\n' > dup.json
-          uv run --isolated --no-project --with dist/*.whl jsonvet dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl check-json5 dup.json && exit 1
-          uv run --isolated --no-project --with dist/*.whl jsonvet --version
           for tool in pre-commit@4.7.0 prek@0.5.5; do
             uvx "$tool" try-repo . jsonvet --files ok.json
             if uvx "$tool" try-repo . check-json5 --files dup.json; then
@@ -151,7 +171,10 @@ jobs:
               exit 1
             fi
           done
-      # The action from this checkout, installing the wheel built above instead of PyPI's.
+      # The action from this checkout, installing the wheel built above instead of PyPI's. `$/` is
+      # this repository at the running commit, fetched like a remote action, so the action runs as
+      # users get it: github.action_ref is a commit SHA, and github.action_path is not the
+      # checkout (docs.github.com, workflow syntax, `jobs.<job_id>.steps[*].uses`).
       - name: Run the action on a duplicate key
         id: action-bad
         continue-on-error: true
@@ -180,3 +203,152 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/dist
         with:
           files: ok.json
+
+  # The action's own logic, on bash 3.2 too: /bin/bash on macOS. The Windows checkout converts
+  # line endings, which bash scripts do not survive; the action job below covers Windows.
+  action-script:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: /bin/bash scripts/test-action.sh
+
+  # The action as users run it, in a repository of its own: the default file list (nested files,
+  # tracked only, no symlinks), `args`, `**` in `files` and the SARIF check. No checkout: `$/`
+  # fetches the action, and the workspace is the test repository.
+  action:
+    needs: hook
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PIP_NO_INDEX: "1"
+      PIP_FIND_LINKS: ${{ github.workspace }}/dist
+    steps:
+      # Untracked, so the default file list leaves it out.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist
+      - name: Make a repository to check
+        shell: bash
+        run: |
+          git init -q .
+          mkdir -p nested/deep
+          printf '{"a": 1}\n' > nested/deep/ok.json
+          printf '{a: 1}\n' > nested/conf.json5
+          printf '{"a": 1, "a": 2}\n' > nested/deep/dup.json
+          git add nested/deep/ok.json nested/conf.json5
+          # A tracked symlink to a file that does not exist: checking it would fail.
+          target=$(printf 'missing.json' | git hash-object -w --stdin)
+          git update-index --add --cacheinfo "120000,$target,link.json"
+      - name: The default list passes (dup.json is untracked, link.json a symlink)
+        uses: $/
+      - name: args reach jsonvet
+        id: strict
+        continue-on-error: true
+        uses: $/
+        with:
+          args: --strict conf.json5
+      - name: "** reaches nested files"
+        id: globstar
+        continue-on-error: true
+        uses: $/
+        with:
+          files: "**/*.json"
+          sarif: out.sarif
+      - name: Track dup.json
+        shell: bash
+        run: git add nested/deep/dup.json
+      - name: The default list finds nested files
+        id: tracked
+        continue-on-error: true
+        uses: $/
+      - name: The version input is checked
+        id: version
+        continue-on-error: true
+        uses: $/
+        with:
+          version: ">=2"
+      - name: Check the outcomes and the SARIF file
+        shell: bash
+        env:
+          OUTCOMES: >-
+            ${{ steps.strict.outcome }} ${{ steps.globstar.outcome }}
+            ${{ steps.tracked.outcome }} ${{ steps.version.outcome }}
+        run: |
+          test "$OUTCOMES" = "failure failure failure failure"
+          python=python3
+          [[ "$RUNNER_OS" == Windows ]] && python=python
+          "$python" -c '
+          import json
+          results = json.load(open("out.sarif"))["runs"][0]["results"]
+          uris = [r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in results]
+          assert [r["ruleId"] for r in results] == ["duplicate-key"], results
+          assert uris == ["nested/deep/dup.json"], uris
+          '
+
+  # What the release publishes besides the wheels: the sdist, built and installed from source;
+  # the check-json5 package; and the crates, packaged and built as crates.io will see them.
+  packaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: v1.15.0
+          working-directory: crates/jsonvet-cli
+          command: sdist
+          args: --out ../../dist
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.PINNED_UV }}
+      - name: Install the sdist and the check-json5 package, and run them
+        run: |
+          uv build --out-dir compat-dist compat/check-json5
+          uv run scripts/smoke.py dist/*.tar.gz compat-dist/*.whl
+      # Both crates, with jsonvet-cli built against the packaged jsonvet even when its `=x.y.z`
+      # version is not on crates.io yet. The release job skips this with --no-verify.
+      - run: cargo publish --dry-run --locked --workspace
+
+  # Public API changes in the library against its last release on crates.io. A break fails the
+  # job unless Cargo.toml has the next major version. Reported, not enforced, so read the job
+  # summary on a pull request that touches the library.
+  semver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-semver-checks@0.51.0
+      - name: cargo semver-checks
+        run: |
+          status=0
+          cargo semver-checks --package jsonvet --color never > semver.txt 2>&1 || status=$?
+          cat semver.txt
+          { echo '## cargo semver-checks: jsonvet'; echo '```'; cat semver.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

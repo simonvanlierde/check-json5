@@ -192,7 +192,35 @@ fn i_json_and_json_lines() {
         (JsonLines, "1 2\n"),
         (JsonLines, "{\"a\": 1, \"a\": 2}\r\n[3]\r\n"),
         (JsonLines, "\u{FEFF}{}\n"),
+        // A lone CR is white space, not a line ending, though positions count it as one.
+        (JsonLines, "[1,\r2]\n"),
+        (JsonLines, "1\r"),
+        (JsonLines, "1\r\n\r\n"),
     ]));
+}
+
+#[test]
+fn json_lines_positions_do_not_depend_on_the_line_ending() {
+    let problems = |text: &str| -> Vec<String> {
+        let report = check(text, &Config::new(Dialect::JsonLines));
+        report
+            .problems()
+            .iter()
+            .map(|p| {
+                let at = report.location(p.offset());
+                format!("{}:{} {p}", at.line, at.column)
+            })
+            .collect()
+    };
+    for lf in [
+        "[1,\n2]\n",
+        "{\"a\":\n1}\n",
+        "1 \n\n2\n",
+        "{\"a\": 1, \"a\": 2}\n[3 4]\n",
+    ] {
+        let crlf = lf.replace('\n', "\r\n");
+        assert_eq!(problems(&crlf), problems(lf), "{crlf:?}");
+    }
 }
 
 #[test]
@@ -245,8 +273,21 @@ fn names_and_file_names() {
         ("a.ndjson", Some("jsonl")),
         ("a.txt", None),
         ("json", None),
+        ("a.JSON", None),
+        ("a.", None),
     ] {
         assert_eq!(for_path(name), dialect, "{name}");
+    }
+    for (ext, dialect) in Dialect::EXTENSIONS {
+        let name = format!("dir/a.{ext}");
+        assert_eq!(
+            Dialect::for_path(Path::new(&name)),
+            Some(*dialect),
+            "{name}"
+        );
+    }
+    for (name, dialect) in Dialect::FILE_NAMES {
+        assert_eq!(Dialect::for_path(Path::new(name)), Some(*dialect), "{name}");
     }
     for (alias, dialect) in [
         ("ndjson", Dialect::JsonLines),
@@ -258,12 +299,21 @@ fn names_and_file_names() {
         assert_eq!(alias.parse(), Ok(dialect), "{alias}");
     }
     let unknown = "yaml".parse::<Dialect>().expect_err("not a dialect");
+    assert_eq!(unknown.name(), "yaml");
     assert!(
         unknown
             .to_string()
             .starts_with("unknown dialect `yaml`; expected one of json,")
     );
+    for rule in jsonvet::Rule::ALL {
+        assert!(!rule.description().is_empty(), "{rule}");
+    }
+    assert_eq!(
+        jsonvet::Rule::DuplicateKey.description(),
+        "a key repeated in one object"
+    );
     let unknown = "tabs".parse::<jsonvet::Rule>().expect_err("not a rule");
+    assert_eq!(unknown.id(), "tabs");
     assert!(
         unknown
             .to_string()
@@ -293,4 +343,96 @@ fn nesting_stops_at_the_depth_limit() {
     let shallow = Config::new(Dialect::Json5).max_depth(2);
     assert!(check("{a: [1]}", &shallow).passed());
     assert!(!check("{a: [{}]}", &shallow).passed());
+}
+
+#[test]
+fn related_offsets_say_what_they_point_at() {
+    use jsonvet::RelatedKind;
+    let related = |dialect, text| {
+        let report = check(text, &Config::new(dialect));
+        let problem = &report.problems()[0];
+        let related = problem.related().map(|r| (r.offset, r.kind));
+        assert_eq!(problem.related_offset(), related.map(|(offset, _)| offset));
+        related
+    };
+    assert_eq!(
+        related(Dialect::Json, r#"{"a": 1, "a": 2}"#),
+        Some((1, RelatedKind::FirstOccurrence))
+    );
+    assert_eq!(
+        related(Dialect::Json, r#"[1, "abc"#),
+        Some((4, RelatedKind::Start))
+    );
+    assert_eq!(
+        related(Dialect::Jsonc, "1 /* open"),
+        Some((2, RelatedKind::Start))
+    );
+    assert_eq!(related(Dialect::Json, "[1 2]"), None);
+}
+
+#[test]
+fn duplicate_key_paths_stay_short_however_deep_the_key() {
+    let depth = 9_000;
+    let members = vec![r#""a":0"#; 20_000].join(",");
+    let deep = format!("{}{{{members}}}{}", "[".repeat(depth), "]".repeat(depth));
+    let every_level = format!(
+        "{}1{}",
+        r#"{"abc":1,"abc":"#.repeat(depth),
+        "}".repeat(depth)
+    );
+    for text in [deep, every_level] {
+        let report = check(&text, &Config::new(Dialect::Json));
+        assert!(report.problems().len() >= depth);
+        for problem in report.problems() {
+            // 256 bytes and the three of `…`.
+            let path = problem.path().unwrap_or_default();
+            assert!(path.len() <= 259, "{} bytes", path.len());
+        }
+    }
+    let text = format!("{}{{\"a\":0,\"a\":0}}{}", "[".repeat(100), "]".repeat(100));
+    let report = check(&text, &Config::new(Dialect::Json));
+    let message = report.problems()[0].to_string();
+    let levels = "[0]".repeat(42);
+    assert_eq!(message, format!("duplicate key ${levels}…{levels}.a"));
+}
+
+/// Printed as they are, bidi controls would reorder how the rest of the message displays.
+#[test]
+fn messages_show_bidi_controls_as_code_points() {
+    let config = Config::new(Dialect::Json);
+    for c in [
+        '\u{61C}', '\u{200E}', '\u{200F}', '\u{202A}', '\u{202E}', '\u{2066}', '\u{2069}',
+    ] {
+        let text = format!("[{c}]");
+        let report = check(&text, &config);
+        assert_eq!(
+            report.problems()[0].to_string(),
+            format!("expected a value, found U+{:04X}", u32::from(c))
+        );
+    }
+    let report = check("[\u{200D}]", &config);
+    assert_eq!(
+        report.problems()[0].to_string(),
+        "expected a value, found `\u{200D}`"
+    );
+}
+
+/// JWCC ends a `//` comment at LF only, JSONC also at a lone CR, and JSON5 also at U+2028 and
+/// U+2029. Where the comment does not end, it swallows the `2]` after it.
+#[test]
+fn line_comments_end_where_each_dialect_says() {
+    use Dialect::{Json5, Jsonc, Jwcc};
+    for (end, dialects) in [
+        ("\n", &[Jwcc, Jsonc, Json5][..]),
+        ("\r\n", &[Jwcc, Jsonc, Json5]),
+        ("\r", &[Jsonc, Json5]),
+        ("\u{2028}", &[Json5]),
+        ("\u{2029}", &[Json5]),
+    ] {
+        for dialect in [Jwcc, Jsonc, Json5] {
+            let text = format!("[1, // c{end}2]");
+            let passed = check(&text, &Config::new(dialect)).passed();
+            assert_eq!(passed, dialects.contains(&dialect), "{dialect} {text:?}");
+        }
+    }
 }
