@@ -235,8 +235,9 @@ fn output_never_holds_a_legacy_workflow_command() {
 #[test]
 fn a_closed_pipe_keeps_the_verdict() {
     let dir = workdir(&[("bad.json", "[1,")]);
-    // Far more than a pipe holds, so jsonvet blocks writing until the reader closes.
-    let files = vec!["bad.json"; 5000];
+    // About 216 KB of output, far more than a pipe holds, so jsonvet blocks writing until the
+    // reader closes. The command line stays near 27,000 characters, under Windows' 32,767.
+    let files = vec!["bad.json"; 3000];
     let mut child = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
         .args(&files)
         .current_dir(&dir)
