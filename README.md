@@ -215,7 +215,9 @@ treat the key as not matching: the jsonschema crate gives them no way to report 
 The schema file may itself be in any dialect. Its `$schema` picks the draft, from draft 4 to
 2020-12. A `$ref` must point inside the schema file: jsonvet fetches nothing over the network or
 from disk. A schema that cannot be read or used, such as one with a `$ref` to another file or one
-nested more than 128 levels deep, is a usage error with exit status 2.
+nested more than 128 levels deep, is a usage error with exit status 2. Each `$ref` followed inside
+the file counts as a level, so a chain of them deeper than 128 is one too; a `$ref` back to a
+schema it is inside, as in `{"items": {"$ref": "#"}}`, is recursion and is fine.
 
 ## GitHub code scanning
 

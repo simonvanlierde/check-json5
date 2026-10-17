@@ -1048,6 +1048,57 @@ l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexp
         );
     }
 
+    /// A schema with the `$id` `https://example.com/x.json` whose `$defs` chain `hops` times
+    /// through `$ref`s written as `base#/$defs/dN`, one per line, to `last`.
+    fn chain(hops: usize, base: &str, last: &str) -> String {
+        let mut text = "{\n\"$id\": \"https://example.com/x.json\",\n\"$defs\": {\n".to_owned();
+        for i in 0..hops {
+            let _ = writeln!(
+                text,
+                "\"d{i}\": {{\"$ref\": \"{base}#/$defs/d{}\"}},",
+                i + 1
+            );
+        }
+        let _ = write!(
+            text,
+            "\"d{hops}\": {last}\n}},\n\"$ref\": \"#/$defs/d0\"\n}}"
+        );
+        text
+    }
+
+    #[test]
+    fn a_long_ref_chain_is_a_usage_error() {
+        let dir = workdir(&[
+            ("ok.json", "[[[1]]]"),
+            ("local.json", &chain(1_000, "", "{}")),
+            (
+                "by-id.json",
+                &chain(1_000, "https://example.com/x.json", "{}"),
+            ),
+            // Recursion back to the root is fine, however deep the file it checks.
+            (
+                "cycle.json",
+                &chain(100, "", "{\"items\": {\"$ref\": \"#\"}}"),
+            ),
+        ]);
+        for schema in ["local.json", "by-id.json"] {
+            let start = std::time::Instant::now();
+            let (code, out, err) = jsonvet_stderr(&dir, &["--schema", schema, "ok.json"]);
+            assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+            assert_eq!((code, out.as_str()), (2, ""), "{schema}");
+            // `$defs` and `d0` are levels 2 and 3, so the `$ref` in `d125` leads to level 129.
+            assert_eq!(
+                err,
+                format!(
+                    "jsonvet: the schema {schema}:129:10: this `$ref` leads more than 128 levels \
+                     deep, counting each `$ref` followed as a level\n"
+                ),
+            );
+        }
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "cycle.json", "ok.json"]);
+        assert_eq!((code, out.as_str()), (0, ""));
+    }
+
     #[test]
     fn schema_errors_in_a_large_file() {
         // 100,000 records, every 10,000th with a string port: about 3 MB.

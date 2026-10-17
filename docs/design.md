@@ -129,6 +129,14 @@ sits deep under a recursive `$ref` (1.3 GB for a 50 KB file nested 10,000 levels
 up to 2.2 MB in a debug build, more than Windows' 1 MB main thread. Without `--schema` jsonvet runs
 on the main thread, as it did before. Folded values take about 23 times the file's size in memory.
 
+The schema itself is read to 128 levels, and its local `$ref`s count too: each one jsonvet can
+follow inside the file (a JSON Pointer, an anchor, or a URI naming an `$id` there) adds a level,
+and a schema whose longest chain passes 128 is a usage error, placed at the `$ref` that crosses
+the line. A `$ref` back to a schema on the way to it is recursion and adds nothing. Without the
+check, 1,000 `allOf` and `$ref` hops overflow the 64 MB stack at once against a 512-level array.
+jsonschema is also exponential in a schema where each level `$ref`s the next twice (24 levels
+take 0.25 s, each level doubles it); no check covers that yet.
+
 Schema regexes with back-references or lookaround run on fancy-regex, which backtracks; jsonvet
 caps that at 5,000 steps per match, so `^(a|a)*\1b` over 5,000 strings takes under a second
 instead of minutes. Over the cap, `pattern` reports an error, but `patternProperties` (and

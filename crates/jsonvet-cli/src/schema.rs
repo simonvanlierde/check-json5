@@ -1,7 +1,7 @@
 //! `--schema`: each file's values checked against one JSON Schema, every error placed at the
 //! value it is about.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::Path;
 
@@ -35,8 +35,12 @@ const MAX_ERRORS: usize = 100;
 /// still, it is cut short.
 const MAX_MESSAGE: usize = 200;
 
-/// How deep a schema may nest; real schemas stay well under it.
+/// How deep a schema may nest, counting each local `$ref` followed as one more level; real
+/// schemas stay well under it.
 const MAX_SCHEMA_DEPTH: usize = 128;
+
+/// The keys whose value points at another schema.
+const REF_KEYS: [&str; 3] = ["$ref", "$dynamicRef", "$recursiveRef"];
 
 /// How many times one regex match may backtrack before it fails. About one step per character
 /// for a lookaround over the whole string, so a string over a few thousand characters can hit it.
@@ -73,6 +77,21 @@ impl Schema {
         let document = documents.swap_remove(0);
         if let Some((offset, reason)) = document.unchecked {
             return Err(at(offset, &reason));
+        }
+        // jsonschema also validates recursively through each `$ref`, so a long chain of them
+        // takes the stack or hours, however shallow the schema is.
+        if let Some((path, key)) = Reach::new(&document.value).too_deep() {
+            let offset = place(
+                &events[document.events.clone()],
+                &[(path, vec![key.to_owned()])],
+            )[0];
+            return Err(at(
+                offset,
+                &format!(
+                    "this `{key}` leads more than {MAX_SCHEMA_DEPTH} levels deep, counting each \
+                     `$ref` followed as a level"
+                ),
+            ));
         }
         // Offline: a `$ref` to anything outside the schema file fails here.
         let options = jsonschema::options()
@@ -243,28 +262,38 @@ type Container<'e> = (Option<usize>, usize, Slot<'e>);
 /// Where each error is, found in one walk over its document's events: its value; for unexpected
 /// properties, the first such key; for a property name, that key.
 fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
-    let mut wanted = Wanted(vec![Node::default()]);
-    // For each error, its value's node and the nodes of any keys it is about.
-    let nodes: Vec<(usize, Vec<usize>)> = errors
+    let targets: Vec<(Vec<String>, Vec<String>)> = errors
         .iter()
         .map(|error| {
-            let mut node = 0;
-            for segment in segments(error.instance_path().as_str()) {
-                node = wanted.child(node, &segment);
-            }
             let keys = match error.kind() {
                 ValidationErrorKind::AdditionalProperties { unexpected }
-                | ValidationErrorKind::UnevaluatedProperties { unexpected } => unexpected
-                    .iter()
-                    .map(|key| wanted.child(node, key))
-                    .collect(),
+                | ValidationErrorKind::UnevaluatedProperties { unexpected } => unexpected.clone(),
                 ValidationErrorKind::PropertyNames { error } => error
                     .instance()
                     .as_str()
-                    .map(|key| vec![wanted.child(node, key)])
+                    .map(|key| vec![key.to_owned()])
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
+            (segments(error.instance_path().as_str()).collect(), keys)
+        })
+        .collect();
+    place(events, &targets)
+}
+
+/// Where each target is, found in one walk over its document's events: given as a value's path
+/// and keys in it, the first of those keys found, or else the value.
+fn place(events: &[Event<'_>], targets: &[(Vec<String>, Vec<String>)]) -> Vec<usize> {
+    let mut wanted = Wanted(vec![Node::default()]);
+    // For each target, its value's node and the nodes of its keys.
+    let nodes: Vec<(usize, Vec<usize>)> = targets
+        .iter()
+        .map(|(path, keys)| {
+            let mut node = 0;
+            for segment in path {
+                node = wanted.child(node, segment);
+            }
+            let keys = keys.iter().map(|key| wanted.child(node, key)).collect();
             (node, keys)
         })
         .collect();
@@ -323,6 +352,197 @@ fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
                 .unwrap_or(wanted.0[node].at.0)
         })
         .collect()
+}
+
+/// How deep a schema reaches when its local `$ref`s are followed: `#` with a JSON Pointer or an
+/// anchor (`$anchor`, `$dynamicAnchor`, or an `$id` of `#name`), or a URI naming an `$id` in the
+/// file. A `$ref` back to a schema on the way to it is recursion, which jsonschema handles: it
+/// adds nothing.
+// shortcut: a URI matches an `$id` by its text or last path segments, not by full RFC 3986
+// resolution against each base, and a relative `#` reference resolves against the root; a
+// missed match only undercounts. Resolve as jsonschema's `referencing` crate does if one slips by.
+struct Reach<'v> {
+    root: &'v Value,
+    anchors: HashMap<&'v str, (&'v Value, Vec<String>)>,
+    ids: Vec<(&'v str, &'v Value, Vec<String>)>,
+    /// The levels at and under each schema already measured, by address.
+    height: HashMap<*const Value, usize>,
+    /// The schemas on the way to the current one.
+    open: HashSet<*const Value>,
+    /// Where the current schema is in the file.
+    path: Vec<String>,
+    /// Where each `$ref` on the way is: its object's path and the key.
+    refs: Vec<(Vec<String>, &'static str)>,
+}
+
+impl<'v> Reach<'v> {
+    fn new(root: &'v Value) -> Self {
+        let mut reach = Reach {
+            root,
+            anchors: HashMap::new(),
+            ids: Vec::new(),
+            height: HashMap::new(),
+            open: HashSet::new(),
+            path: Vec::new(),
+            refs: Vec::new(),
+        };
+        reach.collect(root, &mut Vec::new());
+        reach
+    }
+
+    /// Note the anchors and `$id`s in `value`, which is at `path`.
+    fn collect(&mut self, value: &'v Value, path: &mut Vec<String>) {
+        match value {
+            Value::Object(members) => {
+                for (key, member) in members {
+                    if let Value::String(name) = member {
+                        match key.as_str() {
+                            "$anchor" | "$dynamicAnchor" => {
+                                self.anchors.insert(name, (value, path.clone()));
+                            }
+                            "$id" | "id" => match name.strip_prefix('#') {
+                                Some(anchor) => {
+                                    self.anchors.insert(anchor, (value, path.clone()));
+                                }
+                                None => self.ids.push((name, value, path.clone())),
+                            },
+                            _ => {}
+                        }
+                    }
+                    path.push(key.clone());
+                    self.collect(member, path);
+                    path.pop();
+                }
+            }
+            Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    path.push(i.to_string());
+                    self.collect(item, path);
+                    path.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The schema a reference points at, and its path, if it is in the file.
+    fn resolve(&self, reference: &str) -> Option<(&'v Value, Vec<String>)> {
+        let (uri, fragment) = reference.split_once('#').unwrap_or((reference, ""));
+        let (resource, mut path) = if uri.is_empty() {
+            (self.root, Vec::new())
+        } else {
+            let (_, value, path) = self.ids.iter().find(|(id, ..)| {
+                let id = id.split_once('#').map_or(*id, |(id, _)| id);
+                id == uri || id.ends_with(&format!("/{uri}")) || uri.ends_with(&format!("/{id}"))
+            })?;
+            (*value, path.clone())
+        };
+        if fragment.is_empty() {
+            return Some((resource, path));
+        }
+        let Some(pointer) = fragment.strip_prefix('/') else {
+            return self.anchors.get(fragment).cloned();
+        };
+        let mut value = resource;
+        for segment in percent_decoded(pointer).split('/') {
+            let segment = segment.replace("~1", "/").replace("~0", "~");
+            value = match value {
+                Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+                _ => value.get(&segment)?,
+            };
+            path.push(segment);
+        }
+        Some((value, path))
+    }
+
+    /// Where a `$ref` leads past [`MAX_SCHEMA_DEPTH`] levels, as its object's path and key.
+    fn too_deep(mut self) -> Option<(Vec<String>, &'static str)> {
+        self.visit(self.root, 1).err()
+    }
+
+    /// The levels at and under `value`, which is `level` levels deep, or where that is too many.
+    fn visit(
+        &mut self,
+        value: &'v Value,
+        level: usize,
+    ) -> Result<usize, (Vec<String>, &'static str)> {
+        if !(value.is_object() || value.is_array()) {
+            return Ok(0);
+        }
+        let address: *const Value = value;
+        let known = self.height.get(&address).copied();
+        if level + known.unwrap_or(1) - 1 > MAX_SCHEMA_DEPTH {
+            // Containers alone stay within the parser's depth limit, so a `$ref` is on the way.
+            return Err(self.refs.last().cloned().unwrap_or((Vec::new(), "$ref")));
+        }
+        if let Some(height) = known {
+            return Ok(height);
+        }
+        self.open.insert(address);
+        let mut below = 0;
+        match value {
+            Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    self.path.push(i.to_string());
+                    below = below.max(self.visit(item, level + 1)?);
+                    self.path.pop();
+                }
+            }
+            Value::Object(members) => {
+                for (key, member) in members {
+                    self.path.push(key.clone());
+                    below = below.max(self.visit(member, level + 1)?);
+                    self.path.pop();
+                }
+                for key in REF_KEYS {
+                    let Some((target, path)) = members
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .and_then(|reference| self.resolve(reference))
+                    else {
+                        continue;
+                    };
+                    if self.open.contains(&std::ptr::from_ref(target)) {
+                        continue;
+                    }
+                    self.refs.push((self.path.clone(), key));
+                    let here = std::mem::replace(&mut self.path, path);
+                    below = below.max(self.visit(target, level + 1)?);
+                    self.path = here;
+                    self.refs.pop();
+                }
+            }
+            _ => {}
+        }
+        self.open.remove(&address);
+        self.height.insert(address, below + 1);
+        Ok(below + 1)
+    }
+}
+
+/// `text` with each `%XX` escape decoded, as a URI fragment holds a JSON Pointer.
+fn percent_decoded(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match (bytes[i], hex) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                i += 3;
+            }
+            (byte, _) => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// An open container while the events are folded into values, with an object's current key.
@@ -426,10 +646,36 @@ fn number(text: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_MESSAGE, cut, documents, fits, json_path, locate, message, number};
+    use super::{MAX_MESSAGE, Reach, cut, documents, fits, json_path, locate, message, number};
     use jsonvet::{Config, Dialect};
     use proptest::prelude::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn local_refs_resolve_by_pointer_anchor_and_id() {
+        let schema = json!({
+            "$id": "https://example.com/root.json",
+            "$defs": {
+                "a/b": [{"$anchor": "x"}, {"type": "string"}],
+                "%": {"$id": "#old"},
+                "sub": {"$id": "sub.json", "$defs": {"c": true}},
+            },
+        });
+        let reach = Reach::new(&schema);
+        let path = |reference: &str| reach.resolve(reference).map(|(_, path)| path.join("/"));
+        assert_eq!(path("#").as_deref(), Some(""));
+        assert_eq!(path("#/$defs/a~1b/1").as_deref(), Some("$defs/a/b/1"));
+        assert_eq!(path("#/$defs/%25").as_deref(), Some("$defs/%"));
+        assert_eq!(path("#x").as_deref(), Some("$defs/a/b/0"));
+        assert_eq!(path("#old").as_deref(), Some("$defs/%"));
+        assert_eq!(path("root.json#/$defs").as_deref(), Some("$defs"));
+        assert_eq!(
+            path("https://example.com/sub.json#/$defs/c").as_deref(),
+            Some("$defs/sub/$defs/c")
+        );
+        assert_eq!(path("#/$defs/none"), None);
+        assert_eq!(path("other.json"), None);
+    }
 
     #[test]
     fn events_fold_into_the_values_serde_json_reads() {
