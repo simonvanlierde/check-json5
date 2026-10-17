@@ -61,9 +61,13 @@ func verdict(path string, parse func([]byte) error) (result string) {
 }
 
 func main() {
-	parse, ok := parsers[os.Args[1]]
+	name := ""
+	if len(os.Args) > 1 {
+		name = os.Args[1]
+	}
+	parse, ok := parsers[name]
 	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown parser:", os.Args[1])
+		fmt.Fprintln(os.Stderr, "unknown parser:", name)
 		os.Exit(2)
 	}
 	fmt.Println("ready")

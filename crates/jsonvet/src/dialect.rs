@@ -2,16 +2,17 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
-/// A member of the JSON family. Each one only adds syntax to the one before it, in the order
-/// JSON, JSONC, JWCC, JSON5; I-JSON is JSON with stricter content rules, and JSON Lines is one
-/// JSON value per line.
+/// A member of the JSON family. In the order JSON, JSONC, JWCC, JSON5, each one adds syntax to the
+/// one before it. The one thing that does not carry over is where a `//` comment ends: JWCC ends
+/// it at LF only, JSONC also at a lone CR, and JSON5 also at U+2028 and U+2029. I-JSON is JSON
+/// with stricter content rules, and JSON Lines is one JSON value per line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Dialect {
     /// JSON as RFC 8259 defines it.
     Json,
-    /// I-JSON (RFC 7493): JSON whose duplicate keys, lone surrogates, noncharacters and
-    /// out-of-range numbers are errors.
+    /// I-JSON (RFC 7493): JSON whose lone surrogates, noncharacters and out-of-range numbers
+    /// are errors. Duplicate keys are an error in every dialect.
     IJson,
     /// JSON with `//` and `/* */` comments.
     Jsonc,
@@ -25,7 +26,7 @@ pub enum Dialect {
 
 impl Dialect {
     /// Every dialect, in the order the docs list them.
-    pub const ALL: [Dialect; 6] = [
+    pub const ALL: &'static [Dialect] = &[
         Dialect::Json,
         Dialect::IJson,
         Dialect::Jsonc,
@@ -46,22 +47,38 @@ impl Dialect {
         }
     }
 
-    /// The default dialect for a file, from its name, or `None` for a file jsonvet does not
-    /// check by default. `.json` files default to JSON5, because most `.json` files that fail
-    /// as JSON are config files with comments.
+    /// The file extensions jsonvet checks by default, without the dot, each with its dialect.
+    /// Matching is case-sensitive.
+    pub const EXTENSIONS: &'static [(&'static str, Dialect)] = &[
+        ("json", Dialect::Json5),
+        ("json5", Dialect::Json5),
+        ("geojson", Dialect::Json5),
+        ("jsonld", Dialect::Json5),
+        ("webmanifest", Dialect::Json5),
+        ("jsonc", Dialect::Jsonc),
+        ("code-workspace", Dialect::Jsonc),
+        ("code-snippets", Dialect::Jsonc),
+        ("hujson", Dialect::Jwcc),
+        ("jwcc", Dialect::Jwcc),
+        ("jsonl", Dialect::JsonLines),
+        ("ndjson", Dialect::JsonLines),
+    ];
+
+    /// Whole file names jsonvet checks by default, each with its dialect. These match the
+    /// complete name only: `.babelrc`, not `a.babelrc`.
+    pub const FILE_NAMES: &'static [(&'static str, Dialect)] = &[(".babelrc", Dialect::Json5)];
+
+    /// The default dialect for a file, from [`FILE_NAMES`](Self::FILE_NAMES) or else
+    /// [`EXTENSIONS`](Self::EXTENSIONS), or `None` for a file jsonvet does not check by default.
+    /// `.json` files default to JSON5, because most `.json` files that fail as JSON are config
+    /// files with comments.
     pub fn for_path(path: &Path) -> Option<Dialect> {
         let name = path.file_name()?.to_str()?;
-        if name == ".babelrc" {
-            return Some(Dialect::Json5);
-        }
-        let (_, ext) = name.rsplit_once('.')?;
-        match ext {
-            "json" | "json5" | "geojson" | "jsonld" | "webmanifest" => Some(Dialect::Json5),
-            "jsonc" | "code-workspace" | "code-snippets" => Some(Dialect::Jsonc),
-            "hujson" | "jwcc" => Some(Dialect::Jwcc),
-            "jsonl" | "ndjson" => Some(Dialect::JsonLines),
-            _ => None,
-        }
+        let (_, ext) = name.rsplit_once('.').unwrap_or_default();
+        let find = |table: &[(&str, Dialect)], key: &str| {
+            table.iter().find(|(k, _)| *k == key).map(|&(_, d)| d)
+        };
+        find(Self::FILE_NAMES, name).or_else(|| find(Self::EXTENSIONS, ext))
     }
 
     pub(crate) fn comments(self) -> bool {
@@ -70,6 +87,11 @@ impl Dialect {
 
     pub(crate) fn trailing_commas(self) -> bool {
         matches!(self, Dialect::Jwcc | Dialect::Json5)
+    }
+
+    /// Whether a `//` comment ends only at `\n`. JWCC's text says `\r` bytes are irrelevant.
+    pub(crate) fn line_comment_ends_only_at_lf(self) -> bool {
+        self == Dialect::Jwcc
     }
 
     pub(crate) fn json5(self) -> bool {
@@ -85,7 +107,14 @@ impl fmt::Display for Dialect {
 
 /// The error for a dialect name jsonvet does not know.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnknownDialect(pub String);
+pub struct UnknownDialect(String);
+
+impl UnknownDialect {
+    /// The name that was given.
+    pub fn name(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for UnknownDialect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -110,9 +139,33 @@ impl FromStr for Dialect {
             "hujson" => Ok(Dialect::Jwcc),
             "ijson" => Ok(Dialect::IJson),
             _ => Dialect::ALL
-                .into_iter()
+                .iter()
+                .copied()
                 .find(|d| d.name() == s)
                 .ok_or_else(|| UnknownDialect(s.to_owned())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Dialect;
+
+    #[test]
+    fn all_lists_every_dialect_at_its_index() {
+        for (i, &dialect) in Dialect::ALL.iter().enumerate() {
+            assert_eq!(dialect as usize, i, "{dialect}");
+        }
+        let last = Dialect::JsonLines;
+        // No wildcard: a new dialect stops this building until `last` and ALL are updated.
+        match last {
+            Dialect::Json
+            | Dialect::IJson
+            | Dialect::Jsonc
+            | Dialect::Jwcc
+            | Dialect::Json5
+            | Dialect::JsonLines => {}
+        }
+        assert_eq!(Dialect::ALL.len(), last as usize + 1);
     }
 }

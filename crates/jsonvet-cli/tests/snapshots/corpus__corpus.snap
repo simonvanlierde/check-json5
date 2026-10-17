@@ -152,7 +152,7 @@ jsonl/two-values-on-a-line.jsonl -> 1
     jsonl/two-values-on-a-line.jsonl:1:3: error[syntax] expected the end of the line, found `2`
 jsonl/valid.jsonl -> 0
 jsonl/value-across-lines.jsonl -> 1
-    jsonl/value-across-lines.jsonl:1:6: error[syntax] expected a value, found U+000A
+    jsonl/value-across-lines.jsonl:1:6: error[syntax] expected a value, found the end of the line
 jwcc/single-quotes.json -> 1
     jwcc/single-quotes.json:1:2: error[syntax] single-quoted strings are not allowed in jwcc
 jwcc/trailing-comma-and-comment.json -> 0

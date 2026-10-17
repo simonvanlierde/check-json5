@@ -1,6 +1,9 @@
 # Renovate bumps these revs, so a hook run never edits this file.
 # The corpus files keep their bytes exactly: missing final newlines, CRs, trailing spaces.
 exclude: ^(tests/corpus|conformance/extra)/
+# `just setup` installs both stages.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v6.0.0
@@ -18,3 +21,34 @@ repos:
       hooks:
           - id: ruff-check
           - id: ruff-format
+
+    # The same checks as CI's lint job, on the host's toolchain. Clippy and cargo-deny are slow, so
+    # they run at push, not at commit.
+    - repo: local
+      hooks:
+          - id: cargo-fmt
+            name: cargo fmt
+            entry: cargo fmt --all --check
+            language: system
+            types: [rust]
+            pass_filenames: false
+          - id: check-versions
+            name: release version agrees everywhere
+            entry: uv run scripts/check-versions.py
+            language: system
+            files: ^(Cargo\.toml|setup\.py|README\.md|CHANGELOG\.md|compat/check-json5/pyproject\.toml|crates/jsonvet-cli/Cargo\.toml|justfile|\.github/workflows/ci\.yml|scripts/(check-versions|bench)\.py)$
+            pass_filenames: false
+          - id: cargo-clippy
+            name: cargo clippy
+            entry: cargo clippy --workspace --all-targets --locked -- -D warnings
+            language: system
+            types: [rust]
+            pass_filenames: false
+            stages: [pre-push]
+          - id: cargo-deny
+            name: cargo deny
+            entry: cargo deny check
+            language: system
+            files: ^(Cargo\.(toml|lock)|deny\.toml|crates/[^/]+/Cargo\.toml)$
+            pass_filenames: false
+            stages: [pre-push]

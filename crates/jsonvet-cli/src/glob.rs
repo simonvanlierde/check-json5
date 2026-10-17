@@ -14,9 +14,17 @@ pub(crate) fn matches(pattern: &str, path: &str) -> bool {
     wildcard(&pattern, &target)
 }
 
+/// `path` relative to the directory `base`, both absolute, or `None` when `path` is not
+/// inside `base`.
+pub(crate) fn relative(path: &str, base: &str) -> Option<String> {
+    let (path, base) = (normalize(path), normalize(base));
+    let rest = path.strip_prefix(base.trim_end_matches('/'))?;
+    rest.strip_prefix('/').map(str::to_owned)
+}
+
 /// Collapse `.`, `..` and repeated separators, and use `/` throughout, as Python's
 /// `os.path.normpath` does, so `./sub/a.json` matches `sub/*.json`.
-pub(crate) fn normalize(path: &str) -> String {
+fn normalize(path: &str) -> String {
     let path = path.replace('\\', "/");
     let absolute = path.starts_with('/');
     let mut parts: Vec<&str> = Vec::new();
@@ -50,9 +58,7 @@ fn wildcard(pattern: &[char], text: &[char]) -> bool {
             p += 1;
             continue;
         }
-        if p < pattern.len()
-            && let Some((true, next)) = one(&pattern[p..], text[t])
-        {
+        if let Some((true, next)) = one(&pattern[p..], text[t]) {
             p += next;
             t += 1;
             continue;
@@ -117,7 +123,7 @@ fn in_class(class: &[char], c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{matches, normalize, wildcard};
+    use super::{matches, normalize, relative, wildcard};
 
     #[test]
     fn patterns_match_as_check_json5_matched_them() {
@@ -165,6 +171,29 @@ mod tests {
                 "{pattern} on {text}"
             );
         }
+    }
+
+    #[test]
+    fn paths_relative_to_a_directory() {
+        assert_eq!(
+            relative("/r/data/x.json", "/r").as_deref(),
+            Some("data/x.json")
+        );
+        assert_eq!(
+            relative("/r/sub/../x.json", "/r/").as_deref(),
+            Some("x.json")
+        );
+        assert_eq!(relative("/a.json", "/").as_deref(), Some("a.json"));
+        assert_eq!(
+            relative("/rx/a.json", "/r"),
+            None,
+            "a sibling with a longer name"
+        );
+        assert_eq!(relative("/other/a.json", "/r"), None);
+        assert_eq!(
+            relative("C:\\r\\a.json", "C:\\r").as_deref(),
+            Some("a.json")
+        );
     }
 
     #[test]

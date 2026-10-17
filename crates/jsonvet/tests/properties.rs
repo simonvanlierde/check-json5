@@ -1,14 +1,25 @@
-//! Properties that hold for every input in every dialect: no panic, every offset inside the
-//! text and on a character boundary, and every location equal to a naive recount.
+//! Properties that hold for every input in every dialect: no panic, every report keeping the
+//! promises `common::report_violation` lists, a text that passes in a narrower dialect
+//! passing in the wider ones, and `parse` agreeing with `check`.
+
+mod common;
 
 use std::fmt::Write as _;
 
+use common::{nesting_violations, report_violation, strict};
 use jsonvet::{Config, Dialect, EventKind, Rule, check, parse};
 use proptest::prelude::*;
 
-/// JSON-ish token soup, so most inputs get past the first byte.
+/// JSON-ish token soup, so most inputs get past the first byte, mixed with arbitrary text for
+/// the rest.
 fn soup() -> impl Strategy<Value = String> {
     let tokens = prop::sample::select(vec![
+        // Whole values, so some inputs are valid in the narrower dialects.
+        "[]",
+        "[1]",
+        "[1,]",
+        "{\"a\":1}",
+        "{\"a\":1,}",
         "{",
         "}",
         "[",
@@ -44,7 +55,22 @@ fn soup() -> impl Strategy<Value = String> {
         "\u{1}",
         "\"\\ud800\"",
     ]);
-    prop::collection::vec(tokens, 0..40).prop_map(|t| t.concat())
+    // Runs deep enough to reach the depth limit and long enough to overflow a number's range.
+    let runs = prop::sample::select(vec![
+        "[".repeat(300),
+        "{\"a\":".repeat(150),
+        "[".repeat(12_000),
+        "9".repeat(400),
+        "1".repeat(20),
+        format!("0.{}", "0".repeat(400)),
+        format!("1e{}", "9".repeat(30)),
+    ]);
+    let token = prop_oneof![
+        20 => tokens.prop_map(String::from),
+        1 => runs,
+    ];
+    let soup = prop::collection::vec(token, 0..40).prop_map(|t| t.concat());
+    prop_oneof![4 => soup, 1 => "\\PC{0,64}"]
 }
 
 /// A value as text, with the events it should parse into, written as short tokens.
@@ -216,20 +242,6 @@ fn token(kind: &EventKind<'_>) -> String {
     }
 }
 
-/// Line and column the slow way: count terminators and characters from the start.
-fn recount(text: &str, offset: usize) -> (usize, usize) {
-    let (mut line, mut column) = (1, 1);
-    // A CR followed by LF is one line end, even when the offset points at the LF.
-    for (i, c) in text.char_indices().take_while(|&(i, _)| i < offset) {
-        match c {
-            '\r' if text[i + 1..].starts_with('\n') => column += 1,
-            '\n' | '\r' | '\u{2028}' | '\u{2029}' => (line, column) = (line + 1, 1),
-            _ => column += 1,
-        }
-    }
-    (line, column)
-}
-
 proptest! {
     // 4000 cases by default; PROPTEST_CASES sets more for a long run.
     #![proptest_config(ProptestConfig::with_cases(
@@ -237,20 +249,9 @@ proptest! {
     ))]
 
     #[test]
-    fn offsets_are_valid_and_locations_agree(text in soup(), dialect in prop::sample::select(Dialect::ALL.to_vec())) {
-        let report = check(&text, &Config::new(dialect));
-        for problem in report.problems() {
-            for offset in std::iter::once(problem.offset()).chain(problem.related_offset()) {
-                prop_assert!(offset <= text.len());
-                prop_assert!(text.is_char_boundary(offset));
-                let at = report.location(offset);
-                prop_assert_eq!((at.line, at.column), recount(&text, offset));
-            }
-        }
-        // Again backwards: `location` counts from its last answer when that is nearer.
-        for problem in report.problems().iter().rev() {
-            let at = report.location(problem.offset());
-            prop_assert_eq!((at.line, at.column), recount(&text, problem.offset()));
+    fn reports_keep_their_promises(text in soup(), dialect in prop::sample::select(Dialect::ALL.to_vec())) {
+        for config in [Config::new(dialect), strict()] {
+            prop_assert_eq!(report_violation(&text, &config), Ok(()));
         }
     }
 
@@ -290,7 +291,7 @@ proptest! {
     }
 
     #[test]
-    fn arbitrary_text_never_panics(text in "\\PC{0,64}", dialect in prop::sample::select(Dialect::ALL.to_vec())) {
-        let _ = check(&text, &Config::new(dialect));
+    fn dialects_nest(text in soup()) {
+        prop_assert_eq!(nesting_violations(&text), Vec::<String>::new());
     }
 }

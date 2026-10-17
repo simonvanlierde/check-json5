@@ -143,5 +143,8 @@ cython_debug/
 # Ruff
 .ruff-cache/
 
+# cargo-mutants output
+mutants.out*/
+
 # Build cache of the conformance drivers
 /conformance/.work/

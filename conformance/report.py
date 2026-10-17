@@ -3,7 +3,9 @@
 # ///
 """Render conformance/results/ into docs/conformance.md.
 
-Usage: uv run conformance/report.py
+Usage: uv run conformance/report.py [--check]
+
+--check only verifies that README.md names the right number of parsers.
 
 Each input file gets an expected verdict: from the spec where the spec decides it (SPEC below),
 otherwise from the json5-tests file extension, conformance/extra/*/expect.tsv, or jsonvet's
@@ -12,8 +14,11 @@ reviewed corpus snapshot. A parser's cell says whether its verdict agrees. See R
 
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
+
+from run import TIMEOUT
 
 ROOT = Path(__file__).resolve().parent.parent
 HERE = ROOT / "conformance"
@@ -25,8 +30,17 @@ CORPUS = "tests/corpus/"
 SUITE = "tests/json5-tests/"
 EXTRA = "conformance/extra/"
 
-# json5-tests cases labelled wrongly; json5/json5-tests#4.
-MISLABELED = {f"{SUITE}comments/irregular-block-comment.json": "has a block comment, so it is not JSON"}
+# json5-tests cases labelled wrongly; json5/json5-tests#4. The list is shared with
+# crates/jsonvet/tests/conformance.rs, which holds the same extension-to-verdict rule as
+# `expectation` below: change both together.
+MISLABELED = {
+    f"{SUITE}{case}": why
+    for case, why in (
+        line.split("\t", 1)
+        for line in (ROOT / "tests/json5-tests-mislabeled.tsv").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+}
 
 # (title, dialect, spec link, input folders)
 TABLES = [
@@ -310,10 +324,23 @@ def duplicates_section(verdicts: dict, snap: dict) -> list[str]:
     return [*out, ""]
 
 
+def check_readme_count(parsers: dict) -> int:
+    """1 if README.md's "against N other parsers" disagrees with the matrix, else 0."""
+    # The duplicate-key variants run a parser already counted.
+    others = sum(info["language"] != "jsonvet" and "dupes" not in info["uses"] for info in parsers.values())
+    found = re.search(r"against (\d+) other parsers", README.read_text())
+    if found and int(found.group(1)) == others:
+        return 0
+    print(f'README.md should say "against {others} other parsers" (found {found and found.group(0)!r})')
+    return 1
+
+
 def main() -> None:
     """Write docs/conformance.md and the summary table in README.md."""
     summary = json.loads((RESULTS / "versions.json").read_text())
     parsers = summary["parsers"]
+    if sys.argv[1:] == ["--check"]:
+        sys.exit(check_readme_count(parsers))
     verdicts = {
         name: dict(line.split("\t") for line in (RESULTS / f"{name}.tsv").read_text().splitlines()) for name in parsers
     }
@@ -329,7 +356,7 @@ def main() -> None:
         "rerun it: [conformance/README.md](../conformance/README.md).",
         "",
         "Cells: ✓ the parser agrees with the expected verdict, ✗ it disagrees, 💥 it crashed or",
-        "took longer than 10 s. Where the spec allows both verdicts (expected: either), the cell",
+        f"took longer than {TIMEOUT} s. Where the spec allows both verdicts (expected: either), the cell",
         "shows what the parser did: A accepted, R rejected. Duplicate keys count as valid in the",
         "syntax tables (jsonvet runs with `--ignore duplicate-key`); they have their own table.",
         "",
@@ -351,6 +378,7 @@ def main() -> None:
     OUT.write_text("\n".join(out) + "\n")
     write_readme_summary(scores, summary["date"])
     print(f"wrote {OUT.relative_to(ROOT)} and the summary in README.md")
+    sys.exit(check_readme_count(parsers))
 
 
 def write_readme_summary(scores: dict, date: str) -> None:
@@ -365,7 +393,7 @@ def write_readme_summary(scores: dict, date: str) -> None:
     for (title, files), row in scores.items():
         ranked = sorted(row, key=lambda r: (-r[1], r[0]))
         lines.append(f"| {title} | {files} | " + ", ".join(f"`{c}` {pct:.0f}%" for c, pct in ranked) + " |")
-    grid = "[docs/conformance.md](docs/conformance.md)"
+    grid = "[docs/conformance.md](https://github.com/simonvanlierde/jsonvet/blob/main/docs/conformance.md)"
     lines += ["", f"Run on {date}. The full grid, and where each expected verdict comes from: {grid}.", "", end]
     text = README.read_text()
     before, rest = text.split(start, 1)
