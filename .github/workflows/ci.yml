@@ -327,10 +327,9 @@ jobs:
       # version is not on crates.io yet. The release job skips this with --no-verify.
       - run: cargo publish --dry-run --locked --workspace
 
-  # Public API changes in the library against its last release on crates.io. 3.0 changes the
-  # types of Rule::ALL and Dialect::ALL and adds #[non_exhaustive], which this flags as major
-  # against 2.0.x: the job fails until the release commit bumps Cargo.toml to 3.0.0. Reported, not
-  # enforced, so read the job summary on a pull request that touches the library.
+  # Public API changes in the library against its last release on crates.io. A break fails the
+  # job unless Cargo.toml has the next major version. Reported, not enforced, so read the job
+  # summary on a pull request that touches the library.
   semver:
     runs-on: ubuntu-latest
     timeout-minutes: 15

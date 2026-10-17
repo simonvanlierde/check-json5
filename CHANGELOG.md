@@ -8,12 +8,20 @@ version for a new option or output, the patch version for a fix.
 
 ## [Unreleased]
 
-This is a major release because of the three **Breaking** changes below. Upgrade: hook and
-command users set `rev: v3.0.0` and need no other change, with two exceptions. `dialects`
-patterns in a config file now match paths relative to that file, and a mistyped `--option` now
-exits 2. Rust library users: `Rule::ALL` and `Dialect::ALL` are slices, a `match` on `Severity`
-needs a `_` arm, a `Location` is no longer built with a struct literal (use `Location::START`),
-and the text of `UnknownRule` and `UnknownDialect` comes from `id()` and `name()`.
+## [3.0.0] - unreleased
+
+This is a major release because of the three **Breaking** changes below. To upgrade, set
+`rev: v3.0.0` (or `uses: simonvanlierde/jsonvet@v3`), then:
+
+1. If you run jsonvet from another directory than the one holding `jsonvet.toml` or the
+   `pyproject.toml` with `[tool.jsonvet]`, or pass absolute paths, write its `dialects`
+   patterns relative to that file's directory.
+2. If a script passes an option jsonvet does not know, expect exit 2 instead of exit 1.
+3. Rust library users: treat `Rule::ALL` and `Dialect::ALL` as slices, add a `_` arm to a
+   `match` on `Severity`, build a `Location` from `Location::START` instead of a struct literal,
+   and read the text of `UnknownRule` and `UnknownDialect` with `id()` and `name()`.
+
+Hook and command users who do neither of the first two need no other change.
 
 ### Added
 
@@ -248,7 +256,8 @@ hook's output, or imports `pre_commit_hooks.check_json5`, needs a change (see Ch
 
 - Renamed from `pre-commit-check-json5` to `check-json5`.
 
-[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/jsonvet/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/simonvanlierde/jsonvet/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.1...v2.0.0
 [1.4.1]: https://github.com/simonvanlierde/jsonvet/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/simonvanlierde/jsonvet/compare/v1.3.0...v1.4.0

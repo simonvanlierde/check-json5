@@ -26,7 +26,7 @@ In `.pre-commit-config.yaml` (pre-commit or [prek](https://github.com/j178/prek)
 
 ```yaml
 - repo: https://github.com/simonvanlierde/jsonvet
-  rev: v2.0.0
+  rev: v3.0.0
   hooks:
     - id: jsonvet
 ```
