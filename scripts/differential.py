@@ -188,8 +188,10 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
         if same_verdicts and (has_syntax_error(a) or duplicates(a) == duplicates(b)):
             tally["same"] += 1
             continue
-        # newline="": a lone CR must stay one, as the tools read it.
-        text = path.read_text(encoding="utf-8", newline="")
+        # newline="": a lone CR must stay one, as the tools read it. Path.read_text takes
+        # newline only from Python 3.13 on, and this script runs on 3.12.
+        with path.open(encoding="utf-8", newline="") as f:
+            text = f.read()
         category = classify(path.name, text, a, b)
         tally[category] += 1
         if len(examples[category]) < EXAMPLES:
