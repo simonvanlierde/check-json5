@@ -850,6 +850,20 @@ fn sarif_keeps_other_brackets() {
     assert!(out.contains("duplicate key $[0].a"), "{out}");
 }
 
+#[test]
+fn sarif_keeps_25000_results_and_counts_the_rest() {
+    let dir = workdir(&[("a.jsonl", &"{\"a\": 1, \"a\": 2}\n".repeat(25_002))]);
+    let (code, out, err) = jsonvet_stderr(&dir, &["--format", "sarif", "a.jsonl"]);
+    assert_eq!(code, 1);
+    let sarif: serde_json::Value = serde_json::from_str(&out).expect("JSON output");
+    let run = &sarif["runs"][0];
+    assert_eq!(run["results"].as_array().expect("results").len(), 25_000);
+    let text = "2 more results not listed: SARIF output keeps the first 25000";
+    let note = &run["invocations"][0]["toolExecutionNotifications"][0];
+    assert_eq!(note["message"]["text"], text);
+    assert_eq!(err, format!("jsonvet: {text}\n"));
+}
+
 /// Run jsonvet in `dir` with GitHub annotations off; return its exit code, stdout and stderr.
 fn jsonvet_stderr(dir: &Path, args: &[&str]) -> (i32, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))

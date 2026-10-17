@@ -14,6 +14,15 @@ pub(crate) const UNREADABLE: &str = "unreadable";
 /// A value the schema given with `--schema` rejects. A CLI rule: the library knows no schemas.
 pub(crate) const SCHEMA: &str = "schema";
 
+/// GitHub code scanning keeps only the top 5,000 results of a run with more than 25,000, and
+/// rejects a run past 1,000,000. The rest are counted in a tool notification instead.
+pub(crate) const MAX_RESULTS: usize = 25_000;
+
+/// What the tool notification and stderr say about results past [`MAX_RESULTS`].
+pub(crate) fn dropped_message(dropped: usize) -> String {
+    format!("{dropped} more results not listed: SARIF output keeps the first {MAX_RESULTS}")
+}
+
 /// One result, as a JSON object. `related` is a second position with its message, such as a
 /// duplicate key's first copy.
 pub(crate) fn result(
@@ -53,8 +62,9 @@ pub(crate) fn level(severity: Severity) -> &'static str {
     }
 }
 
-/// The whole document: one run holding every result.
-pub(crate) fn document(results: &[String]) -> String {
+/// The whole document: one run holding the results, and a notification counting the `dropped`
+/// ones past [`MAX_RESULTS`].
+pub(crate) fn document(results: &[String], dropped: usize) -> String {
     let rules: Vec<String> = Rule::ALL
         .iter()
         .map(|rule| (rule.id(), rule.description()))
@@ -74,6 +84,14 @@ pub(crate) fn document(results: &[String]) -> String {
             )
         })
         .collect();
+    let invocations = if dropped == 0 {
+        String::new()
+    } else {
+        format!(
+            r#""invocations":[{{"executionSuccessful":true,"toolExecutionNotifications":[{{"level":"warning","message":{{"text":{}}}}}]}}],"#,
+            string(&dropped_message(dropped))
+        )
+    };
     format!(
         concat!(
             r#"{{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","#,
@@ -85,10 +103,11 @@ pub(crate) fn document(results: &[String]) -> String {
             r#""originalUriBaseIds":{{"%SRCROOT%":{{"description":{{"text":"#,
             r#""the working directory jsonvet ran in"}}}}}},"#,
             // jsonvet counts columns in code points; SARIF's default is UTF-16 code units.
-            r#""columnKind":"unicodeCodePoints","results":[{}]}}]}}"#
+            r#""columnKind":"unicodeCodePoints",{}"results":[{}]}}]}}"#
         ),
         env!("CARGO_PKG_VERSION"),
         rules.join(","),
+        invocations,
         results.join(",")
     )
 }

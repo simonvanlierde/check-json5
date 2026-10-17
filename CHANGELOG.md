@@ -27,7 +27,8 @@ Hook and command users who do neither of the first two need no other change.
 
 - `--format sarif` prints one SARIF 2.1.0 document instead of text lines, for GitHub code
   scanning. A duplicate key also points at its first copy, and a file that cannot be read is a
-  result under the rule `unreadable`. Exit codes and `--max-warnings` work as before.
+  result under the rule `unreadable`. Exit codes and `--max-warnings` work as before. It keeps
+  the first 25,000 results, the most GitHub keeps in full, and counts the rest.
 - A GitHub Action: `uses: simonvanlierde/jsonvet@v3` checks the repository's tracked JSON files,
   apart from symlinks and submodules, or the `files` you give it (`**` matches at any depth on
   every runner). With `sarif:` it also writes a SARIF file for code scanning, and fails with a

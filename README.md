@@ -226,7 +226,8 @@ document instead of text lines, which GitHub code scanning and other tools read.
 result with its rule, severity, message and position, and a duplicate key also points at the
 first copy. A file jsonvet cannot read is a result of its own, under the rule `unreadable`. The
 exit status and `--max-warnings` work as with text output, and no workflow annotations are
-printed.
+printed. GitHub keeps only 5,000 results of a run with more than 25,000, so jsonvet writes the
+first 25,000 and counts the rest in a tool notification and on stderr.
 
 ```bash
 jsonvet --format sarif $(git ls-files '*.json') > jsonvet.sarif

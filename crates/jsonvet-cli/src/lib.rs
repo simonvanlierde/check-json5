@@ -78,7 +78,8 @@ pub fn run() -> ExitCode {
 /// Run `f` on a thread with a [`STACK`]-byte stack, or here if no thread can start. A panic in
 /// `f` carries on here.
 fn on_big_stack<T: Send + 'static>(f: fn() -> T) -> T {
-    match std::thread::Builder::new().stack_size(STACK).spawn(f) {
+    let thread = std::thread::Builder::new().name("schema".into());
+    match thread.stack_size(STACK).spawn(f) {
         Ok(thread) => thread
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),

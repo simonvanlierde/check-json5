@@ -84,6 +84,8 @@ pub(crate) struct Printer<W: Write> {
     annotate: bool,
     /// SARIF results, held until `finish` writes the document; `None` for text output.
     sarif: Option<Vec<String>>,
+    /// SARIF results past [`sarif::MAX_RESULTS`], counted but not kept.
+    dropped: usize,
 }
 
 impl<W: Write> Printer<W> {
@@ -93,6 +95,7 @@ impl<W: Write> Printer<W> {
             out,
             annotate: annotate && !sarif,
             sarif: sarif.then(Vec::new),
+            dropped: 0,
         }
     }
 
@@ -156,8 +159,8 @@ impl<W: Write> Printer<W> {
         at: Location,
         related: Option<(Location, &str)>,
     ) -> io::Result<()> {
-        if let Some(results) = &mut self.sarif {
-            results.push(sarif::result(file, rule, severity, message, at, related));
+        if self.sarif.is_some() {
+            self.push(|| sarif::result(file, rule, severity, message, at, related));
             return Ok(());
         }
         let file = &file.to_string_lossy();
@@ -185,17 +188,19 @@ impl<W: Write> Printer<W> {
 
     /// A file that could not be checked at all.
     pub(crate) fn unreadable(&mut self, file: &OsStr, message: &str) -> io::Result<()> {
-        if let Some(results) = &mut self.sarif {
+        if self.sarif.is_some() {
             // GitHub code scanning needs a line in every result.
             let start = Location::START;
-            results.push(sarif::result(
-                file,
-                sarif::UNREADABLE,
-                Severity::Error,
-                message,
-                start,
-                None,
-            ));
+            self.push(|| {
+                sarif::result(
+                    file,
+                    sarif::UNREADABLE,
+                    Severity::Error,
+                    message,
+                    start,
+                    None,
+                )
+            });
             return Ok(());
         }
         let file = &file.to_string_lossy();
@@ -216,10 +221,24 @@ impl<W: Write> Printer<W> {
         Ok(())
     }
 
+    /// Keep a SARIF result, or only count it once [`sarif::MAX_RESULTS`] are kept.
+    fn push(&mut self, result: impl FnOnce() -> String) {
+        if let Some(results) = &mut self.sarif {
+            if results.len() < sarif::MAX_RESULTS {
+                results.push(result());
+            } else {
+                self.dropped += 1;
+            }
+        }
+    }
+
     /// Write what was held back until every file was checked: the SARIF document.
     pub(crate) fn finish(&mut self) -> io::Result<()> {
         if let Some(results) = &self.sarif {
-            writeln!(self.out, "{}", sarif::document(results))?;
+            if self.dropped > 0 {
+                eprintln!("jsonvet: {}", sarif::dropped_message(self.dropped));
+            }
+            writeln!(self.out, "{}", sarif::document(results, self.dropped))?;
         }
         self.out.flush()
     }
