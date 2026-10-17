@@ -93,6 +93,7 @@ jobs:
           toolchain: "1.88"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --lib --bins --locked
+      - run: cargo check -p jsonvet-cli --lib --bins --locked --no-default-features
 
   # jsonvet against check-json5 1.4.1, file by file; see docs/design.md.
   differential:
