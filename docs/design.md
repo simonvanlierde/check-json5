@@ -107,8 +107,15 @@ so it gets none.
 The PyPI wheels leave it out (`no-default-features` in `pyproject.toml`): jsonschema and its
 regex engines take the binary from about 0.6 MB to about 5 MB, and every hook and Action install
 downloads it. Without the feature, `--schema` still parses, so it exits 2 with a message naming
-`cargo install jsonvet-cli` instead of reading the next argument as a file, and the 256 MB stack
-thread it needs is not started. CI tests and lints both builds.
+`cargo install jsonvet-cli` instead of reading the next argument as a file. One help text serves
+both builds. CI tests and lints both builds.
+
+jsonschema validates recursively, and its memory grows with the square of the depth when an error
+sits deep under a recursive `$ref` (1.3 GB for a 50 KB file nested 10,000 levels). So with
+`--schema` a file is read to 512 levels, not 10,000, and deeper is a syntax error. Only a run with
+`--schema` starts a thread with a 64 MB stack for it; 512 levels against a recursive schema took
+up to 2.2 MB in a debug build, more than Windows' 1 MB main thread. Without `--schema` jsonvet runs
+on the main thread, as it did before. Folded values take about 23 times the file's size in memory.
 
 Schema regexes with back-references or lookaround run on fancy-regex, which backtracks; jsonvet
 caps that at 5,000 steps per match, so `^(a|a)*\1b` over 5,000 strings takes under a second

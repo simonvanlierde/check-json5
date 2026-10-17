@@ -129,7 +129,7 @@ Exit status: 0 when no file has an error, 1 when one does, 2 for a usage error.
 line and column of the value it is about, in every dialect, comments and JSON5 syntax included.
 It comes with `cargo install jsonvet-cli` only: the PyPI wheels, and so the hook and the GitHub
 Action, are built without it, because it makes the binary about 5 MB instead of 0.6 MB. There,
-`--schema` exits with status 2 and says so.
+`--schema` exits with status 2 and says why. The exit status is the contract, not the wording.
 
 ```text
 $ jsonvet --schema server.schema.json server.json5
@@ -140,16 +140,24 @@ server.json5:6:3: error[schema] Additional properties are not allowed ('debug' w
 Each message ends with the JSONPath of the value, written as duplicate-key paths are: `$` is the
 root, `$.tags[1]` an array element, `$[""]` the empty key.
 
-The errors come under the rule `schema` and are errors, in text, GitHub annotations and SARIF
-alike. They are always errors: `--error`, `--warn`, `--ignore` and the settings file do not take
-`schema`, and exit with status 2 if given it. A message quotes the value unless that would make it long; then it says `value`. A
-message that lists many keys is cut at 200 bytes and ends in `...`. Each document lists at most
-100 schema errors, then one more line, `... and N more schema errors in this document`, at its
-start. A file with a syntax error gets no schema errors. Each line of a JSON Lines file is checked
-on its own. `NaN`, `Infinity` and numbers past a double's range have no JSON Schema value, so a
-document holding one is reported once and not checked. So is a document with two keys in one
-object that differ only in lone surrogates such as `"\ud800"`, which both become U+FFFD. In the
-schema file, either is a usage error.
+The errors come under the rule `schema` and are errors, in text, GitHub annotations and SARIF alike.
+They are always errors: `--error`, `--warn`, `--ignore` and the settings file do not take `schema`,
+and exit with status 2 if given it. A message quotes the value unless that would make it long; then
+it says `value`. A message, with its path, is cut at 200 bytes and then ends in `...`. Each document
+lists at most 100 schema errors: the first 100 that jsonschema finds, which takes an object's keys
+in sorted order, not in file order. They are printed in file order, then one more line, `... and N
+more schema errors in this document`, at the document's start. SARIF output leaves that line out.
+The rule id `schema` and the position are the stable part of each error; the message wording comes
+from the jsonschema crate and may change between releases. A file with a syntax error gets no schema
+errors, and with `--schema` a file nested deeper than 512 levels has one: jsonschema takes memory
+that grows with the square of the depth to report an error deep inside a recursive schema. Each line
+of a JSON Lines file is checked on its own. `NaN`, `Infinity` and numbers past a double's range have
+no JSON Schema value, so a document holding one is reported once and not checked. So is a document
+with two keys in one object that differ only in lone surrogates such as `"\ud800"`, which both
+become U+FFFD. In the schema file, either is a usage error.
+
+With `--schema`, jsonvet holds each file's values in memory: about 23 times the file's size, so
+a 14 MB file takes about 320 MB. Without it, memory stays near the file's size.
 
 A pattern with a back-reference or lookaround may backtrack 5,000 times per string. Past that,
 `pattern` reports an error, but `patternProperties` and an `additionalProperties` next to it
@@ -200,8 +208,8 @@ jobs:
 ## Other ways to run it
 
 ```bash
-uvx jsonvet config/*.json        # from PyPI, without installing
-pip install jsonvet              # the same binary, as a Python package
+uvx jsonvet config/*.json        # from PyPI, without installing; no --schema
+pip install jsonvet              # the same checks, without --schema, as a Python package
 cargo install jsonvet-cli        # from source, with --schema
 ```
 

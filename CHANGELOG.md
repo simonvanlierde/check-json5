@@ -18,21 +18,30 @@ version for a new option or output, the patch version for a fix.
   installs jsonvet from PyPI and runs on Linux, macOS and Windows runners.
 - `--schema FILE` checks each file against one JSON Schema and reports each error under the rule
   `schema`, at the line and column of the value it is about, in every dialect and output format.
-  A file with a syntax error gets no schema errors. A `$ref` must stay inside the schema file:
-  jsonvet fetches nothing. Each document lists at most 100 schema errors, then a count of the
-  rest. Each message ends with the value's JSONPath, as duplicate-key messages write it, with
-  `$` for the root. A document holding `NaN`, `Infinity` or a number past a double's range has no JSON
-  Schema value, so it gets one schema error at that number and is not checked. Schema errors are
-  always errors: `--error`, `--warn`, `--ignore` and settings files do not take `schema`. SARIF
-  output lists `schema` among its rules. A schema that cannot be read or used, nests more than
-  128 levels, or holds such a number exits with status 2. A regex in it may backtrack 5,000
-  times per match. It comes with `cargo install jsonvet-cli`, where the binary grows from about
-  0.6 MB to about 5 MB on Linux x86-64. The PyPI wheels, which the hook and the GitHub Action
-  install, are built without it and stay at about 0.65 MB; there `--schema` exits with status 2
-  and says how to get it. Building the crate with `--no-default-features` leaves it out too.
-- The library's `parse` returns a text's values as positioned events, next to the report
-  `check` gives.
-- The library's `json_path` writes a path of keys and indices as duplicate-key messages do.
+  Each message ends with the value's JSONPath, as duplicate-key messages write it, with `$` for the
+  root. The rule id and the position are the stable part; the message wording comes from the
+  jsonschema crate and may change between releases. A file with a syntax error gets no schema
+  errors, and with `--schema` a file nested deeper than 512 levels has one, since jsonschema's
+  memory use grows with the square of the depth there. A `$ref` must stay inside the schema file:
+  jsonvet fetches nothing. Each document lists at most 100 schema errors, the first jsonschema finds
+  (it takes object keys in sorted order), then a count of the rest, which SARIF output leaves out. A
+  document holding `NaN`, `Infinity` or a number past a double's range has no JSON Schema value, nor
+  does one with two keys in an object that differ only in lone surrogates, which both become U+FFFD;
+  such a document gets one schema error and is not checked. Schema errors are always errors:
+  `--error`, `--warn`, `--ignore` and settings files do not take `schema`. SARIF output lists
+  `schema` among its rules in builds that have `--schema`. A schema that cannot be read or used,
+  nests more than 128 levels, or holds such a number or keys exits with status 2. A regex in it may
+  backtrack 5,000 times per match; past that, `pattern` reports an error, but `patternProperties`
+  and an `additionalProperties` beside it count the key as not matching. With `--schema`, memory use
+  is about 23 times the file's size.
+- `--schema` comes with `cargo install jsonvet-cli`, where the binary grows from about 0.6 MB to
+  about 5 MB on Linux x86-64. The PyPI wheels, which the hook and the GitHub Action install, are
+  built without it and stay at about 0.65 MB; there `--schema` exits with status 2 and says how to
+  get it. Building the crate with `--no-default-features` leaves it out too.
+- The library's `parse` returns a text's values as positioned events (the new types `Event` and
+  `EventKind`), next to the report `check` gives.
+- The library's `json_path` writes a path of steps (the new type `PathStep`) as duplicate-key
+  messages do.
 
 ### Changed
 
@@ -43,8 +52,9 @@ version for a new option or output, the patch version for a fix.
 
 - In JWCC (HuJSON) files, a `//` comment ends only at a line feed, as the JWCC text says. A lone
   carriage return no longer ends it, so `[1, // c` + CR + `2]` fails as it should.
-- Control characters other than CR and LF in a file name or message, such as ESC, are now
-  written as `\u001b` and so on, in text lines and GitHub annotations alike.
+- Control characters other than CR and LF in a file name or message, such as ESC, and zero-width
+  and bidi controls such as U+202E, are now written as `\u001b` and so on, in text lines and
+  GitHub annotations alike.
 
 ## [2.0.0] - 2026-10-13
 

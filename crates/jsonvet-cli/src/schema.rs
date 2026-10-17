@@ -42,7 +42,6 @@ const MAX_SCHEMA_DEPTH: usize = 128;
 /// for a lookaround over the whole string, so a string over a few thousand characters can hit it.
 const BACKTRACK_LIMIT: usize = 5_000;
 
-/// A compiled schema.
 pub(crate) struct Schema(Validator);
 
 impl Schema {
@@ -55,16 +54,16 @@ impl Schema {
         // jsonschema compiles a schema recursively: a deep one can take gigabytes or the stack.
         let config = settings.config_for(&name).max_depth(MAX_SCHEMA_DEPTH);
         let (report, events) = jsonvet::parse(&text, &config);
+        let at = |offset, problem: &dyn std::fmt::Display| {
+            let at = report.location(offset);
+            format!("the schema {name}:{}:{}: {problem}", at.line, at.column)
+        };
         if let Some(problem) = report
             .problems()
             .iter()
             .find(|p| p.severity() == Severity::Error)
         {
-            let at = report.location(problem.offset());
-            return Err(format!(
-                "the schema {name}:{}:{}: {problem}",
-                at.line, at.column
-            ));
+            return Err(at(problem.offset(), problem));
         }
         let events = events.unwrap_or_default();
         let mut documents = documents(&events);
@@ -73,11 +72,7 @@ impl Schema {
         }
         let document = documents.swap_remove(0);
         if let Some((offset, reason)) = document.unchecked {
-            let at = report.location(offset);
-            return Err(format!(
-                "the schema {name}:{}:{}: {reason}",
-                at.line, at.column
-            ));
+            return Err(at(offset, &reason));
         }
         // Offline: a `$ref` to anything outside the schema file fails here.
         let options = jsonschema::options()
@@ -99,22 +94,19 @@ impl Schema {
             ));
         }
         let offset = locate(&events[document.events], std::slice::from_ref(&error))[0];
-        let at = report.location(offset);
-        Err(format!(
-            "the schema {name}:{}:{}: {error}",
-            at.line, at.column
-        ))
+        Err(at(offset, &error))
     }
 
-    /// The schema errors in one file's values, as (offset, message): each document's in order,
-    /// then a count of any past [`MAX_ERRORS`].
-    pub(crate) fn errors(&self, events: &[Event<'_>]) -> Vec<(usize, String)> {
+    /// The schema errors in one file's values, as (offset, message, summary): each document's
+    /// in order, then a summary counting any past [`MAX_ERRORS`].
+    pub(crate) fn errors(&self, events: &[Event<'_>]) -> Vec<(usize, String, bool)> {
         let mut errors = Vec::new();
         for document in documents(events) {
             if let Some((offset, reason)) = document.unchecked {
                 errors.push((
                     offset,
                     format!("{reason}, so this document is not checked against the schema"),
+                    false,
                 ));
                 continue;
             }
@@ -124,22 +116,23 @@ impl Schema {
                 continue;
             }
             let events = &events[document.events];
-            let mut placed: Vec<(usize, String)> = locate(events, &found)
+            let mut placed: Vec<(usize, String, bool)> = locate(events, &found)
                 .into_iter()
                 .zip(&found)
                 .map(|(offset, error)| {
                     let at = json_path(&document.value, error.instance_path().as_str());
-                    (offset, format!("{} (at {at})", message(error)))
+                    (offset, cut(format!("{} (at {at})", message(error))), false)
                 })
                 .collect();
             // Stable, so errors at one value keep the schema's order.
-            placed.sort_by_key(|(offset, _)| *offset);
+            placed.sort_by_key(|(offset, ..)| *offset);
             errors.append(&mut placed);
             let more = all.count();
             if more > 0 {
                 errors.push((
                     events[0].offset,
                     format!("... and {more} more schema errors in this document"),
+                    true,
                 ));
             }
         }
@@ -153,11 +146,7 @@ impl Schema {
 // shortcut: a key holding a lone surrogate is written with U+FFFD here and with the surrogate's
 // escape in a duplicate-key path; carry the key's source text if that is ever reported.
 fn json_path(value: &Value, pointer: &str) -> String {
-    let segments: Vec<String> = pointer
-        .split('/')
-        .skip(1)
-        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
-        .collect();
+    let segments: Vec<String> = segments(pointer).collect();
     let mut value = Some(value);
     jsonvet::json_path(segments.iter().map(|segment| {
         if let (Some(Value::Array(items)), Ok(i)) = (value, segment.parse::<usize>()) {
@@ -169,17 +158,47 @@ fn json_path(value: &Value, pointer: &str) -> String {
     }))
 }
 
-/// An error's message, quoting the value it is about only when that is short, and cut short
-/// itself when it lists many keys or values.
+/// The unescaped segments of the JSON Pointer `pointer`: `~1` is `/` and `~0` is `~`, in that
+/// order, so `~01` is `~1`.
+fn segments(pointer: &str) -> impl Iterator<Item = String> + '_ {
+    pointer
+        .split('/')
+        .skip(1)
+        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+}
+
+/// An error's message, quoting the value it is about only when that is short.
 fn message(error: &ValidationError<'_>) -> String {
-    let mut budget = MAX_MESSAGE;
-    let mut message = String::new();
-    if fits(error.instance(), &mut budget) {
-        message = error.to_string();
+    if fits(error.instance()) {
+        let message = error.to_string();
+        if message.len() <= MAX_MESSAGE {
+            return message;
+        }
     }
-    if message.is_empty() || message.len() > MAX_MESSAGE {
-        message = error.masked().to_string();
+    error.masked().to_string()
+}
+
+/// Whether `value` as compact JSON takes [`MAX_MESSAGE`] bytes or fewer. Writing stops at the
+/// first byte past that.
+fn fits(value: &Value) -> bool {
+    struct Budget(usize);
+    impl std::io::Write for Budget {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_sub(bytes.len())
+                .ok_or(std::io::ErrorKind::WriteZero)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
+    serde_json::to_writer(Budget(MAX_MESSAGE), value).is_ok()
+}
+
+/// `message` cut to [`MAX_MESSAGE`] bytes at a character boundary, ending in `...` if cut.
+fn cut(mut message: String) -> String {
     if message.len() > MAX_MESSAGE {
         let mut end = MAX_MESSAGE;
         while !message.is_char_boundary(end) {
@@ -191,26 +210,6 @@ fn message(error: &ValidationError<'_>) -> String {
     message
 }
 
-/// Whether `value` as JSON takes about `budget` bytes or fewer, without writing it out. Each
-/// level costs bytes, so this recurses no deeper than the budget.
-fn fits(value: &Value, budget: &mut usize) -> bool {
-    let cost = match value {
-        Value::String(s) => s.len() + 2,
-        Value::Array(_) | Value::Object(_) => 2,
-        _ => 5,
-    };
-    *budget = budget.saturating_sub(cost);
-    *budget > 0
-        && match value {
-            Value::Array(items) => items.iter().all(|item| fits(item, budget)),
-            Value::Object(members) => members.iter().all(|(key, value)| {
-                *budget = budget.saturating_sub(key.len() + 4);
-                *budget > 0 && fits(value, budget)
-            }),
-            _ => true,
-        }
-}
-
 /// The values some errors are about, as a tree of JSON Pointer segments, with the offset of
 /// each value and, for an object member, of its key.
 struct Wanted(Vec<Node>);
@@ -218,7 +217,8 @@ struct Wanted(Vec<Node>);
 #[derive(Default)]
 struct Node {
     children: HashMap<String, usize>,
-    at: (usize, Option<usize>),
+    /// The value's offset, and for an object member, its key's offset and its object's.
+    at: (usize, Option<(usize, usize)>),
 }
 
 impl Wanted {
@@ -237,6 +237,9 @@ impl Wanted {
 /// In an open container: an array's next index, or an object's current key and its offset.
 type Slot<'e> = Result<usize, (&'e str, usize)>;
 
+/// An open container: its node if any error is inside it, its offset, and its next index or key.
+type Container<'e> = (Option<usize>, usize, Slot<'e>);
+
 /// Where each error is, found in one walk over its document's events: its value; for unexpected
 /// properties, the first such key; for a property name, that key.
 fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
@@ -246,8 +249,8 @@ fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
         .iter()
         .map(|error| {
             let mut node = 0;
-            for segment in error.instance_path().as_str().split('/').skip(1) {
-                node = wanted.child(node, &segment.replace("~1", "/").replace("~0", "~"));
+            for segment in segments(error.instance_path().as_str()) {
+                node = wanted.child(node, &segment);
             }
             let keys = match error.kind() {
                 ValidationErrorKind::AdditionalProperties { unexpected }
@@ -266,11 +269,10 @@ fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
         })
         .collect();
 
-    // Each open container: its node if any error is inside it, and its next index or key.
-    let mut stack: Vec<(Option<usize>, Slot<'_>)> = Vec::new();
+    let mut stack: Vec<Container<'_>> = Vec::new();
     for event in events {
         match (&event.kind, stack.last_mut()) {
-            (EventKind::Key(key), Some((_, slot))) => {
+            (EventKind::Key(key), Some((_, _, slot))) => {
                 *slot = Err((key, event.offset));
                 continue;
             }
@@ -282,27 +284,32 @@ fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
         }
         let node = match stack.last_mut() {
             None => Some((0, None)),
-            Some((parent, Ok(index))) => {
+            Some((parent, _, Ok(index))) => {
                 *index += 1;
                 let key = *index - 1;
                 parent
                     .and_then(|p| wanted.0[p].children.get(&key.to_string()))
                     .map(|&n| (n, None))
             }
-            Some((parent, Err((key, offset)))) => parent
+            Some((parent, object, Err((key, offset)))) => parent
                 .and_then(|p| wanted.0[p].children.get(*key))
-                .map(|&n| (n, Some(*offset))),
+                .map(|&n| (n, Some((*offset, *object)))),
         };
         if let Some((node, key)) = node {
-            // A later duplicate key overwrites, as it does in the folded value.
-            wanted.0[node].at = (event.offset, key);
+            let at = &mut wanted.0[node].at;
+            // A later duplicate key's value overwrites, as it does in the folded value, but the
+            // key stays at its first copy in that object.
+            at.0 = event.offset;
+            if at.1.map(|(_, object)| object) != key.map(|(_, object)| object) {
+                at.1 = key;
+            }
         }
         let node = node
             .map(|(n, _)| n)
             .filter(|&n| !wanted.0[n].children.is_empty());
         match event.kind {
-            EventKind::ObjectStart => stack.push((node, Err(("", 0)))),
-            EventKind::ArrayStart => stack.push((node, Ok(0))),
+            EventKind::ObjectStart => stack.push((node, event.offset, Err(("", 0)))),
+            EventKind::ArrayStart => stack.push((node, event.offset, Ok(0))),
             _ => {}
         }
     }
@@ -311,7 +318,7 @@ fn locate(events: &[Event<'_>], errors: &[ValidationError<'_>]) -> Vec<usize> {
         .into_iter()
         .map(|(node, keys)| {
             keys.iter()
-                .filter_map(|&key| wanted.0[key].at.1)
+                .filter_map(|&key| wanted.0[key].at.1.map(|(offset, _)| offset))
                 .min()
                 .unwrap_or(wanted.0[node].at.0)
         })
@@ -399,7 +406,7 @@ fn number(text: &str) -> Option<Value> {
     };
     let exact = exact.and_then(|n| {
         if negative {
-            i64::try_from(n).ok().map(|n| Number::from(-n))
+            0i64.checked_sub_unsigned(n).map(Number::from)
         } else {
             Some(Number::from(n))
         }
@@ -419,7 +426,7 @@ fn number(text: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_MESSAGE, documents, fits, json_path, locate, message, number};
+    use super::{MAX_MESSAGE, cut, documents, fits, json_path, locate, message, number};
     use jsonvet::{Config, Dialect};
     use proptest::prelude::*;
     use serde_json::{Value, json};
@@ -483,6 +490,8 @@ mod tests {
             (".5", json!(0.5)),
             ("5.", json!(5.0)),
             ("-0x1F", json!(-31)),
+            ("-9223372036854775808", json!(i64::MIN)),
+            ("-0x8000000000000000", json!(i64::MIN)),
             ("0XfF", json!(255)),
             ("0x10000000000000000", json!(18_446_744_073_709_551_616.0)),
         ];
@@ -512,33 +521,23 @@ mod tests {
     }
 
     #[test]
-    fn sizes_are_estimated_for_every_kind_of_value() {
-        let long = "x".repeat(300);
-        assert!(fits(&json!([]), &mut 3));
-        assert!(fits(&json!({}), &mut 3));
-        assert!(fits(&json!("ab"), &mut 5));
-        for value in [
-            json!(long.clone()),
-            json!([long.clone()]),
-            json!({"a": long.clone()}),
-            json!({ long.clone(): 1 }),
-            json!(vec![0; 100]),
-        ] {
-            assert!(!fits(&value, &mut 200), "{value}");
-        }
+    fn a_value_fits_while_its_json_takes_at_most_the_budget() {
+        let x = |n| json!("x".repeat(n));
+        assert!(fits(&x(MAX_MESSAGE - 2)));
+        assert!(!fits(&x(MAX_MESSAGE - 1)));
     }
 
     #[test]
     fn a_long_message_is_cut_at_a_character_boundary() {
-        let schema = json!({"properties": {"a": true}, "additionalProperties": false});
-        let validator = jsonschema::validator_for(&schema).expect("a schema");
         // `é` takes two bytes, and the one-byte `x` puts the cut inside one.
-        let instance = json!({ format!("x{}", "\u{e9}".repeat(200)): 1 });
-        let error = validator.iter_errors(&instance).next().expect("an error");
-        assert!(!error.masked().to_string().is_char_boundary(MAX_MESSAGE));
-        let message = message(&error);
+        let long = format!("x{}", "\u{e9}".repeat(200));
+        let message = cut(long.clone());
         assert_eq!(message.len(), MAX_MESSAGE - 1 + "...".len());
         assert!(message.ends_with("\u{e9}..."), "{message}");
+        assert_eq!(
+            cut(long[..MAX_MESSAGE - 1].to_owned()),
+            long[..MAX_MESSAGE - 1]
+        );
     }
 
     /// Any JSON value, with numbers `serde_json` reads exactly without its `float_roundtrip`

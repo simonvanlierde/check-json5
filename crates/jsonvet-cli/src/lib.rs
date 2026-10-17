@@ -25,15 +25,19 @@ mod schema {
 
     use crate::settings::Settings;
 
+    const NO_SCHEMA: &str = "--schema is not in this build: the PyPI wheels, which the \
+        pre-commit hook and the GitHub Action install, leave it out to stay small. `cargo install \
+        jsonvet-cli` builds jsonvet with it.";
+
     /// No schema can be loaded, so none exists.
     pub(crate) enum Schema {}
 
     impl Schema {
         pub(crate) fn load(_: &Path, _: &Settings) -> Result<Schema, String> {
-            Err(crate::args::NO_SCHEMA.to_owned())
+            Err(NO_SCHEMA.to_owned())
         }
 
-        pub(crate) fn errors(&self, _: &[Event<'_>]) -> Vec<(usize, String)> {
+        pub(crate) fn errors(&self, _: &[Event<'_>]) -> Vec<(usize, String, bool)> {
             match *self {}
         }
     }
@@ -44,30 +48,42 @@ use output::Printer;
 use schema::Schema;
 use settings::Settings;
 
-/// The stack `--schema` runs on. `--schema` builds, validates and drops a value 10,000 levels
-/// deep recursively, which takes up to about 32 MB in a debug build and overflows Windows'
-/// 1 MB main thread. Only the pages used are committed, so the margin costs nothing.
-#[cfg(feature = "schema")]
-const STACK: usize = 256 << 20;
+/// How deep `--schema` reads a file. Past it, the file has a syntax error. jsonschema 0.58 takes
+/// memory quadratic in depth for an error deep under a recursive `$ref`: 1.3 GB for a 50 KB file
+/// nested 10,000 levels.
+const SCHEMA_MAX_DEPTH: usize = 512;
+
+/// The stack `--schema` runs on. jsonschema validates recursively, and building, validating and
+/// dropping a value [`SCHEMA_MAX_DEPTH`] levels deep against a recursive schema took up to
+/// 2.2 MB in a debug build, more than Windows' 1 MB main thread. Only the pages used are
+/// committed.
+const STACK: usize = 64 << 20;
 
 /// Run the command with the process's arguments and environment, and return its exit code.
-#[cfg(feature = "schema")]
+/// `--schema` needs the `schema` feature, on by default; without it, `--schema` exits with
+/// status 2.
 pub fn run() -> ExitCode {
-    match std::thread::Builder::new()
-        .stack_size(STACK)
-        .spawn(run_here)
-    {
-        Ok(thread) => thread
-            .join()
-            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
-        Err(_) => run_here(),
+    let schema = cfg!(feature = "schema")
+        && matches!(
+            args::parse(std::env::args_os().skip(1)),
+            Ok(Command::Check(args)) if args.schema.is_some()
+        );
+    if schema {
+        on_big_stack(run_here)
+    } else {
+        run_here()
     }
 }
 
-/// Run the command with the process's arguments and environment, and return its exit code.
-#[cfg(not(feature = "schema"))]
-pub fn run() -> ExitCode {
-    run_here()
+/// Run `f` on a thread with a [`STACK`]-byte stack, or here if no thread can start. A panic in
+/// `f` carries on here.
+fn on_big_stack<T: Send + 'static>(f: fn() -> T) -> T {
+    match std::thread::Builder::new().stack_size(STACK).spawn(f) {
+        Ok(thread) => thread
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        Err(_) => f(),
+    }
 }
 
 fn run_here() -> ExitCode {
@@ -166,7 +182,7 @@ fn check_file(
     };
     let config = settings.config_for(&name);
     let (report, events) = match schema {
-        Some(_) => jsonvet::parse(&text, &config),
+        Some(_) => jsonvet::parse(&text, &config.max_depth(SCHEMA_MAX_DEPTH)),
         None => (jsonvet::check(&text, &config), None),
     };
     let mut counts = Counts::default();
@@ -180,9 +196,9 @@ fn check_file(
     }
     // `events` is `None` after a syntax error, so such a file gets no schema errors.
     if let (Some(schema), Some(events)) = (schema, events) {
-        for (offset, message) in schema.errors(&events) {
-            printer.schema_error(file, &report, offset, &message)?;
-            counts.errors += 1;
+        for (offset, message, summary) in schema.errors(&events) {
+            printer.schema_error(file, &report, offset, &message, summary)?;
+            counts.errors += usize::from(!summary);
         }
     }
     Ok(counts)
@@ -191,4 +207,23 @@ fn check_file(
 fn print(mut out: impl Write, text: &str) -> Result<u8, String> {
     writeln!(out, "{text}").map_err(|e| format!("cannot write output: {e}"))?;
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn a_panic_on_the_big_stack_carries_on_in_the_caller() {
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+        let panic = std::panic::catch_unwind(|| {
+            super::on_big_stack(|| -> u8 {
+                RUNS.fetch_add(1, Ordering::Relaxed);
+                panic!("on the big stack")
+            })
+        })
+        .expect_err("the panic carries on");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"on the big stack"));
+        assert_eq!(RUNS.load(Ordering::Relaxed), 1);
+    }
 }

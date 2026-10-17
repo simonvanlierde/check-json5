@@ -18,8 +18,9 @@ pub(crate) enum Format {
 }
 
 /// A newline in a file name or message would start a line of its own, which GitHub Actions
-/// reads as a workflow command when it starts with `::`, and other control characters such as
-/// ESC can drive the terminal. Each is written as an escape, as duplicate-key paths write them.
+/// reads as a workflow command when it starts with `::`, other control characters such as
+/// ESC can drive the terminal, and zero-width and bidi controls hide or reorder what is shown.
+/// Each is written as an escape, as duplicate-key paths write them.
 pub(crate) fn one_line(value: &str) -> String {
     let mut line = String::with_capacity(value.len());
     for c in value.chars() {
@@ -27,7 +28,9 @@ pub(crate) fn one_line(value: &str) -> String {
             '\n' => line.push_str("\\n"),
             '\r' => line.push_str("\\r"),
             '\t' => line.push_str("\\t"),
-            c if c.is_control() => {
+            c if c.is_control()
+                || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}') =>
+            {
                 let _ = write!(line, "\\u{:04x}", u32::from(c));
             }
             c => line.push(c),
@@ -99,14 +102,19 @@ impl<W: Write> Printer<W> {
         self.line(file, rule.id(), problem.severity(), &message, at, related)
     }
 
-    /// A value the `--schema` schema rejects, at `offset`.
+    /// A value the `--schema` schema rejects, at `offset`. A `summary` of the errors not listed
+    /// is left out of SARIF, where each result is one finding.
     pub(crate) fn schema_error(
         &mut self,
         file: &OsStr,
         report: &Report<'_>,
         offset: usize,
         message: &str,
+        summary: bool,
     ) -> io::Result<()> {
+        if summary && self.sarif.is_some() {
+            return Ok(());
+        }
         let at = report.location(offset);
         self.line(file, sarif::SCHEMA, Severity::Error, message, at, None)
     }
@@ -209,5 +217,9 @@ mod tests {
         assert_eq!(escape("50% a\r\nb", false), "50%25 a%0D%0Ab");
         assert_eq!(escape("a:b,c", true), "a%3Ab%2Cc");
         assert_eq!(escape("not strict: x, y", false), "not strict: x, y");
+        assert_eq!(
+            one_line("x\u{202e}y\u{200b}\u{feff}"),
+            "x\\u202ey\\u200b\\ufeff"
+        );
     }
 }
