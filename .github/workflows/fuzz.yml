@@ -1,18 +1,31 @@
 name: fuzz
 
-# Every cargo-fuzz target runs for 20 minutes after a merge that changes the parser, and once a
-# week (see docs/design.md). The corpus is cached between runs, so each run goes on where the last
-# one stopped. A crashing input is kept as an artifact.
+# Every cargo-fuzz target runs for 20 minutes after a merge that changes the parser or the test
+# helper the check target includes, and once a week (see docs/design.md), and for 30 seconds on a
+# pull request that touches the library or the targets. The corpus is cached between runs, so each
+# run goes on where the last one stopped. A crashing input is kept as an artifact.
 on:
+  # The check target includes crates/jsonvet/tests/common/mod.rs, so a change there also runs it.
+  # The pull_request filter covers it through crates/jsonvet/**.
   push:
     branches: [main]
-    paths: ["crates/jsonvet/src/**", "fuzz/**", ".github/workflows/fuzz.yml"]
+    paths:
+      - "crates/jsonvet/src/**"
+      - "crates/jsonvet/tests/common/**"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  pull_request:
+    paths: ["crates/jsonvet/**", "fuzz/**", ".github/workflows/fuzz.yml"]
   schedule:
     - cron: "17 3 * * 0"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   fuzz:
@@ -39,21 +52,27 @@ jobs:
           path: fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ matrix.target }}-
-      - name: Seed the corpus from json5-tests, failing cases included
+      # Copied under content hashes, so files with the same name in different folders all land.
+      - name: Seed the corpus from json5-tests, the contract corpus and the conformance inputs
         run: |
           mkdir -p "fuzz/corpus/$TARGET"
-          find tests/json5-tests -type f \( -name '*.json*' -o -name '*.js' -o -name '*.txt' \) \
-            -exec cp {} "fuzz/corpus/$TARGET/" \;
+          {
+            find tests/json5-tests -type f \( -name '*.json*' -o -name '*.js' -o -name '*.txt' \) -print0
+            find tests/corpus conformance/extra -type f -print0
+          } | while IFS= read -r -d '' file; do
+            cp "$file" "fuzz/corpus/$TARGET/$(sha1sum < "$file" | cut -c1-40)"
+          done
         env:
           TARGET: ${{ matrix.target }}
       # The installed cargo-fuzz is a musl build, and builds for its own target unless told
       # otherwise; the address sanitizer needs the runner's glibc target.
       - run: >-
           cargo +nightly fuzz run -O --target x86_64-unknown-linux-gnu "$TARGET" --
-          -max_total_time=1200 -print_final_stats=1
+          -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1
         working-directory: fuzz
         env:
           TARGET: ${{ matrix.target }}
+          SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && 30 || 1200 }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:

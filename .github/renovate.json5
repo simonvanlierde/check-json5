@@ -8,23 +8,47 @@
   // A compromised release is usually caught and yanked within a week.
   minimumReleaseAge: "7 days",
   internalChecksFilter: "strict",
-  // The hook placeholder and the check-json5 package pin jsonvet's own version; the release sets it.
-  ignorePaths: ["compat/**", "setup.py", "tests/**"],
+  // The hook placeholder pins jsonvet's own version, which the release sets.
+  ignorePaths: ["setup.py", "tests/**"],
   "pre-commit": { enabled: true },
   customManagers: [
     {
-      // Python tools run with uvx in CI: ruff, and the pre-commit and prek the hook is tested with.
+      // Python tools run with uvx in CI: the pre-commit and prek the hook is tested with. ruff's
+      // pin is the hook rev in .pre-commit-config.yaml, which CI runs.
       customType: "regex",
       managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
-      matchStrings: ["(?<depName>ruff|pre-commit|prek)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      matchStrings: ["(?<depName>pre-commit|prek)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
       datasourceTemplate: "pypi",
     },
     {
       // Cargo tools installed by taiki-e/install-action.
       customType: "regex",
       managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
-      matchStrings: ["(?<depName>cargo-(?:deny|fuzz|llvm-cov|nextest))@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      matchStrings: ["(?<depName>cargo-(?:deny|fuzz|llvm-cov|mutants|nextest|semver-checks))@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
       datasourceTemplate: "crate",
+    },
+    {
+      // The images maturin builds the Linux wheels in, pinned by tag and digest.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ["container: (?<depName>[a-z0-9./_-]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]+)"],
+      datasourceTemplate: "docker",
+    },
+    {
+      // The Rust that builds the released wheels. Lint and tests float on stable instead.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ['RELEASE_RUST: "(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
+      depNameTemplate: "rust-lang/rust",
+      datasourceTemplate: "github-releases",
+    },
+    {
+      // The uv the workflows set up. mise.toml pins it too, and the "uv" group below joins them.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.yml$/"],
+      matchStrings: ['PINNED_UV: "(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
+      depNameTemplate: "astral-sh/uv",
+      datasourceTemplate: "github-releases",
     },
     {
       // The images the conformance drivers run in.
@@ -40,6 +64,12 @@
       // One pull request a month for everything outside the matrix; majors stay separate.
       matchUpdateTypes: ["minor", "patch", "digest", "pin", "pinDigest", "lockFileMaintenance"],
       groupName: "dependencies",
+    },
+    {
+      // uv in CI and mise.toml, and uv_build, which builds check-json5: one pull request, so the
+      // backend stays at the version of the uv that runs it.
+      matchPackageNames: ["uv", "astral-sh/uv", "uv_build", "uv-build"],
+      groupName: "uv",
     },
     {
       // The matrix's parsers and images: pinned exactly, bumped once a quarter, never merged
@@ -60,8 +90,9 @@
       enabled: false,
     },
     {
-      // The Rust toolchains in CI: stable and nightly float by design, and 1.88 is the minimum
-      // supported Rust, a policy that changes with rust-version in Cargo.toml, not with releases.
+      // The Rust toolchains in CI: stable and nightly float by design, and the msrv job's is the
+      // minimum supported Rust, a policy that changes with rust-version in Cargo.toml, not with
+      // releases.
       matchManagers: ["github-actions"],
       matchDepNames: ["rust"],
       enabled: false,
@@ -70,6 +101,13 @@
       // The Go driver's minimum Go; the image tag decides which Go builds it.
       matchManagers: ["gomod"],
       matchDepNames: ["go"],
+      enabled: false,
+    },
+    {
+      // The check-json5 package pins jsonvet's own version, which the release sets. Its build
+      // backend, uv_build, is bumped in the uv group.
+      matchFileNames: ["compat/**"],
+      matchPackageNames: ["jsonvet"],
       enabled: false,
     },
     {

@@ -31,16 +31,8 @@ fn workdir(files: &[(&str, &str)]) -> PathBuf {
 
 /// Run jsonvet in `dir`; return its exit code and standard output.
 fn jsonvet(dir: &Path, args: &[&str]) -> (i32, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
-        .args(args)
-        .current_dir(dir)
-        .env_remove("GITHUB_ACTIONS")
-        .output()
-        .expect("run jsonvet");
-    (
-        out.status.code().expect("an exit code"),
-        String::from_utf8(out.stdout).expect("UTF-8 output"),
-    )
+    let (code, out, _) = jsonvet_stderr(dir, args);
+    (code, out)
 }
 
 #[test]
@@ -120,7 +112,153 @@ fn github_annotations_follow_each_problem() {
          dup.json:1:8: error[duplicate-key] duplicate key $.a (first at 1:2)\n\
          ::error file=dup.json,line=1,col=8,title=jsonvet (duplicate-key)::duplicate key $.a (first at 1:2)\n"
     );
-    assert!(!run("false").contains("::"));
+    assert_eq!(
+        run("false"),
+        "bom.json:1:1: warning[byte-order-mark] byte order mark at the start of the file\n\
+         dup.json:1:8: error[duplicate-key] duplicate key $.a (first at 1:2)\n"
+    );
+}
+
+// Unix only: Windows refuses `:` in a file name.
+#[cfg(unix)]
+#[test]
+fn a_file_name_cannot_start_a_workflow_command_or_send_escapes() {
+    let dir = workdir(&[
+        ("::stop-commands::tok.json", "[1,"),
+        ("\u{1b}]0;x\u{7}.json", "[1,"),
+    ]);
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args([
+            "::stop-commands::tok.json",
+            "\u{1b}]0;x\u{7}.json",
+            "gone\u{1b}[2J.json",
+        ])
+        .current_dir(&dir)
+        .env("GITHUB_ACTIONS", "true")
+        .output()
+        .expect("run jsonvet");
+    assert_eq!(
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        "./::stop-commands::tok.json:1:4: error[syntax] expected a value, found the end of the file\n\
+         ::error file=%3A%3Astop-commands%3A%3Atok.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
+         \\u001b]0;x\\u0007.json:1:4: error[syntax] expected a value, found the end of the file\n\
+         ::error file=\\u001b]0;x\\u0007.json,line=1,col=4,title=jsonvet (syntax)::expected a value, found the end of the file\n\
+         gone\\u001b[2J.json: error: no such file\n\
+         ::error file=gone\\u001b[2J.json,title=jsonvet::no such file\n"
+    );
+}
+
+/// A bidi control would reorder how the rest of the line displays, so neither a file name nor a
+/// key in a message may print one, in text or annotations.
+#[test]
+fn output_never_holds_a_bidi_control() {
+    let bidi = [
+        '\u{61c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+        '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+    ];
+    let names: Vec<String> = bidi.iter().map(|c| format!("{c}.json")).collect();
+    let texts: Vec<String> = bidi
+        .iter()
+        .map(|c| format!("{{\"{c}\": 1, \"{c}\": 2}}"))
+        .collect();
+    let files: Vec<(&str, &str)> = names
+        .iter()
+        .zip(&texts)
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let dir = workdir(&files);
+    for actions in ["false", "true"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(&names)
+            .current_dir(&dir)
+            .env("GITHUB_ACTIONS", actions)
+            .output()
+            .expect("run jsonvet");
+        let out = String::from_utf8(out.stdout).expect("UTF-8 output");
+        assert!(!out.contains(bidi), "{out}");
+        let expected: String = bidi
+            .iter()
+            .map(|&c| {
+                let c = format!("\\u{:04x}", u32::from(c));
+                let text = format!("{c}.json:1:10: error[duplicate-key] duplicate key $[\"{c}\"] (first at 1:2)\n");
+                if actions == "true" {
+                    format!("{text}::error file={c}.json,line=1,col=10,title=jsonvet (duplicate-key)::duplicate key $[\"{c}\"] (first at 1:2)\n")
+                } else {
+                    text
+                }
+            })
+            .collect();
+        assert_eq!(out, expected);
+    }
+}
+
+/// GitHub Actions also runs the older `##[command]` form found anywhere in a line, so neither a
+/// file name nor a key in a message may print one, in text, annotations or SARIF.
+#[test]
+fn output_never_holds_a_legacy_workflow_command() {
+    let dir = workdir(&[(
+        "##[add-mask]a.json",
+        "{\"##[add-mask]s\": 1, \"##[add-mask]s\": 2}",
+    )]);
+    let run = |format: &str| {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(["--format", format, "##[add-mask]a.json"])
+            .current_dir(&dir)
+            .env("GITHUB_ACTIONS", "true")
+            .output()
+            .expect("run jsonvet");
+        String::from_utf8(out.stdout).expect("UTF-8 output")
+    };
+    assert_eq!(
+        run("text"),
+        "##\\u005badd-mask]a.json:1:22: error[duplicate-key] duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n\
+         ::error file=##\\u005badd-mask]a.json,line=1,col=22,title=jsonvet (duplicate-key)::duplicate key $[\"##\\u005badd-mask]s\"] (first at 1:2)\n"
+    );
+    let sarif = run("sarif");
+    assert!(!sarif.contains("##["), "{sarif}");
+    let sarif: serde_json::Value = serde_json::from_str(&sarif).expect("JSON output");
+    assert_eq!(
+        sarif["runs"][0]["results"][0]["message"]["text"],
+        "duplicate key $[\"##[add-mask]s\"] (first at 1:2)"
+    );
+}
+
+/// A reader that stops early, as `| head -1` does, ends the run quietly with the verdict so far.
+#[test]
+fn a_closed_pipe_keeps_the_verdict() {
+    let dir = workdir(&[("bad.json", "[1,")]);
+    // About 216 KB of output, far more than a pipe holds, so jsonvet blocks writing until the
+    // reader closes. The command line stays near 27,000 characters, under Windows' 32,767.
+    let files = vec!["bad.json"; 3000];
+    let mut child = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(&files)
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run jsonvet");
+    drop(child.stdout.take());
+    let out = child.wait_with_output().expect("wait for jsonvet");
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    assert_eq!(out.status.code(), Some(1));
+}
+
+/// `--help` and `--version` into a pipe nobody reads still succeed.
+#[cfg(unix)]
+#[test]
+fn help_into_a_closed_pipe_succeeds() {
+    for flag in ["--help", "--version"] {
+        let (reader, writer) = std::io::pipe().expect("a pipe");
+        drop(reader);
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .arg(flag)
+            .stdout(writer)
+            .output()
+            .expect("run jsonvet");
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "", "{flag}");
+        assert_eq!(out.status.code(), Some(0), "{flag}");
+    }
 }
 
 #[test]
@@ -141,11 +279,51 @@ fn help_version_and_the_check_json5_name() {
         .output()
         .expect("run check-json5");
     assert_eq!(out.status.code(), Some(1));
-    // A directory is unreadable for a reason other than not existing.
     fs::create_dir(dir.join("folder.json")).expect("create a folder");
-    let (code, out) = jsonvet(&dir, &["folder.json"]);
-    assert_eq!(code, 1);
-    assert!(out.contains(": error: cannot read: "), "{out}");
+    assert_eq!(
+        jsonvet(&dir, &["folder.json"]),
+        (1, "folder.json: error: not a regular file\n".to_owned())
+    );
+}
+
+/// A device or a FIFO is reported, not read: `/dev/zero` would fill memory and a FIFO with no
+/// writer would wait for ever. A symlink to a regular file is followed.
+#[cfg(unix)]
+#[test]
+fn only_regular_files_are_read() {
+    use std::os::unix::fs::symlink;
+    use std::time::{Duration, Instant};
+    let dir = workdir(&[("real.json", "[1,")]);
+    symlink("/dev/zero", dir.join("zero.json")).expect("symlink");
+    symlink("real.json", dir.join("link.json")).expect("symlink");
+    let fifo = Command::new("mkfifo")
+        .arg(dir.join("fifo.json"))
+        .status()
+        .expect("run mkfifo");
+    assert!(fifo.success());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(["zero.json", "fifo.json", "link.json"])
+        .current_dir(&dir)
+        .env_remove("GITHUB_ACTIONS")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("run jsonvet");
+    let start = Instant::now();
+    while child.try_wait().expect("wait").is_none() {
+        if start.elapsed() > Duration::from_secs(10) {
+            let _ = child.kill();
+            panic!("jsonvet still running after 10 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().expect("output");
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        "zero.json: error: not a regular file\n\
+         fifo.json: error: not a regular file\n\
+         link.json:1:4: error[syntax] expected a value, found the end of the file\n"
+    );
 }
 
 #[test]
@@ -181,6 +359,36 @@ fn strict_globs_keep_their_1x_meaning() {
 }
 
 #[test]
+fn an_unknown_option_is_a_usage_error_unless_it_is_a_file() {
+    let dir = workdir(&[("bad.json", "[1,"), ("--x.json", "[1,")]);
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GITHUB_ACTIONS")
+            .output()
+            .expect("run jsonvet");
+        (
+            out.status.code().expect("an exit code"),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (code, out, err) = run(&["--strcit", "*.json", "bad.json"]);
+    assert_eq!((code, out.as_str()), (2, ""));
+    assert!(
+        err.starts_with("jsonvet: unknown option `--strcit`\n"),
+        "{err}"
+    );
+    let found = "--x.json:1:4: error[syntax] expected a value, found the end of the file\n";
+    assert_eq!(run(&["--x.json"]), (1, found.to_owned(), String::new()));
+    assert_eq!(
+        run(&["--", "--x.json"]),
+        (1, found.to_owned(), String::new())
+    );
+}
+
+#[test]
 fn help_and_version_letters_in_a_file_name_are_a_file() {
     let dir = workdir(&[("bad.json", "[1,"), ("-h.json", "{}"), ("-V.json", "{}")]);
     let (code, out) = jsonvet(&dir, &["bad.json", "-h.json", "-V.json"]);
@@ -200,18 +408,22 @@ fn a_file_name_that_is_not_utf8_is_opened_as_given() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
     let dir = workdir(&[]);
-    let name = OsStr::from_bytes(b"caf\xe9.json");
-    fs::write(dir.join(name), "[1,]").expect("write file");
+    // The names that look like options are files too, not read lossily as options.
+    let names = [b"caf\xe9.json".as_slice(), b"--\xff.json", b"-x\xff.json"].map(OsStr::from_bytes);
+    for name in names {
+        fs::write(dir.join(name), "[1,]").expect("write file");
+    }
     let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
         .args(["--strict", "*"])
-        .arg(name)
+        .args(names)
         .current_dir(&dir)
         .env_remove("GITHUB_ACTIONS")
         .output()
         .expect("run jsonvet");
+    let found = ".json:1:4: error[syntax] trailing comma before `]` is not allowed in json\n";
     assert_eq!(
         String::from_utf8_lossy(&out.stdout),
-        "caf\u{FFFD}.json:1:4: error[syntax] trailing comma before `]` is not allowed in json\n"
+        format!("caf\u{FFFD}{found}--\u{FFFD}{found}-x\u{FFFD}{found}")
     );
 }
 
@@ -242,6 +454,39 @@ fn config_file_and_its_search() {
         Some("x.data:1:10: error[duplicate-key] duplicate key $.a (first at 1:2)")
     );
     assert_eq!(jsonvet(&dir.join("sub"), &["--no-config", "x.data"]).0, 1);
+}
+
+#[test]
+fn config_globs_are_relative_to_the_config_file() {
+    let toml = "dialects = [{ files = \"data/*.json\", dialect = \"json\" }]\n";
+    let pyproject = format!("[tool.jsonvet]\n{toml}");
+    let unquoted = "data/x.json:1:2: error[syntax] unquoted keys are not allowed in json\n";
+    for config in [
+        ("jsonvet.toml", toml),
+        ("pyproject.toml", pyproject.as_str()),
+    ] {
+        let dir = workdir(&[
+            config,
+            ("data/x.json", "{a: 1}"),
+            ("outside/x.json", "{a: 1}"),
+            (
+                "outside/c.toml",
+                "dialects = [{ files = \"*.json\", dialect = \"json\" }]\n",
+            ),
+        ]);
+        assert_eq!(jsonvet(&dir, &["data/x.json"]), (1, unquoted.to_owned()));
+        let absolute = dir.join("data/x.json");
+        let absolute = absolute.to_str().expect("a UTF-8 path");
+        assert_eq!(jsonvet(&dir, &[absolute]).0, 1, "{absolute}");
+        assert_eq!(jsonvet(&dir.join("data"), &["x.json"]).0, 1);
+        assert_eq!(jsonvet(&dir.join("outside"), &["../data/x.json"]).0, 1);
+        // The command line still matches the path as given.
+        let cli = ["--no-config", "--dialect", "json:data/*.json", "x.json"];
+        assert_eq!(jsonvet(&dir.join("data"), &cli), (0, String::new()));
+        // A file outside the config file's directory matches none of its patterns.
+        let other = ["--config", "outside/c.toml", "data/x.json"];
+        assert_eq!(jsonvet(&dir, &other), (0, String::new()));
+    }
 }
 
 #[test]
@@ -297,11 +542,17 @@ fn pyproject_tool_table_and_bad_configs() {
     let wrong_types = workdir(&[
         ("rules.toml", "rules = 1\n"),
         ("dialects.toml", "dialects = 1\n"),
+        ("forged.toml", "\"\\n::error::x\" = \"error\"\n"),
         ("d.json", "{}"),
     ]);
     for (config, message) in [
         ("rules.toml", "`rules` must be a table"),
         ("dialects.toml", "`dialects` must be an array of tables"),
+        // A key holding a newline stays on the line, so it cannot forge a workflow command.
+        (
+            "forged.toml",
+            "unknown key `\\n::error::x`; expected rules or dialects",
+        ),
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
             .args(["--config", config, "d.json"])
@@ -322,6 +573,7 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
         ("dup.json", "{\n  \"a\": 1,\n  \"a\": 2\n}"),
         ("bom.json", "\u{FEFF}{}"),
         ("ok.json", "{}"),
+        ("open.json", "[1, /* x"),
     ]);
     let run = |args: &[&str]| {
         let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
@@ -356,10 +608,11 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
             "invalid-code-point",
             "byte-order-mark",
             "missing-final-newline",
-            "unreadable"
+            "unreadable",
+            #[cfg(feature = "schema")]
+            "schema",
         ]
     );
-    // `Rule` is non-exhaustive, so a new rule without a description would compile.
     assert!(rules.iter().all(|r| {
         !r["shortDescription"]["text"]
             .as_str()
@@ -371,6 +624,7 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
         "the first syntax error; checking stops there"
     );
     assert_eq!(run0["columnKind"], "unicodeCodePoints");
+    assert!(run0["originalUriBaseIds"]["%SRCROOT%"]["description"]["text"].is_string());
     let results = run0["results"].as_array().expect("results");
     assert_eq!(results.len(), 2);
     let dup = &results[0];
@@ -405,4 +659,1000 @@ fn sarif_holds_every_problem_and_keeps_the_exit_codes() {
     let (code, sarif) = run(&["--format", "sarif", "ok.json"]);
     assert_eq!(code, 0);
     assert_eq!(sarif["runs"][0]["results"], serde_json::json!([]));
+
+    // A syntax error's related location is where the unterminated comment starts.
+    let (_, sarif) = run(&["--format", "sarif", "open.json"]);
+    let open = &sarif["runs"][0]["results"][0];
+    assert_eq!(
+        open["message"]["text"],
+        "unterminated block comment (started at 1:5)"
+    );
+    let start = &open["relatedLocations"][0];
+    assert_eq!(start["message"]["text"], "starts here");
+    assert_eq!(start["physicalLocation"]["region"]["startColumn"], 5);
+}
+
+#[test]
+fn sarif_columns_count_code_points() {
+    // CRLF ends line 1; the emoji is one code point but two UTF-16 code units.
+    let dir = workdir(&[("e.jsonc", "{\r\n\"\u{1F600}\": x}\r\n")]);
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(["--format", "sarif", "e.jsonc"])
+        .current_dir(&dir)
+        .output()
+        .expect("run jsonvet");
+    assert_eq!(out.status.code(), Some(1));
+    let sarif: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON output");
+    let run = &sarif["runs"][0];
+    assert_eq!(run["columnKind"], "unicodeCodePoints");
+    let result = &run["results"][0];
+    assert_eq!(result["ruleId"], "syntax");
+    let region = &result["locations"][0]["physicalLocation"]["region"];
+    assert_eq!(
+        (&region["startLine"], &region["startColumn"]),
+        (&2.into(), &6.into())
+    );
+}
+
+#[test]
+fn the_last_matching_dialect_wins_and_auto_means_the_extension() {
+    let dir = workdir(&[
+        ("x.cfg", "{'a': 1}"),
+        ("y.cfg", "{'a': 1}"),
+        ("c.jsonc", "{// c\n}"),
+    ]);
+    let jsonc = |name: &str| {
+        format!("{name}:1:2: error[syntax] single-quoted strings are not allowed in jsonc\n")
+    };
+    let args = [
+        "--dialect",
+        "jsonc:*.cfg",
+        "--dialect",
+        "auto:x.cfg",
+        "x.cfg",
+        "y.cfg",
+    ];
+    assert_eq!(jsonvet(&dir, &args), (1, jsonc("y.cfg")));
+    let args = [
+        "--dialect",
+        "auto:x.cfg",
+        "--dialect",
+        "jsonc:*.cfg",
+        "x.cfg",
+        "y.cfg",
+    ];
+    assert_eq!(jsonvet(&dir, &args), (1, jsonc("x.cfg") + &jsonc("y.cfg")));
+    // `auto` without a pattern undoes an earlier `json` for every file.
+    let args = ["--dialect", "json", "--dialect", "auto", "c.jsonc"];
+    assert_eq!(jsonvet(&dir, &args), (0, String::new()));
+    assert_eq!(jsonvet(&dir, &["--dialect", "json", "c.jsonc"]).0, 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_backslash_path_matches_a_slash_pattern() {
+    let dir = workdir(&[("sub/a.json", "{a: 1}")]);
+    let (code, out) = jsonvet(&dir, &["--dialect", "json:sub/*.json", "sub\\a.json"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (
+            1,
+            "sub\\a.json:1:2: error[syntax] unquoted keys are not allowed in json\n"
+        )
+    );
+}
+
+#[test]
+fn each_extension_has_its_dialect() {
+    let single = "{'a': 1}";
+    let mut files = vec![(".babelrc".to_owned(), single)];
+    let extensions = [
+        ("jsonc", "jsonc"),
+        ("code-workspace", "jsonc"),
+        ("code-snippets", "jsonc"),
+        ("hujson", "jwcc"),
+        ("jwcc", "jwcc"),
+    ];
+    let json5 = [
+        "json",
+        "json5",
+        "geojson",
+        "jsonld",
+        "webmanifest",
+        "cfg",
+        "JSONC",
+    ];
+    for (ext, _) in extensions {
+        files.push((format!("a.{ext}"), single));
+    }
+    for ext in json5 {
+        files.push((format!("a.{ext}"), single));
+    }
+    // Two values on two lines: JSON Lines, not one JSON5 document.
+    files.push(("a.jsonl".to_owned(), "{}\n{}\n"));
+    files.push(("a.ndjson".to_owned(), "{}\n{}\n"));
+    let dir = workdir(
+        &files
+            .iter()
+            .map(|(n, t)| (n.as_str(), *t))
+            .collect::<Vec<_>>(),
+    );
+    for (ext, dialect) in extensions {
+        let name = format!("a.{ext}");
+        assert_eq!(
+            jsonvet(&dir, &[&name]),
+            (
+                1,
+                format!(
+                    "{name}:1:2: error[syntax] single-quoted strings are not allowed in {dialect}\n"
+                )
+            )
+        );
+    }
+    for name in json5
+        .iter()
+        .map(|ext| format!("a.{ext}"))
+        .chain([".babelrc".to_owned()])
+    {
+        assert_eq!(jsonvet(&dir, &[&name]), (0, String::new()), "{name}");
+    }
+    for name in ["a.jsonl", "a.ndjson"] {
+        assert_eq!(jsonvet(&dir, &[name]), (0, String::new()), "{name}");
+        assert_eq!(jsonvet(&dir, &["--dialect", "json5", name]).0, 1, "{name}");
+    }
+}
+
+/// A write error other than a closed pipe, such as a full disk, is a failure of the run (exit 2),
+/// for problems and for `--version` alike.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_write_is_an_error() {
+    let dir = workdir(&[("bad.json", "[1,")]);
+    for args in [&["bad.json"][..], &["--version"]] {
+        let full = fs::File::create("/dev/full").expect("open /dev/full");
+        let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GITHUB_ACTIONS")
+            .stdout(full)
+            .output()
+            .expect("run jsonvet");
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.starts_with("jsonvet: cannot write output:"),
+            "{stderr}"
+        );
+    }
+}
+
+/// Only a missing file is "no such file"; any other failure to open it gives the system's reason.
+#[cfg(unix)]
+#[test]
+fn a_file_that_cannot_be_read_says_why() {
+    let dir = workdir(&[("a.json", "{}")]);
+    let (code, out) = jsonvet(&dir, &["a.json/b.json", "gone.json"]);
+    assert_eq!(code, 1);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines[0].starts_with("a.json/b.json: error: cannot read: "),
+        "{out}"
+    );
+    assert_eq!(lines[1], "gone.json: error: no such file");
+}
+
+/// SARIF strings escape a `[` only where it follows `##`.
+#[test]
+fn sarif_keeps_other_brackets() {
+    let dir = workdir(&[("a.json", "[{\"a\": 1, \"a\": 2}]")]);
+    let (code, out) = jsonvet(&dir, &["--format", "sarif", "a.json"]);
+    assert_eq!(code, 1);
+    assert!(out.contains("duplicate key $[0].a"), "{out}");
+}
+
+#[test]
+fn sarif_keeps_25000_results_and_counts_the_rest() {
+    let dir = workdir(&[("a.jsonl", &"{\"a\": 1, \"a\": 2}\n".repeat(25_002))]);
+    let (code, out, err) = jsonvet_stderr(&dir, &["--format", "sarif", "a.jsonl"]);
+    assert_eq!(code, 1);
+    let sarif: serde_json::Value = serde_json::from_str(&out).expect("JSON output");
+    let run = &sarif["runs"][0];
+    assert_eq!(run["results"].as_array().expect("results").len(), 25_000);
+    let text = "2 more results not listed: SARIF output keeps the first 25000";
+    let note = &run["invocations"][0]["toolExecutionNotifications"][0];
+    assert_eq!(note["message"]["text"], text);
+    assert_eq!(err, format!("jsonvet: {text}\n"));
+}
+
+/// Run jsonvet in `dir` with GitHub annotations off; return its exit code, stdout and stderr.
+fn jsonvet_stderr(dir: &Path, args: &[&str]) -> (i32, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .args(args)
+        .current_dir(dir)
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .expect("run jsonvet");
+    (
+        out.status.code().expect("an exit code"),
+        String::from_utf8(out.stdout).expect("UTF-8 output"),
+        String::from_utf8(out.stderr).expect("UTF-8 errors"),
+    )
+}
+
+/// `--schema`, in builds with the `schema` feature.
+#[cfg(feature = "schema")]
+mod schema {
+    use std::fmt::Write as _;
+
+    use super::*;
+
+    /// A schema in JSON5, so the schema file itself may use any dialect's syntax.
+    const SCHEMA: &str = r#"{
+  // Every file below breaks it the same three ways.
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    port: { type: "integer" },
+    tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["name"],
+  additionalProperties: false,
+}
+"#;
+
+    #[test]
+    fn schema_errors_point_at_the_value_in_every_dialect() {
+        let dir = workdir(&[
+            ("schema.json", SCHEMA),
+            (
+                "strict.json",
+                "{\"name\": \"é\", \"port\": \"80\",\n \"tags\": [\"a\", 1], \"x\": 0}",
+            ),
+            (
+                "i.json",
+                "{\"name\": \"é\", \"port\": \"80\",\n \"tags\": [\"a\", 1], \"x\": 0}",
+            ),
+            (
+                "c.jsonc",
+                "{\"name\": /* é */ \"n\", \"port\": \"80\", // c\n \"tags\": [\"a\", 1], \"x\": 0}",
+            ),
+            (
+                "w.hujson",
+                "{\"name\": \"n\", \"port\": \"80\",\n \"tags\": [\"a\", 1,], \"x\": 0,}",
+            ),
+            (
+                "f.json5",
+                "{name: 'n', 'po\\u0072t': '80',\n tags: ['a', +0x1], x: 0,}",
+            ),
+            (
+                "l.jsonl",
+                "{\"name\": \"n\", \"port\": 80}\n{\"port\": \"80\", \"tags\": [\"a\", 1], \"x\": 0}\n",
+            ),
+        ]);
+        let (code, out, _) = jsonvet_stderr(
+            &dir,
+            &[
+                "--schema",
+                "schema.json",
+                "--dialect",
+                "json:strict.json",
+                "--dialect",
+                "i-json:i.json",
+                "strict.json",
+                "i.json",
+                "c.jsonc",
+                "w.hujson",
+                "f.json5",
+                "l.jsonl",
+            ],
+        );
+        assert_eq!(code, 1);
+        let expected = "\
+strict.json:1:23: error[schema] \"80\" is not of type \"integer\" (at $.port)
+strict.json:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+strict.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+i.json:1:23: error[schema] \"80\" is not of type \"integer\" (at $.port)
+i.json:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+i.json:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+c.jsonc:1:31: error[schema] \"80\" is not of type \"integer\" (at $.port)
+c.jsonc:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+c.jsonc:2:20: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+w.hujson:1:23: error[schema] \"80\" is not of type \"integer\" (at $.port)
+w.hujson:2:16: error[schema] 1 is not of type \"string\" (at $.tags[1])
+w.hujson:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+f.json5:1:26: error[schema] \"80\" is not of type \"integer\" (at $.port)
+f.json5:2:14: error[schema] 1 is not of type \"string\" (at $.tags[1])
+f.json5:2:21: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+l.jsonl:2:1: error[schema] \"name\" is a required property (at $)
+l.jsonl:2:10: error[schema] \"80\" is not of type \"integer\" (at $.port)
+l.jsonl:2:30: error[schema] 1 is not of type \"string\" (at $.tags[1])
+l.jsonl:2:34: error[schema] Additional properties are not allowed ('x' was unexpected) (at $)
+";
+        assert_eq!(out, expected);
+
+        // The same errors as GitHub annotations and as SARIF results.
+        let annotated = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+            .args(["--schema", "schema.json", "f.json5"])
+            .current_dir(&dir)
+            .env("GITHUB_ACTIONS", "true")
+            .output()
+            .expect("run jsonvet");
+        assert!(String::from_utf8_lossy(&annotated.stdout).contains(
+            "::error file=f.json5,line=1,col=26,title=jsonvet (schema)::\"80\" is not of type"
+        ));
+        let (_, out, _) = jsonvet_stderr(
+            &dir,
+            &["--format", "sarif", "--schema", "schema.json", "f.json5"],
+        );
+        let sarif: serde_json::Value = serde_json::from_str(&out).expect("JSON output");
+        let result = &sarif["runs"][0]["results"][0];
+        assert_eq!(result["ruleId"], "schema");
+        let region = &result["locations"][0]["physicalLocation"]["region"];
+        assert_eq!(
+            (&region["startLine"], &region["startColumn"]),
+            (&1.into(), &26.into())
+        );
+    }
+
+    #[test]
+    fn a_file_with_a_syntax_error_gets_no_schema_errors() {
+        let dir = workdir(&[
+            ("schema.json", SCHEMA),
+            ("bad.json", "{\"port\": \"80\", \"x\": [1,"),
+            ("dup.json", "{\"name\": \"n\", \"name\": \"m\"}"),
+        ]);
+        let (code, out, _) =
+            jsonvet_stderr(&dir, &["--schema", "schema.json", "bad.json", "dup.json"]);
+        assert_eq!(code, 1);
+        assert_eq!(
+            out,
+            "bad.json:1:24: error[syntax] expected a value, found the end of the file\n\
+             dup.json:1:15: error[duplicate-key] duplicate key $.name (first at 1:2)\n"
+        );
+    }
+
+    #[test]
+    fn a_schema_that_cannot_be_used_is_a_usage_error() {
+        let dir = workdir(&[
+            ("ok.json", "{}"),
+            ("type.json", "{\n  \"type\": 5\n}"),
+            ("broken.json", "{\"type\": "),
+            (
+                "remote.json",
+                "{\"properties\": {\"a\": {\"$ref\": \"https://example.com/a.json\"}}}",
+            ),
+            ("relative.json", "{\"$ref\": \"other.json\"}"),
+            (
+                "local.json",
+                "{\"$defs\": {\"s\": {\"type\": \"string\"}}, \"$ref\": \"#/$defs/s\"}",
+            ),
+        ]);
+        let cases = [
+            (
+                "type.json",
+                "jsonvet: the schema type.json:2:11: 5 is not valid under any of the schemas listed in the 'anyOf' keyword\n",
+            ),
+            (
+                "broken.json",
+                "jsonvet: the schema broken.json:1:10: expected a value, found the end of the file\n",
+            ),
+            (
+                "remote.json",
+                "jsonvet: the schema remote.json has a `$ref` to https://example.com/a.json, outside the file; jsonvet fetches no schemas\n",
+            ),
+            (
+                "relative.json",
+                "jsonvet: the schema relative.json has a `$ref` to other.json, outside the file; jsonvet fetches no schemas\n",
+            ),
+            ("gone.json", "jsonvet: cannot read the schema gone.json: "),
+        ];
+        for (schema, message) in cases {
+            let (code, out, err) = jsonvet_stderr(&dir, &["--schema", schema, "ok.json"]);
+            assert_eq!((code, out.as_str()), (2, ""), "{schema}");
+            assert!(err.starts_with(message), "{schema}: {err}");
+        }
+        // A `$ref` inside the schema file resolves.
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "local.json", "ok.json"]);
+        assert_eq!(
+            (code, out.as_str()),
+            (
+                1,
+                "ok.json:1:1: error[schema] {} is not of type \"string\" (at $)\n"
+            )
+        );
+    }
+
+    /// A schema with the `$id` `https://example.com/x.json` whose `$defs` chain `hops` times
+    /// through `$ref`s written as `base#/$defs/dN`, one per line, to `last`.
+    fn chain(hops: usize, base: &str, last: &str) -> String {
+        let mut text = "{\n\"$id\": \"https://example.com/x.json\",\n\"$defs\": {\n".to_owned();
+        for i in 0..hops {
+            let _ = writeln!(
+                text,
+                "\"d{i}\": {{\"$ref\": \"{base}#/$defs/d{}\"}},",
+                i + 1
+            );
+        }
+        let _ = write!(
+            text,
+            "\"d{hops}\": {last}\n}},\n\"$ref\": \"#/$defs/d0\"\n}}"
+        );
+        text
+    }
+
+    #[test]
+    fn each_json_lines_document_places_its_own_errors() {
+        let strings = format!("[{}]", vec!["\"s\""; 101].join(","));
+        let text = format!("[]\n\"a\"\n{strings}\n");
+        let dir = workdir(&[
+            (
+                "schema.json",
+                "{\"type\": \"array\", \"items\": {\"type\": \"integer\"}}",
+            ),
+            ("l.jsonl", &text),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "l.jsonl"]);
+        assert_eq!(code, 1);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 102, "{out}");
+        assert_eq!(
+            lines[0],
+            "l.jsonl:2:1: error[schema] \"a\" is not of type \"array\" (at $)"
+        );
+        assert_eq!(
+            lines[101],
+            "l.jsonl:3:1: error[schema] ... and 1 more schema errors in this document"
+        );
+    }
+
+    #[test]
+    fn a_long_ref_chain_is_a_usage_error() {
+        let dir = workdir(&[
+            ("ok.json", "[[[1]]]"),
+            ("local.json", &chain(1_000, "", "{}")),
+            (
+                "by-id.json",
+                &chain(1_000, "https://example.com/x.json", "{}"),
+            ),
+            // Recursion back to the root is fine, however deep the file it checks.
+            (
+                "cycle.json",
+                &chain(100, "", "{\"items\": {\"$ref\": \"#\"}}"),
+            ),
+        ]);
+        for schema in ["local.json", "by-id.json"] {
+            let start = std::time::Instant::now();
+            let (code, out, err) = jsonvet_stderr(&dir, &["--schema", schema, "ok.json"]);
+            assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+            assert_eq!((code, out.as_str()), (2, ""), "{schema}");
+            // `$defs` and `d0` are levels 2 and 3, so the `$ref` in `d125` leads to level 129.
+            assert_eq!(
+                err,
+                format!(
+                    "jsonvet: the schema {schema}:129:10: this `$ref` leads more than 128 levels \
+                     deep, counting each `$ref` followed as a level\n"
+                ),
+            );
+        }
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "cycle.json", "ok.json"]);
+        assert_eq!((code, out.as_str()), (0, ""));
+    }
+
+    #[test]
+    fn schema_errors_in_a_large_file() {
+        // 100,000 records, every 10,000th with a string port: about 3 MB.
+        let mut text = String::from("[\n");
+        for i in 0..100_000 {
+            let port = if i % 10_000 == 0 {
+                "\"80\"".to_owned()
+            } else {
+                i.to_string()
+            };
+            let _ = writeln!(text, "  {{\"name\": \"n{i}\", \"port\": {port}}},");
+        }
+        text.push_str("  {\"name\": \"last\"}\n]\n");
+        let schema = "{\"items\": {\"properties\": {\"port\": {\"type\": \"integer\"}}}}";
+        let dir = workdir(&[
+            ("schema.json", schema),
+            ("object.json", "{\"type\": \"object\"}"),
+            ("big.json", &text),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "big.json"]);
+        assert_eq!(code, 1);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 10);
+        assert_eq!(
+            lines[0],
+            "big.json:2:26: error[schema] \"80\" is not of type \"integer\" (at $[0].port)"
+        );
+        assert_eq!(
+            lines[9],
+            "big.json:90002:30: error[schema] \"80\" is not of type \"integer\" (at $[90000].port)"
+        );
+        // The message names a large value instead of quoting all of it.
+        assert_eq!(
+            jsonvet_stderr(&dir, &["--schema", "object.json", "big.json"]).1,
+            "big.json:1:1: error[schema] value is not of type \"object\" (at $)\n"
+        );
+    }
+
+    /// Each level through two `allOf`s to a `$ref` back to the root: in a debug build,
+    /// validating 512 levels takes about 2 MB of stack, more than the 1 MB main thread Windows
+    /// gives, so this fails there unless `--schema` runs on its own thread.
+    const RECURSIVE: &str = r##"{
+        "allOf": [{"$ref": "#/$defs/a"}],
+        "$defs": {
+            "a": {"allOf": [{"$ref": "#/$defs/o"}]},
+            "o": {"additionalProperties": {"$ref": "#"}, "type": "object"}
+        }
+    }"##;
+
+    #[test]
+    fn a_deep_file_with_long_keys_is_placed_quickly() {
+        // 512 levels with 100-byte keys and an error at the bottom.
+        let key = "k".repeat(100);
+        let mut text = String::new();
+        for i in 0..512 {
+            let _ = write!(text, "{{\"{key}{i}\":");
+        }
+        text.push('0');
+        text.push_str(&"}".repeat(512));
+        let dir = workdir(&[("schema.json", RECURSIVE), ("deep.json", &text)]);
+        let start = std::time::Instant::now();
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "deep.json"]);
+        assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+        assert_eq!(code, 1);
+        let column = text.len() - 512;
+        assert!(
+            out.starts_with(&format!(
+                "deep.json:1:{column}: error[schema] 0 is not of type \"object\" (at $.{key}0…"
+            )),
+            "{out}"
+        );
+        // The path is shortened as duplicate-key paths are, then the message is cut.
+        assert!(out.ends_with("...\n"), "{out}");
+        assert_eq!(out.lines().count(), 1);
+    }
+
+    #[test]
+    fn a_file_nested_past_512_levels_has_a_syntax_error_under_schema_only() {
+        let text = format!("{}0{}", "{\"a\":".repeat(9_990), "}".repeat(9_990));
+        let dir = workdir(&[("schema.json", RECURSIVE), ("deep.json", &text)]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "deep.json"]);
+        assert_eq!(
+            (code, out.as_str()),
+            (
+                1,
+                "deep.json:1:2561: error[syntax] nested deeper than 512 levels\n"
+            )
+        );
+        assert_eq!(jsonvet(&dir, &["deep.json"]), (0, String::new()));
+    }
+
+    #[test]
+    fn a_deep_schema_is_a_usage_error() {
+        let schema = format!("{}{{}}{}", "{\"not\":".repeat(5_000), "}".repeat(5_000));
+        let dir = workdir(&[("schema.json", &schema), ("ok.json", "{}")]);
+        let (code, out, err) = jsonvet_stderr(&dir, &["--schema", "schema.json", "ok.json"]);
+        assert_eq!((code, out.as_str()), (2, ""));
+        assert_eq!(
+            err,
+            "jsonvet: the schema schema.json:1:897: nested deeper than 128 levels\n"
+        );
+    }
+
+    #[test]
+    fn a_backtracking_pattern_is_cut_short_and_reported() {
+        let strings: Vec<String> = (0..500)
+            .map(|i| format!("\"{}!{i}\"", "a".repeat(30)))
+            .collect();
+        let dir = workdir(&[
+            ("schema.json", r#"{"items": {"pattern": "^(a|a)*\\1b"}}"#),
+            ("r.json", &format!("[{}]", strings.join(", "))),
+        ]);
+        let start = std::time::Instant::now();
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "r.json"]);
+        assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+        assert_eq!(code, 1);
+        // At most 100 errors per document, then a count of the rest.
+        assert_eq!(out.lines().count(), 101);
+        assert!(out.ends_with(
+            "r.json:1:1: error[schema] ... and 400 more schema errors in this document\n"
+        ));
+        assert!(out.starts_with(
+            "r.json:1:2: error[schema] Error executing regex: Max limit for backtracking count exceeded (at $[0])\n"
+        ));
+    }
+
+    #[test]
+    fn past_100_errors_text_counts_the_rest_and_sarif_leaves_the_count_out() {
+        let numbers: Vec<String> = (0..101).map(|i| i.to_string()).collect();
+        let dir = workdir(&[
+            ("schema.json", r#"{"items": {"type": "string"}}"#),
+            ("n.json", &format!("[{}]", numbers.join(","))),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "n.json"]);
+        assert_eq!(code, 1);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 101);
+        assert_eq!(
+            lines[99],
+            "n.json:1:289: error[schema] 99 is not of type \"string\" (at $[99])"
+        );
+        assert_eq!(
+            lines[100],
+            "n.json:1:1: error[schema] ... and 1 more schema errors in this document"
+        );
+        let (code, out, _) = jsonvet_stderr(
+            &dir,
+            &["--format", "sarif", "--schema", "schema.json", "n.json"],
+        );
+        assert_eq!(code, 1);
+        let sarif: serde_json::Value = serde_json::from_str(&out).expect("JSON output");
+        let results = sarif["runs"][0]["results"].as_array().expect("results");
+        assert_eq!(results.len(), 100);
+    }
+
+    #[test]
+    fn a_long_key_in_the_path_is_cut_with_the_message() {
+        let key = "\u{e9}".repeat(100_000);
+        let ones = vec!["1"; 150].join(",");
+        let dir = workdir(&[
+            (
+                "schema.json",
+                r#"{"additionalProperties": {"items": {"type": "string"}}}"#,
+            ),
+            ("k.json", &format!("{{\"{key}\": [{ones}]}}")),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "k.json"]);
+        assert_eq!(code, 1);
+        assert_eq!(out.lines().count(), 101);
+        for line in out.lines() {
+            assert!(line.len() < 300, "{line}");
+        }
+    }
+
+    #[test]
+    fn a_schema_value_json_schema_cannot_hold_is_a_usage_error() {
+        let dir = workdir(&[
+            ("nan.json5", "{enum: [NaN, 1]}"),
+            (
+                "keys.json",
+                r#"{"properties": {"\ud800": true, "\ud801": false}}"#,
+            ),
+            ("null.json", "null"),
+        ]);
+        let cases = [
+            (
+                "nan.json5",
+                "jsonvet: the schema nan.json5:1:9: NaN, Infinity and numbers beyond a double's range have no JSON Schema value\n",
+            ),
+            (
+                "keys.json",
+                "jsonvet: the schema keys.json:1:33: this key and an earlier one in the object are the same once lone surrogates become U+FFFD\n",
+            ),
+        ];
+        for (schema, message) in cases {
+            let (code, out, err) = jsonvet_stderr(&dir, &["--schema", schema, "null.json"]);
+            assert_eq!((code, out.as_str(), err.as_str()), (2, "", message));
+        }
+    }
+
+    #[test]
+    fn keys_that_differ_only_in_lone_surrogates_skip_the_document() {
+        let dir = workdir(&[
+            (
+                "schema.json",
+                r#"{"additionalProperties": {"type": "string"}}"#,
+            ),
+            ("s.json", r#"{"\ud800": 1, "\ud801": "s"}"#),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "s.json"]);
+        assert_eq!(code, 1);
+        assert_eq!(
+            out,
+            "s.json:1:15: error[schema] this key and an earlier one in the object are the same once \
+             lone surrogates become U+FFFD, so this document is not checked against the schema\n"
+        );
+    }
+
+    #[test]
+    fn a_message_listing_many_keys_is_cut_short() {
+        let members: Vec<String> = (0..1_000).map(|i| format!("\"k{i}\": {i}")).collect();
+        let dir = workdir(&[
+            (
+                "schema.json",
+                r#"{"properties": {"a": true}, "additionalProperties": false}"#,
+            ),
+            ("many.json", &format!("{{{}}}", members.join(", "))),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "many.json"]);
+        assert_eq!(code, 1);
+        assert_eq!(out.lines().count(), 1);
+        assert!(out.len() < 300, "{out}");
+        assert!(
+            out.starts_with(
+                "many.json:1:2: error[schema] Additional properties are not allowed ('k0', 'k1',"
+            ),
+            "{out}"
+        );
+        assert!(out.ends_with("...\n"), "{out}");
+    }
+
+    #[test]
+    fn control_characters_in_keys_are_escaped_in_the_output() {
+        let dir = workdir(&[
+            (
+                "schema.json",
+                r#"{"additionalProperties": {"type": "string"}}"#,
+            ),
+            ("k.json", r#"{"x\u001b]0;t\u0007\r\n::error::y": 1}"#),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "k.json"]);
+        assert_eq!(code, 1);
+        assert_eq!(
+            out,
+            "k.json:1:37: error[schema] 1 is not of type \"string\" (at $[\"x\\u001b]0;t\\u0007\\r\\n::error::y\"])\n"
+        );
+    }
+
+    #[test]
+    fn schema_paths_are_written_as_duplicate_key_paths_are() {
+        let key = "a/b~c.d\\\"\u{e9}";
+        // `~1` is the pointer segment `~01`, which decodes to `~1`, not `/`.
+        let schema = format!(
+            r#"{{"required": ["z"], "properties": {{"": {{"type": "string"}}, "~1": {{"type": "string"}}, "{key}": {{"items": {{"type": "integer"}}}}}}}}"#
+        );
+        let file = format!(r#"{{"": 1, "": 2, "{key}": [0], "{key}": [0, "x"], "~1": 3}}"#);
+        let dir = workdir(&[("schema.json", &schema), ("e.json", &file)]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "e.json"]);
+        assert_eq!(code, 1);
+        let quoted = "[\"a/b~c.d\\\"\\u00e9\"]";
+        assert_eq!(
+            out,
+            format!(
+                "e.json:1:9: error[duplicate-key] duplicate key $[\"\"] (first at 1:2)\n\
+                 e.json:1:35: error[duplicate-key] duplicate key ${quoted} (first at 1:16)\n\
+                 e.json:1:1: error[schema] \"z\" is a required property (at $)\n\
+                 e.json:1:13: error[schema] 2 is not of type \"string\" (at $[\"\"])\n\
+                 e.json:1:53: error[schema] \"x\" is not of type \"integer\" (at ${quoted}[1])\n\
+                 e.json:1:65: error[schema] 3 is not of type \"string\" (at $[\"~1\"])\n"
+            )
+        );
+    }
+
+    #[test]
+    fn the_schema_rule_cannot_be_reconfigured() {
+        let dir = workdir(&[
+            ("schema.json", "{}"),
+            ("ok.json", "{}"),
+            ("jsonvet.toml", "[rules]\nschema = \"warn\"\n"),
+        ]);
+        for flag in ["--error", "--warn", "--ignore"] {
+            let (code, out, err) = jsonvet_stderr(
+                &dir,
+                &[flag, "schema", "--schema", "schema.json", "ok.json"],
+            );
+            assert_eq!((code, out.as_str()), (2, ""), "{flag}");
+            assert!(
+                err.starts_with("jsonvet: unknown rule `schema`;"),
+                "{flag}: {err}"
+            );
+        }
+        let (code, _, err) = jsonvet_stderr(&dir, &["--schema", "schema.json", "ok.json"]);
+        assert_eq!(code, 2);
+        assert!(
+            err.contains("jsonvet.toml: unknown rule `schema`;"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_document_with_nan_is_reported_at_the_first_one() {
+        let dir = workdir(&[
+            ("schema.json", r#"{"items": {"type": "string"}}"#),
+            ("n.json5", "[1,\n NaN, Infinity]"),
+        ]);
+        let (code, out, _) = jsonvet_stderr(&dir, &["--schema", "schema.json", "n.json5"]);
+        assert_eq!(code, 1);
+        assert_eq!(
+            out,
+            "n.json5:2:2: error[schema] NaN, Infinity and numbers beyond a double's range have no \
+             JSON Schema value, so this document is not checked against the schema\n"
+        );
+    }
+
+    #[test]
+    fn unexpected_and_named_keys_point_at_the_key() {
+        let dir = workdir(&[
+            (
+                "additional.json",
+                r#"{"properties": {"a": true}, "additionalProperties": false}"#,
+            ),
+            (
+                "unevaluated.json",
+                r#"{"properties": {"a": true}, "unevaluatedProperties": false}"#,
+            ),
+            ("names.json", r#"{"propertyNames": {"maxLength": 1}}"#),
+            // jsonschema lists unexpected keys sorted, so `b` comes first there.
+            ("o.json", "{\"z\": 1,\n \"a\": 0, \"b\": 2}"),
+            ("n.json", "{\"a\": 0,\n \"long\": 1}"),
+        ]);
+        let cases = [
+            (
+                "additional.json",
+                "o.json",
+                "o.json:1:2: error[schema] Additional properties are not allowed ('b', 'z' were unexpected) (at $)\n",
+            ),
+            (
+                "unevaluated.json",
+                "o.json",
+                "o.json:1:2: error[schema] Unevaluated properties are not allowed ('b', 'z' were unexpected) (at $)\n",
+            ),
+            (
+                "names.json",
+                "n.json",
+                "n.json:2:2: error[schema] \"long\" is longer than 1 character (at $)\n",
+            ),
+        ];
+        for (schema, file, expected) in cases {
+            let (code, out, _) = jsonvet_stderr(&dir, &["--schema", schema, file]);
+            assert_eq!((code, out.as_str()), (1, expected), "{schema}");
+        }
+    }
+
+    #[test]
+    fn ignored_duplicate_keys_still_place_schema_errors() {
+        let schema = r#"{"properties": {"a": {"properties": {"b": {"type": "integer"}}, "additionalProperties": false}}}"#;
+        let dir = workdir(&[
+            ("schema.json", schema),
+            (
+                "d.json",
+                "{\"a\": {\"b\": 1},\n \"a\": {\"b\": \"x\", \"c\": 0}}",
+            ),
+        ]);
+        let (code, out, _) = jsonvet_stderr(
+            &dir,
+            &[
+                "--ignore",
+                "duplicate-key",
+                "--schema",
+                "schema.json",
+                "d.json",
+            ],
+        );
+        assert_eq!(code, 1);
+        // The later copy of `a` is the one checked, as most parsers keep it.
+        assert_eq!(
+            out,
+            "d.json:2:13: error[schema] \"x\" is not of type \"integer\" (at $.a.b)\n\
+             d.json:2:18: error[schema] Additional properties are not allowed ('c' was unexpected) (at $.a)\n"
+        );
+        // An unexpected key repeated in one object is placed at its first copy.
+        let dir = workdir(&[
+            (
+                "schema.json",
+                r#"{"properties": {}, "additionalProperties": false}"#,
+            ),
+            ("d.json", r#"{"b":1,"a":1,"b":2}"#),
+        ]);
+        let args = [
+            "--ignore",
+            "duplicate-key",
+            "--schema",
+            "schema.json",
+            "d.json",
+        ];
+        assert_eq!(
+            jsonvet(&dir, &args),
+            (
+                1,
+                "d.json:1:2: error[schema] Additional properties are not allowed ('a', 'b' were unexpected) (at $)\n"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_schema_file_with_more_than_one_value_is_a_usage_error() {
+        let dir = workdir(&[("schema.jsonl", "{}\n{}\n"), ("ok.json", "{}")]);
+        let (code, out, err) = jsonvet_stderr(&dir, &["--schema", "schema.jsonl", "ok.json"]);
+        assert_eq!(
+            (code, out.as_str(), err.as_str()),
+            (
+                2,
+                "",
+                "jsonvet: the schema schema.jsonl must hold one value\n"
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_deep_file_is_checked_against_a_recursive_schema_on_a_small_main_stack() {
+        // Validating 512 levels against a recursive schema takes about 1 MB of stack in a debug
+        // build, so it overflows a 256 KB main thread.
+        let text = format!("{}0{}", "[".repeat(512), "]".repeat(512));
+        let dir = workdir(&[
+            (
+                "schema.json",
+                r##"{"items": {"$ref": "#"}, "type": "array"}"##,
+            ),
+            ("deep.json", &text),
+        ]);
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg("ulimit -s 256 && exec \"$0\" --schema schema.json deep.json")
+            .arg(env!("CARGO_BIN_EXE_jsonvet"))
+            .current_dir(&dir)
+            .env_remove("GITHUB_ACTIONS")
+            .output()
+            .expect("run jsonvet");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{stdout}");
+        assert!(
+            stdout.starts_with("deep.json:1:513: error[schema] 0 is not of type \"array\""),
+            "{stdout}"
+        );
+    }
+}
+
+#[cfg(not(feature = "schema"))]
+#[test]
+fn a_build_without_schema_says_how_to_get_it() {
+    let dir = workdir(&[("schema.json", "{}"), ("ok.json", "{}")]);
+    let (code, out, err) = jsonvet_stderr(&dir, &["--schema", "schema.json", "ok.json"]);
+    assert_eq!((code, out.as_str()), (2, ""));
+    assert_eq!(
+        err,
+        "jsonvet: --schema is not in this build: the PyPI wheels, which the pre-commit hook and \
+         the GitHub Action install, leave it out to stay small. `cargo install jsonvet-cli` \
+         builds jsonvet with it.\n"
+    );
+    // One help text for both builds; the exit status is what tells them apart.
+    let (code, help) = jsonvet(&dir, &["--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        help.contains("--schema FILE             Also check"),
+        "{help}"
+    );
+}
+
+#[test]
+fn a_bidi_control_in_a_message_is_not_printed_raw() {
+    let dir = workdir(&[("b.json", "[\u{202e}]")]);
+    assert_eq!(
+        jsonvet(&dir, &["b.json"]),
+        (
+            1,
+            "b.json:1:2: error[syntax] expected a value, found U+202E\n".to_owned()
+        )
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_name_with_control_characters_is_escaped_in_text_and_annotations() {
+    let name = "a\n::error::x\u{1b}[31m.json";
+    let dir = workdir(&[(name, "{\"a\": 1, \"a\": 2}")]);
+    let (code, out) = jsonvet(&dir, &[name]);
+    assert_eq!(
+        (code, out.as_str()),
+        (
+            1,
+            "a\\n::error::x\\u001b[31m.json:1:10: error[duplicate-key] duplicate key $.a (first at 1:2)\n"
+        )
+    );
+    let annotated = Command::new(env!("CARGO_BIN_EXE_jsonvet"))
+        .arg(name)
+        .current_dir(&dir)
+        .env("GITHUB_ACTIONS", "true")
+        .output()
+        .expect("run jsonvet");
+    let out = String::from_utf8(annotated.stdout).expect("UTF-8 output");
+    assert_eq!(out.lines().count(), 2, "{out}");
+    assert!(
+        out.contains("::error file=a\\n%3A%3Aerror%3A%3Ax\\u001b[31m.json,line=1,col=10,"),
+        "{out}"
+    );
 }

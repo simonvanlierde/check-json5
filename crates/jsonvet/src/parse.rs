@@ -2,10 +2,16 @@
 //! each dialect rule applied where the syntax it governs appears.
 
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::HashMap;
 
+use crate::event::{Event, EventKind};
 use crate::path::{self, Segment};
 use crate::problem::{Detail, SyntaxError, SyntaxKind};
+use crate::unicode::{
+    is_high_surrogate, is_identifier_part, is_identifier_start, is_json5_space, is_low_surrogate,
+    is_noncharacter, is_surrogate, line_separator_at,
+};
 use crate::{Config, Dialect, Problem, Rule, Severity};
 
 /// Past this many keys, an object's duplicate check switches from a linear scan to a hash map.
@@ -26,7 +32,12 @@ const SAFE_HEX_DIGITS: usize = 14;
 /// with thirteen `F`s and a digit from `C` up.
 const DOUBLE_HEX_DIGITS: usize = 256;
 
-pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
+/// Check `text`; with `events`, also list its values (see [`Event`]) up to any syntax error.
+pub(crate) fn check<'a>(
+    text: &'a str,
+    config: &Config,
+    events: bool,
+) -> (Vec<Problem>, Vec<Event<'a>>) {
     let dialect = config.dialect();
     let mut parser = Parser {
         text,
@@ -41,6 +52,7 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
         max_depth: config.max_depth,
         problems: Vec::new(),
         stack: Vec::new(),
+        events: events.then(Vec::new),
     };
     parser.byte_order_mark(config.severity(Rule::ByteOrderMark));
     let outcome = if parser.json_lines {
@@ -58,7 +70,7 @@ pub(crate) fn check(text: &str, config: &Config) -> Vec<Problem> {
             }),
         });
     }
-    parser.problems
+    (parser.problems, parser.events.unwrap_or_default())
 }
 
 /// A decoded key as WTF-8: UTF-8, except that a lone surrogate escape such as `\\uD800` is kept
@@ -106,6 +118,8 @@ struct Parser<'a> {
     max_depth: usize,
     problems: Vec<Problem>,
     stack: Vec<Frame<'a>>,
+    /// The values seen so far, when the caller asked for them.
+    events: Option<Vec<Event<'a>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -119,6 +133,8 @@ struct Frame<'a> {
     container: Container,
     /// How this container is reached from its parent.
     segment: Segment<'a>,
+    /// `segment` as a path shows it, made on the first duplicate inside the container.
+    rendered: OnceCell<String>,
     /// The keys seen so far with the offset of each, for objects.
     seen_keys: Vec<(Key<'a>, usize)>,
     /// The same keys, indexed once the object grows past `LINEAR_KEYS`.
@@ -130,6 +146,10 @@ struct Frame<'a> {
 }
 
 impl<'a> Frame<'a> {
+    fn rendered(&self) -> &str {
+        self.rendered.get_or_init(|| path::rendered(&self.segment))
+    }
+
     fn first_offset(&self, key: &[u8]) -> Option<usize> {
         match &self.seen_index {
             Some(index) => index.get(key).copied(),
@@ -178,6 +198,24 @@ impl<'a> Parser<'a> {
         self.bytes.get(self.pos).copied()
     }
 
+    /// In JSON Lines, the length of the line ending at the current position: 1 for `\n`, 2 for
+    /// `\r\n`. A CR before the LF belongs to the line ending, so positions do not depend on
+    /// which one a file uses.
+    fn line_end(&self) -> Option<usize> {
+        self.line_end_at(self.pos)
+    }
+
+    fn line_end_at(&self, at: usize) -> Option<usize> {
+        if !self.json_lines {
+            return None;
+        }
+        match self.bytes.get(at..)? {
+            [b'\n', ..] => Some(1),
+            [b'\r', b'\n', ..] => Some(2),
+            _ => None,
+        }
+    }
+
     fn char_at(&self, at: usize) -> char {
         self.text
             .get(at..)
@@ -197,6 +235,8 @@ impl<'a> Parser<'a> {
     fn unexpected_at(&self, at: usize, expected: &'static str) -> Fail {
         if at >= self.bytes.len() {
             Fail::at(at, SyntaxKind::UnexpectedEnd { expected })
+        } else if self.line_end_at(at).is_some() {
+            Fail::at(at, SyntaxKind::UnexpectedLineEnd { expected })
         } else {
             Fail::at(
                 at,
@@ -216,6 +256,12 @@ impl<'a> Parser<'a> {
                 dialect: self.dialect,
             },
         )
+    }
+
+    fn emit(&mut self, offset: usize, kind: EventKind<'a>) {
+        if let Some(events) = &mut self.events {
+            events.push(Event { offset, kind });
+        }
     }
 
     fn report(&mut self, offset: usize, severity: Severity, detail: Detail) {
@@ -264,7 +310,7 @@ impl<'a> Parser<'a> {
                 State::Done => {
                     return match self.peek() {
                         None => Ok(()),
-                        Some(b'\n') if self.json_lines => Ok(()),
+                        Some(_) if self.line_end().is_some() => Ok(()),
                         Some(_) if self.json_lines => Err(self.unexpected("the end of the line")),
                         Some(_) => Err(self.unexpected("the end of the file")),
                     };
@@ -312,6 +358,7 @@ impl<'a> Parser<'a> {
                 dialect: self.dialect,
             }));
         }
+        self.emit(self.pos, EventKind::End);
         self.pos += 1;
         self.stack.pop();
         Ok(self.state_after_value())
@@ -332,11 +379,17 @@ impl<'a> Parser<'a> {
         self.stack.push(Frame {
             container,
             segment,
+            rendered: OnceCell::new(),
             seen_keys: Vec::new(),
             seen_index: None,
             current_key: Key::Borrowed(&[]),
             element_index: 0,
         });
+        let kind = match container {
+            Container::Object => EventKind::ObjectStart,
+            Container::Array => EventKind::ArrayStart,
+        };
+        self.emit(self.pos, kind);
         self.pos += 1;
         Ok(match container {
             Container::Object => State::ObjectFirst,
@@ -345,25 +398,41 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self) -> Result<State, Fail> {
+        let start = self.pos;
         let Some(b) = self.peek() else {
             return Err(self.unexpected("a value"));
         };
-        match b {
+        let kind = match b {
             b'{' => return self.open(Container::Object),
             b'[' => return self.open(Container::Array),
-            b'"' => {
-                self.string(b'"', false)?;
-            }
-            b'\'' if self.json5 => {
-                self.string(b'\'', false)?;
+            b'"' | b'\'' if b == b'"' || self.json5 => {
+                // Decoded only when events are wanted; scanning is enough otherwise.
+                let value = self.string(b, self.events.is_some())?;
+                match value {
+                    Some(value) => EventKind::String(path::text(value)),
+                    None => return Ok(self.state_after_value()),
+                }
             }
             b'\'' => return Err(self.not_allowed(self.pos, "single-quoted strings are")),
-            b'-' | b'+' | b'.' | b'0'..=b'9' | b'I' | b'N' => self.number()?,
-            b't' => self.literal("`true`")?,
-            b'f' => self.literal("`false`")?,
-            b'n' => self.literal("`null`")?,
+            b'-' | b'+' | b'.' | b'0'..=b'9' | b'I' | b'N' => {
+                self.number()?;
+                EventKind::Number(&self.text[start..self.pos])
+            }
+            b't' => {
+                self.literal("`true`")?;
+                EventKind::Bool(true)
+            }
+            b'f' => {
+                self.literal("`false`")?;
+                EventKind::Bool(false)
+            }
+            b'n' => {
+                self.literal("`null`")?;
+                EventKind::Null
+            }
             _ => return Err(self.unexpected("a value")),
-        }
+        };
+        self.emit(start, kind);
         Ok(self.state_after_value())
     }
 
@@ -373,11 +442,14 @@ impl<'a> Parser<'a> {
             let line_start = self.pos;
             self.trivia()?;
             match self.peek() {
-                None | Some(b'\n') => return Err(Fail::at(line_start, SyntaxKind::BlankLine)),
+                None => return Err(Fail::at(line_start, SyntaxKind::BlankLine)),
+                Some(_) if self.line_end().is_some() => {
+                    return Err(Fail::at(line_start, SyntaxKind::BlankLine));
+                }
                 Some(_) => self.document()?,
             }
-            if self.peek() == Some(b'\n') {
-                self.pos += 1;
+            if let Some(len) = self.line_end() {
+                self.pos += len;
             } else {
                 self.report(len, final_newline, Detail::MissingFinalNewline);
             }
@@ -391,10 +463,21 @@ impl<'a> Parser<'a> {
         let start = self.pos;
         // Without the duplicate check, quoted keys are only scanned: nothing reads their value.
         let track_keys = self.duplicate_key.is_on();
-        let key = self.read_key(track_keys)?.unwrap_or(Key::Borrowed(&[]));
-        if track_keys {
-            self.check_duplicate(start, &key);
+        let key = self
+            .read_key(track_keys || self.events.is_some())?
+            .unwrap_or(Key::Borrowed(&[]));
+        // Only duplicate-key paths read a key after this, so without the check it moves into
+        // its event uncopied.
+        if !track_keys {
+            if self.events.is_some() {
+                self.emit(start, EventKind::Key(path::text(key)));
+            }
+            return Ok(());
         }
+        if self.events.is_some() {
+            self.emit(start, EventKind::Key(path::text(key.clone())));
+        }
+        self.check_duplicate(start, &key);
         if let Some(frame) = self.stack.last_mut() {
             frame.current_key = key;
         }
@@ -427,7 +510,12 @@ impl<'a> Parser<'a> {
         match frame.first_offset(key) {
             None => frame.insert(key.clone(), start),
             Some(first) => {
-                let path = path::render(self.stack.iter().map(|f| &f.segment), key);
+                let mut last = String::new();
+                path::push_key(&mut last, key);
+                let stack = &self.stack;
+                let path = path::bounded(stack.len() + 1, |i| {
+                    stack.get(i).map_or(last.as_str(), Frame::rendered)
+                });
                 self.report(
                     start,
                     self.duplicate_key,
@@ -826,7 +914,7 @@ impl<'a> Parser<'a> {
         loop {
             let Some(b) = self.peek() else { return Ok(()) };
             match b {
-                b'\n' if self.json_lines => return Ok(()),
+                b'\n' | b'\r' if self.line_end().is_some() => return Ok(()),
                 b' ' | b'\t' | b'\r' | b'\n' => self.pos += 1,
                 b'/' => match self.bytes.get(self.pos + 1) {
                     Some(b'/' | b'*') if !self.dialect.comments() => {
@@ -852,8 +940,7 @@ impl<'a> Parser<'a> {
     /// Skip to the line terminator that ends a `//` comment, leaving it in place.
     fn line_comment(&mut self) {
         let mut from = self.pos + 2;
-        // JWCC ends a line comment only at `\n`: its text says `\r` bytes are irrelevant.
-        if self.dialect == Dialect::Jwcc {
+        if self.dialect.line_comment_ends_only_at_lf() {
             self.pos =
                 memchr::memchr(b'\n', &self.bytes[from..]).map_or(self.bytes.len(), |n| from + n);
             return;
@@ -888,87 +975,6 @@ impl<'a> Parser<'a> {
             start,
         ))
     }
-}
-
-/// JSON5's whitespace outside ASCII: NBSP, the line and paragraph separators, the BOM, and
-/// every other space separator (Unicode category Zs).
-fn is_json5_space(c: char) -> bool {
-    matches!(
-        c,
-        '\u{A0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200A}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202F}'
-                | '\u{205F}'
-                | '\u{3000}'
-                | '\u{FEFF}'
-    )
-}
-
-/// Whether U+2028 or U+2029 starts at `at`. In UTF-8 they are `E2 80 A8` and `E2 80 A9`.
-pub(crate) fn line_separator_at(bytes: &[u8], at: usize) -> bool {
-    matches!(bytes.get(at..at + 3), Some([0xE2, 0x80, 0xA8 | 0xA9]))
-}
-
-/// Unicode noncharacters: U+FDD0 to U+FDEF, and the last two code points of every plane.
-fn is_noncharacter(code_point: u32) -> bool {
-    (0xFDD0..=0xFDEF).contains(&code_point) || code_point & 0xFFFE == 0xFFFE
-}
-
-/// The first half of a UTF-16 surrogate pair.
-fn is_high_surrogate(unit: u32) -> bool {
-    (0xD800..0xDC00).contains(&unit)
-}
-
-/// The second half of a UTF-16 surrogate pair.
-fn is_low_surrogate(unit: u32) -> bool {
-    (0xDC00..0xE000).contains(&unit)
-}
-
-/// Either half of a UTF-16 surrogate pair, which is no character on its own.
-pub(crate) fn is_surrogate(code_point: u32) -> bool {
-    (0xD800..0xE000).contains(&code_point)
-}
-
-/// ECMAScript 5.1's `IdentifierStart` (section 7.6), which JSON5 identifiers follow: `$`, `_` or a
-/// letter by general category. Not Unicode's `ID_Start`, which adds and drops a few characters.
-fn is_identifier_start(c: char) -> bool {
-    use unicode_properties::GeneralCategory::{
-        LetterNumber, LowercaseLetter, ModifierLetter, OtherLetter, TitlecaseLetter,
-        UppercaseLetter,
-    };
-    use unicode_properties::UnicodeGeneralCategory;
-    if c.is_ascii() {
-        return c.is_ascii_alphabetic() || c == '$' || c == '_';
-    }
-    matches!(
-        c.general_category(),
-        UppercaseLetter
-            | LowercaseLetter
-            | TitlecaseLetter
-            | ModifierLetter
-            | OtherLetter
-            | LetterNumber
-    )
-}
-
-/// ECMAScript 5.1's `IdentifierPart`: a start character, a combining mark, a decimal digit, a
-/// connector punctuation, ZWNJ or ZWJ.
-fn is_identifier_part(c: char) -> bool {
-    use unicode_properties::GeneralCategory::{
-        ConnectorPunctuation, DecimalNumber, NonspacingMark, SpacingMark,
-    };
-    use unicode_properties::UnicodeGeneralCategory;
-    if c.is_ascii() {
-        return c.is_ascii_alphanumeric() || c == '$' || c == '_';
-    }
-    is_identifier_start(c)
-        || matches!(c, '\u{200C}' | '\u{200D}')
-        || matches!(
-            c.general_category(),
-            NonspacingMark | SpacingMark | DecimalNumber | ConnectorPunctuation
-        )
 }
 
 /// Append a code point as WTF-8 (see [`Key`]): UTF-8, or three bytes for a lone surrogate.

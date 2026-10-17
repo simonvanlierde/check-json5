@@ -32,7 +32,7 @@ TOKENS = [
     "{", "}", "[", "]", ":", ",", ",", '"a"', '"b"', "'a'", "a", "$k", "1", "-2.5e3", "0x1F", ".5", "5.",
     "+1", "01", "NaN", "Infinity", "true", "null", "nul", "// c\n", "/* c */", "/*", "*/", "\n", "\r\n",
     " ", "\t", '"//"', '",]"', "\\", '"\\u0061"', '"\\q"', '"\\x41"', '"a\\\nb"', "é", "\u00a0", '"',
-    "\u2028", "\ufeff",
+    "\u2028", "\u2029", "\r", "\ufeff",
 ]  # fmt: skip
 
 # A JSON-shaped skeleton with a repeated key, so duplicates get compared on valid documents.
@@ -123,9 +123,28 @@ def failed(problems: list[Problem]) -> bool:
     return any(p.severity == "error" for p in problems)
 
 
+def has_syntax_error(problems: list[Problem]) -> bool:
+    """Whether the tool found a syntax error, which is the only thing a syntax verdict is about."""
+    return any(p.kind == "other" and p.severity == "error" for p in problems)
+
+
 def duplicates(problems: list[Problem]) -> list[tuple]:
     """The duplicate-key reports without their severity, sorted, as (line, col, kind, text)."""
     return sorted((p.line, p.col, p.kind, p.text) for p in problems if p.kind == "duplicate")
+
+
+def syntax_only_in_ours(ours: list[Problem], theirs: list[Problem]) -> str | None:
+    """The accepted category for a syntax error that only jsonvet reports, if there is one."""
+    if not has_syntax_error(ours) or has_syntax_error(theirs):
+        return None
+    if any(p.text.startswith("expected a key, found `\\`") for p in ours):
+        # An unquoted key that starts with a \u escape: 1.4 passes any escape, jsonvet only one
+        # that stands for a character the key could hold.
+        return "accepted: a \\u escape in a key must stand for a character the key could hold"
+    if failed(theirs) and duplicates(ours) == duplicates(theirs):
+        # 1.4 prints the duplicate keys and stops; jsonvet goes on to the syntax error after them.
+        return "accepted: jsonvet also reports a syntax error that follows a duplicate key"
+    return None
 
 
 def classify(name: str, text: str, ours: list[Problem], theirs: list[Problem]) -> str:
@@ -133,15 +152,26 @@ def classify(name: str, text: str, ours: list[Problem], theirs: list[Problem]) -
     if name in KNOWN:
         return KNOWN[name]
     flipped = failed(ours) != failed(theirs)
+    syntax_differs = has_syntax_error(ours) != has_syntax_error(theirs)
+    # The same duplicate keys with the same paths, at other positions.
+    moved_only = (
+        not flipped and not syntax_differs and [d[2:] for d in duplicates(ours)] == [d[2:] for d in duplicates(theirs)]
+    )
     if "\u2028" in text or "\u2029" in text:
         # Both are allowed in strings, and end a `//` comment, in jsonvet only. So jsonvet may
-        # pass a file 1.4 fails, and may fail one only where a `//` comment ends early.
-        if not flipped or not failed(ours) or "//" in text:
+        # accept a string 1.4 rejects, and may reject a file only where a `//` comment ends early.
+        string_accepted = not has_syntax_error(ours) and has_syntax_error(theirs)
+        comment_ended = has_syntax_error(ours) and "//" in text
+        if moved_only or string_accepted or comment_ended:
             return "accepted: U+2028/U+2029 (line terminators in jsonvet, and allowed in strings)"
-    elif "\r" in text.replace("\r\n", "") and not flipped:
+    elif "\r" in text.replace("\r\n", "") and moved_only:
         # A lone CR ends a line in jsonvet, which moves positions but never changes a verdict.
         return "accepted: lone CR ends a line in jsonvet"
-    return "unexplained: verdict" if flipped else "unexplained: duplicate reports"
+    if reason := syntax_only_in_ours(ours, theirs):
+        return reason
+    if flipped:
+        return "unexplained: verdict"
+    return "unexplained: syntax verdict" if syntax_differs else "unexplained: duplicate reports"
 
 
 def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[str]) -> Counter:
@@ -152,12 +182,16 @@ def compare(mode: str, files: list[Path], cwd: Path, jsonvet: str, extra: list[s
     examples: dict[str, list[str]] = defaultdict(list)
     for path in files:
         a, b = ours.get(path.name, []), theirs.get(path.name, [])
-        if failed(a) == failed(b):
-            syntax_free = not any(p.kind == "other" and p.severity == "error" for p in a + b)
-            if not syntax_free or duplicates(a) == duplicates(b):
-                tally["same"] += 1
-                continue
-        text = path.read_text(encoding="utf-8")
+        # The syntax verdicts are compared on their own: a syntax error on one side and only a
+        # duplicate key on the other would otherwise both read as a failure.
+        same_verdicts = failed(a) == failed(b) and has_syntax_error(a) == has_syntax_error(b)
+        if same_verdicts and (has_syntax_error(a) or duplicates(a) == duplicates(b)):
+            tally["same"] += 1
+            continue
+        # newline="": a lone CR must stay one, as the tools read it. Path.read_text takes
+        # newline only from Python 3.13 on, and this script runs on 3.12.
+        with path.open(encoding="utf-8", newline="") as f:
+            text = f.read()
         category = classify(path.name, text, a, b)
         tally[category] += 1
         if len(examples[category]) < EXAMPLES:

@@ -1,0 +1,3 @@
+# json5-tests cases the suite labels wrongly (json5/json5-tests#4): path under tests/json5-tests, a tab, why.
+# Read by crates/jsonvet/tests/conformance.rs and conformance/report.py.
+comments/irregular-block-comment.json	has a block comment, so it is not JSON

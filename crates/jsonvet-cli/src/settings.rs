@@ -8,6 +8,7 @@ use jsonvet::{Config, Dialect, Rule, Severity};
 use toml::{Table, Value};
 
 use crate::glob;
+use crate::output::printable;
 
 /// A dialect for files matching a pattern, or for every file when the pattern is `None`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,6 +16,9 @@ pub(crate) struct DialectPattern {
     pub(crate) files: Option<String>,
     /// `None` means `auto`: the default for the file's extension.
     pub(crate) dialect: Option<Dialect>,
+    /// The absolute directory of the config file the pattern comes from, which `files` is
+    /// relative to. `None` for the command line, whose patterns match the path as given.
+    pub(crate) base: Option<String>,
 }
 
 impl DialectPattern {
@@ -27,6 +31,7 @@ impl DialectPattern {
         Ok(DialectPattern {
             files,
             dialect: parse_dialect(name)?,
+            base: None,
         })
     }
 }
@@ -69,11 +74,25 @@ impl Settings {
     /// The checking config for one file: the last matching dialect pattern wins.
     pub(crate) fn config_for(&self, path: &str) -> Config {
         let auto = || Dialect::for_path(Path::new(path)).unwrap_or(Dialect::Json5);
+        // Found only when a config file's pattern needs it: it asks the system for the working
+        // directory each time.
+        let absolute = std::cell::OnceCell::new();
+        let matches = |rule: &DialectPattern| match (&rule.files, &rule.base) {
+            (None, _) => true,
+            (Some(pattern), None) => glob::matches(pattern, path),
+            // A file outside the config file's directory matches none of its patterns.
+            (Some(pattern), Some(base)) => absolute
+                .get_or_init(|| std::path::absolute(path).ok())
+                .as_deref()
+                .map(Path::to_string_lossy)
+                .and_then(|absolute| glob::relative(&absolute, base))
+                .is_some_and(|relative| glob::matches(pattern, &relative)),
+        };
         let dialect = self
             .dialects
             .iter()
             .rev()
-            .find(|rule| rule.files.as_deref().is_none_or(|g| glob::matches(g, path)))
+            .find(|rule| matches(rule))
             .and_then(|rule| rule.dialect)
             .unwrap_or_else(auto);
         self.rules
@@ -118,9 +137,11 @@ fn has_jsonvet_table(text: &str) -> bool {
 
 /// Read a config file: a `jsonvet.toml`, or the `[tool.jsonvet]` table of a `pyproject.toml`.
 /// It holds `rules`, a table of rule id to severity, and `dialects`, an array of tables with a
-/// `files` glob and a `dialect`. Any other key is an error, so a typo is never ignored.
+/// `files` glob, relative to the config file's directory, and a `dialect`. Any other key is an
+/// error, so a typo is never ignored.
 pub(crate) fn load(path: &Path) -> Result<Settings, String> {
-    let in_file = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    // A key or value from the file shows escaped, so it cannot start a line of its own on stderr.
+    let in_file = |e: &dyn std::fmt::Display| printable(&format!("{}: {e}", path.display()));
     let text = fs::read_to_string(path).map_err(|e| in_file(&e))?;
     let table: Table = text
         .parse()
@@ -134,6 +155,8 @@ pub(crate) fn load(path: &Path) -> Result<Settings, String> {
     } else {
         &table
     };
+    let base = std::path::absolute(path).map_err(|e| in_file(&e))?;
+    let base = base.parent().map(|dir| dir.to_string_lossy().into_owned());
     let mut settings = Settings::default();
     for (key, value) in file {
         match (key.as_str(), value) {
@@ -149,9 +172,9 @@ pub(crate) fn load(path: &Path) -> Result<Settings, String> {
             }
             ("dialects", Value::Array(entries)) => {
                 for entry in entries {
-                    settings
-                        .dialects
-                        .push(dialect_entry(entry).map_err(|e| in_file(&e))?);
+                    let mut pattern = dialect_entry(entry).map_err(|e| in_file(&e))?;
+                    pattern.base.clone_from(&base);
+                    settings.dialects.push(pattern);
                 }
             }
             ("rules", _) => return Err(in_file(&"`rules` must be a table")),
@@ -188,5 +211,6 @@ fn dialect_entry(entry: &Value) -> Result<DialectPattern, String> {
     Ok(DialectPattern {
         files: Some(string("files")?.to_owned()),
         dialect: parse_dialect(string("dialect")?)?,
+        base: None,
     })
 }

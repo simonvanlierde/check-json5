@@ -1,7 +1,7 @@
-# The jsonvet GitHub Action: `uses: simonvanlierde/jsonvet@v2`. It installs jsonvet from PyPI
+# The jsonvet GitHub Action: `uses: simonvanlierde/jsonvet@v3`. It installs jsonvet from PyPI
 # into a virtual environment, so it needs only the Python that every hosted runner has.
 name: jsonvet
-description: Check JSON, JSONC, JSON5, HuJSON and JSON Lines files, with optional SARIF output
+description: Check JSON, I-JSON, JSONC, JSON5, HuJSON and JSON Lines files, with optional SARIF output
 author: Simon van Lierde
 branding:
   icon: check-square
@@ -26,9 +26,10 @@ inputs:
     default: ""
   version:
     description: >-
-      The jsonvet version to install from PyPI, or `latest`. By default, the version of the
-      action's tag: `v2` installs the newest 2.x, `v2.1.0` installs 2.1.0, and a commit SHA the
-      version in that commit.
+      The jsonvet version to install from PyPI: `X.Y.Z` (also a pre- or post-release such as
+      `3.0.0rc1` or `3.0.0.post1`), `X.*`, `X.Y.*` or `latest`. By default, the version of the
+      action's tag: `v3` installs the newest 3.x, `v3.0.0` installs 3.0.0, and a commit SHA or
+      branch the release named in that commit's Cargo.toml.
     required: false
     default: ""
 
@@ -43,62 +44,4 @@ runs:
         SARIF: ${{ inputs.sarif }}
         VERSION: ${{ inputs.version }}
         ACTION_REF: ${{ github.action_ref }}
-      run: |
-        # No `set -u`: macOS runners may run bash 3.2, which calls an empty array unbound.
-        set -o pipefail
-        if [[ -n "$VERSION" ]]; then
-          spec="==$VERSION"
-          [[ "$VERSION" == latest ]] && spec=""
-        elif [[ "$ACTION_REF" =~ ^v[0-9]+(\.[0-9]+){0,2}$ ]]; then
-          version="${ACTION_REF#v}"
-          dots="${version//[^.]/}"
-          # A full version pins it; a major or minor tag takes the newest release under it.
-          if [[ ${#dots} -eq 2 ]]; then spec="==$version"; else spec="==$version.*"; fi
-        else
-          # A commit SHA or a branch: the version in that commit, which is the last release.
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_ACTION_PATH/Cargo.toml" | head -n 1)
-          spec="==$version"
-        fi
-
-        venv="$RUNNER_TEMP/jsonvet-venv"
-        python=python3
-        # On Windows `python3` can be the Microsoft Store stub.
-        [[ "$RUNNER_OS" == Windows ]] && python=python
-        "$python" -m venv "$venv" || exit 2
-        bin="$venv/bin"
-        [[ -d "$bin" ]] || bin="$venv/Scripts"
-        "$bin/python" -m pip install -q --disable-pip-version-check --only-binary jsonvet "jsonvet$spec" || exit 2
-        "$bin/jsonvet" --version
-
-        # Word splitting is the point here: both inputs are space-separated lists.
-        set -f
-        # shellcheck disable=SC2206
-        args=($ARGS)
-        set +f
-        if [[ -n "$FILES" ]]; then
-          shopt -s globstar 2>/dev/null || true # bash 4 and later
-          # shellcheck disable=SC2206
-          files=($FILES)
-        else
-          # The same file names as the pre-commit hook's `files` pattern. A pathspec `*` also
-          # matches `/`, so `*.json` finds files at any depth.
-          files=()
-          while IFS= read -r -d '' file; do files+=("$file"); done < <(
-            git ls-files -z -- '*.json' '*.jsonc' '*.json5' '*.geojson' \
-              '*.jsonld' '*.hujson' '*.jwcc' '*.code-workspace' '*.code-snippets' \
-              '*.webmanifest' '*.jsonl' '*.ndjson' '.babelrc' '*/.babelrc'
-          )
-        fi
-        # shortcut: one command line for all files; Windows caps it at 32,767 characters, so a
-        # repository with thousands of files needs batching there.
-
-        # The step's shell runs with `-e`, so a failing check must not end the script before the
-        # SARIF run; the step still exits with the text run's status.
-        status=0
-        "$bin/jsonvet" "${args[@]}" -- "${files[@]}" || status=$?
-        if [[ -n "$SARIF" ]]; then
-          # A second run, so the log and the annotations come from the text format. Exit 1 means
-          # problems found, but a path that cannot be written also gives 1, with no file.
-          "$bin/jsonvet" --format sarif "${args[@]}" -- "${files[@]}" > "$SARIF" || [[ $? -eq 1 && -s "$SARIF" ]] || exit 2
-        fi
-        exit "$status"
+      run: bash "$GITHUB_ACTION_PATH/scripts/action.sh"

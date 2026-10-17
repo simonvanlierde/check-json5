@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# The jsonvet GitHub Action's step, run by action.yml with the inputs in FILES, ARGS, SARIF and
+# VERSION. scripts/test-action.sh sources this file to test the functions one by one.
+#
+# It runs on Linux, macOS and Windows runners, and macOS may run bash 3.2: no `set -u` (bash 3.2
+# calls an empty array unbound), no globstar, no mapfile.
+set -o pipefail
+
+error() {
+  echo "::error title=jsonvet action::$*" >&2
+}
+
+# Prints the pip version specifier for the jsonvet to install, empty for the newest release.
+# Arguments: the `version` input, the action's ref, the action's Cargo.toml.
+resolve_spec() {
+  local version="$1" ref="$2" cargo_toml="$3"
+  local exact='^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+|\.post[0-9]+)?$' series='^[0-9]+(\.[0-9]+)?\.\*$' tag='^v[0-9]+(\.[0-9]+){0,2}$'
+  if [[ -n "$version" ]]; then
+    if [[ "$version" == latest ]]; then
+      echo ""
+    elif [[ "$version" =~ $exact || "$version" =~ $series ]]; then
+      echo "==$version"
+    else
+      error "version must be X.Y.Z, X.Y.ZrcN, X.Y.Z.postN, X.*, X.Y.* or latest, not '$version'"
+      return 2
+    fi
+  elif [[ "$ref" =~ $tag ]]; then
+    version="${ref#v}"
+    local dots="${version//[^.]/}"
+    # A full version pins it; a major or minor tag takes the newest release under it.
+    if [[ ${#dots} -eq 2 ]]; then echo "==$version"; else echo "==$version.*"; fi
+  else
+    # A commit SHA or a branch: the version in that commit's Cargo.toml, which between
+    # releases is the last release, not the code in that commit.
+    version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$cargo_toml" | head -n 1)
+    if [[ -z "$version" ]]; then
+      error "found no version in $cargo_toml; set the version input"
+      return 2
+    fi
+    echo "::notice title=jsonvet action::${ref:-this action} is not a release tag, so it installs jsonvet $version, the release named in its Cargo.toml" >&2
+    echo "==$version"
+  fi
+}
+
+# Fills `files` with what to check. Arguments: the `files` input, the Python that expands globs.
+list_files() {
+  local input="$1" python="$2" file line
+  files=()
+  if [[ -n "$input" ]]; then
+    # Word splitting is the point: the input is a space-separated list. Python expands the globs,
+    # since bash 3.2 has no globstar. A pattern that matches nothing stays as it is, so jsonvet
+    # reports it as unreadable rather than checking nothing. A file two patterns match is checked
+    # once. Wildcards skip symlinks, like the default list: glob.glob follows them, so a link
+    # `loop -> .` repeats the tree under `**` and `out -> /` leaves the repository.
+    set -f
+    # shellcheck disable=SC2206
+    local words=($input)
+    set +f
+    while IFS= read -r -d '' file; do files+=("$file"); done < <(
+      "$python" -c '
+import glob, os, sys
+from fnmatch import fnmatch
+
+def expand(done, parts):
+    if not parts:
+        if "/".join(done):
+            yield "/".join(done)
+        return
+    head, rest = parts[0], parts[1:]
+    if not glob.has_magic(head):
+        if os.path.lexists("/".join(done + [head]) or "/"):
+            yield from expand(done + [head], rest)
+        return
+    try:
+        entries = list(os.scandir("/".join(done) + "/" if done else "."))
+    except OSError:
+        return
+    if head == "**":
+        yield from expand(done, rest)
+    for entry in entries:
+        if entry.is_symlink() or entry.name.startswith(".") and not head.startswith("."):
+            continue
+        if head == "**":
+            if entry.is_dir():
+                yield from expand(done + [entry.name], parts)
+            elif not rest:
+                yield "/".join(done + [entry.name])
+        elif fnmatch(entry.name, head) and (not rest or entry.is_dir()):
+            yield from expand(done + [entry.name], rest)
+
+seen = set()
+for pattern in sys.argv[1:]:
+    for path in sorted(expand([], pattern.replace(os.sep, "/").split("/"))) or [pattern]:
+        if path not in seen:
+            seen.add(path)
+            sys.stdout.buffer.write(os.fsencode(path.replace(os.sep, "/")) + b"\0")
+' "${words[@]}"
+    )
+  else
+    # The same file names as the pre-commit hook's `files` pattern. A pathspec `*` also matches
+    # `/`, so `*.json` finds files at any depth. Only regular files: pre-commit's `types: [text]`
+    # skips symlinks (mode 120000) and submodules (160000).
+    while IFS= read -r -d '' line; do
+      [[ "$line" == 100* ]] || continue
+      files+=("${line#*$'\t'}")
+    done < <(
+      git ls-files -z -s -- '*.json' '*.jsonc' '*.json5' '*.geojson' \
+        '*.jsonld' '*.hujson' '*.jwcc' '*.code-workspace' '*.code-snippets' \
+        '*.webmanifest' '*.jsonl' '*.ndjson' '.babelrc' '*/.babelrc'
+    )
+  fi
+}
+
+# Writes the SARIF file. Arguments: the jsonvet binary, the Python, the SARIF path, then the
+# jsonvet arguments. Exit 1 means problems found, but jsonvet before 3.0.0 has no `--format` and
+# takes it for a file name, and a path that cannot be written also gives 1, so check what landed.
+write_sarif() {
+  local jsonvet="$1" python="$2" sarif="$3"
+  shift 3
+  local status=0
+  "$jsonvet" --format sarif "$@" > "$sarif" || status=$?
+  if [[ $status -gt 1 ]] || ! "$python" -c '
+import json, sys
+try:
+    sys.exit(json.load(open(sys.argv[1], encoding="utf-8")).get("version") != "2.1.0")
+except (OSError, ValueError, AttributeError):
+    sys.exit(1)
+' "$sarif"; then
+    error "jsonvet did not write SARIF to $sarif (exit $status); the sarif input needs jsonvet 3.0.0 or later"
+    return 2
+  fi
+}
+
+# The inputs come from the environment, in capitals.
+# shellcheck disable=SC2153
+main() {
+  local spec
+  spec=$(resolve_spec "$VERSION" "$ACTION_REF" "$GITHUB_ACTION_PATH/Cargo.toml") || exit 2
+
+  local venv="$RUNNER_TEMP/jsonvet-venv" python=python3
+  # On Windows `python3` can be the Microsoft Store stub.
+  [[ "$RUNNER_OS" == Windows ]] && python=python
+  "$python" -m venv "$venv" || exit 2
+  local bin="$venv/bin"
+  [[ -d "$bin" ]] || bin="$venv/Scripts"
+  "$bin/python" -m pip install -q --disable-pip-version-check --only-binary jsonvet "jsonvet$spec" || exit 2
+  "$bin/jsonvet" --version
+
+  set -f
+  # shellcheck disable=SC2206
+  local args=($ARGS)
+  set +f
+  list_files "$FILES" "$bin/python"
+  # shortcut: one command line for all files; Windows caps it at 32,767 characters, so a
+  # repository with thousands of files needs batching there.
+
+  # A failing check must not end the script before the SARIF run; the step still exits with the
+  # text run's status.
+  local status=0
+  "$bin/jsonvet" "${args[@]}" -- "${files[@]}" || status=$?
+  if [[ -n "$SARIF" ]]; then
+    # A second run, so the log and the annotations come from the text format.
+    write_sarif "$bin/jsonvet" "$bin/python" "$SARIF" "${args[@]}" -- "${files[@]}" || exit 2
+  fi
+  exit "$status"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main
+fi

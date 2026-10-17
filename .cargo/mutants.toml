@@ -1,0 +1,33 @@
+# cargo-mutants settings, read by `just mutants` and mutants.yml.
+
+# The CLI's tests also catch mutants in the library.
+test_workspace = true
+
+# Mutants that change no behaviour, so no test can catch them (docs/design.md, "Mutations").
+# Matched by column, not line, so they survive edits elsewhere in the file. Any other mutant
+# that survives fails the weekly run.
+exclude_re = [
+  # Speed only: when the key list becomes an index, and which column-count branch runs.
+  "parse.rs:.* replace > with (==|<|>=) in Frame<'a>::insert",
+  "report.rs:\\d+:26: replace - with \\+ in Report<'a>::location",
+  "parse.rs:.* replace match guard self.invalid_code_point.is_on\\(\\) with true in Parser<'a>::string",
+  "parse.rs:.* replace match guard decode with true in Parser<'a>::string",
+  # OR of bits that never overlap.
+  "parse.rs:.* replace \\| with \\^ in push_wtf8",
+  "path.rs:.* replace \\| with \\^ in decode",
+  # A match arm the fallback repeats.
+  "parse.rs:.* delete match arm b'\\\\'' in Parser<'a>::escape",
+  # A Windows-only branch.
+  "sarif.rs:\\d+:45: replace == with != in uri",
+  # Loop guards the body always stops first, and star backtracking that only retries more.
+  "path.rs:\\d+:16: replace > with >= in bounded",
+  "glob.rs:\\d+:28: replace \\+ with \\* in wildcard",
+  # Speed only: a number with a `.` or exponent fails the integer parse anyway.
+  "schema.rs:.* replace match guard integer with true in number",
+  # The stub for a build without the schema feature, which the run does not compile.
+  "lib.rs:\\d+:13: replace schema::Schema::(load|errors) ",
+  # Every run on the big-stack thread, not only `--schema` ones: same output.
+  "lib.rs:\\d+:9: replace && with \\|\\| in run",
+  # A character-count checkpoint moved to the boundary before instead of after.
+  "report.rs:.* replace \\+= with -= in Report<'a>::chars_before",
+]
